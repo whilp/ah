@@ -313,6 +313,27 @@ local function get_message_by_seq(self: DB, seq: integer): Message
   return nil
 end
 
+local function get_message_count(self: DB): integer
+  for row in self._db:query("select count(*) as cnt from messages") do
+    return (row.cnt or 0) as integer
+  end
+  return 0
+end
+
+local function get_first_user_prompt(self: DB): string
+  for row in self._db:query([[
+    select content from content_blocks
+    where block_type = 'text'
+      and message_id in (
+        select id from messages where role = 'user' order by seq asc limit 1
+      )
+    order by seq asc limit 1
+  ]]) do
+    return (row.content or "") as string
+  end
+  return ""
+end
+
 return {
   open = open,
   close = close,
@@ -326,6 +347,8 @@ return {
   add_content_block = add_content_block,
   get_content_blocks = get_content_blocks,
   update_content_block = update_content_block,
+  get_message_count = get_message_count,
+  get_first_user_prompt = get_first_user_prompt,
   -- Export types for consumers
   DB = DB,
   Message = Message,

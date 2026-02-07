@@ -113,4 +113,56 @@ local function test_forking()
 end
 test_forking()
 
+local function test_get_message_count()
+  -- Test empty db
+  local db_path = fs.join(TEST_TMPDIR, "count_empty.db")
+  local d = db.open(db_path)
+  assert(db.get_message_count(d) == 0, "empty db should have 0 messages")
+  db.close(d)
+
+  -- Test db with 1 message
+  db_path = fs.join(TEST_TMPDIR, "count_one.db")
+  d = db.open(db_path)
+  db.create_message(d, "user")
+  assert(db.get_message_count(d) == 1, "should have 1 message")
+  db.close(d)
+
+  -- Test db with 3 messages
+  db_path = fs.join(TEST_TMPDIR, "count_three.db")
+  d = db.open(db_path)
+  local msg1 = db.create_message(d, "user")
+  local msg2 = db.create_message(d, "assistant", msg1.id)
+  db.create_message(d, "user", msg2.id)
+  assert(db.get_message_count(d) == 3, "should have 3 messages")
+  db.close(d)
+end
+test_get_message_count()
+
+local function test_get_first_user_prompt()
+  -- Test empty db
+  local db_path = fs.join(TEST_TMPDIR, "prompt_empty.db")
+  local d = db.open(db_path)
+  assert(db.get_first_user_prompt(d) == "", "empty db should return empty string")
+  db.close(d)
+
+  -- Test db with user message
+  db_path = fs.join(TEST_TMPDIR, "prompt_user.db")
+  d = db.open(db_path)
+  local msg = db.create_message(d, "user")
+  db.add_content_block(d, msg.id, "text", {content = "Hello world"})
+  assert(db.get_first_user_prompt(d) == "Hello world", "should return first user prompt")
+  db.close(d)
+
+  -- Test db with assistant-first (edge case - shouldn't happen but should handle)
+  db_path = fs.join(TEST_TMPDIR, "prompt_assistant_first.db")
+  d = db.open(db_path)
+  local amsg = db.create_message(d, "assistant")
+  db.add_content_block(d, amsg.id, "text", {content = "I am assistant"})
+  local umsg = db.create_message(d, "user", amsg.id)
+  db.add_content_block(d, umsg.id, "text", {content = "User prompt"})
+  assert(db.get_first_user_prompt(d) == "User prompt", "should find first user message")
+  db.close(d)
+end
+test_get_first_user_prompt()
+
 print("all db tests passed")

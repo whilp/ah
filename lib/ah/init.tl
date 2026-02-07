@@ -8,6 +8,16 @@ local unix = require("cosmo.unix")
 local db = require("ah.db")
 local api = require("ah.api")
 local tools = require("ah.tools")
+local ulid = require("ulid")
+
+-- Session record for listing
+local record Session
+  ulid: string
+  db_path: string
+  msg_count: integer
+  first_prompt: string
+  timestamp: number
+end
 
 -- Global for signal handling
 global interrupted: boolean = false
@@ -46,6 +56,74 @@ local function load_system_prompt(cli_system: string, cwd: string): string
   return DEFAULT_SYSTEM_PROMPT .. claude_md
 end
 
+-- List session files from .ah/*.db with valid ULID names
+local function list_sessions(cwd?: string): {Session}
+  cwd = cwd or fs.getcwd()
+  local ah_dir = fs.join(cwd, ".ah")
+  local sessions: {Session} = {}
+
+  local dir = unix.opendir(ah_dir)
+  if not dir then
+    return sessions
+  end
+
+  while true do
+    local name = dir:read()
+    if not name then break end
+
+    -- Check if it's a .db file with ULID name
+    if name:match("%.db$") then
+      local session_ulid = name:sub(1, -4)  -- remove .db
+      -- Validate ULID by checking length and trying to parse timestamp
+      if #session_ulid == 26 then
+        local ts = ulid.timestamp(session_ulid)
+        if ts then
+          local db_path = fs.join(ah_dir, name)
+          local d = db.open(db_path)
+          if d then
+            table.insert(sessions, {
+              ulid = session_ulid,
+              db_path = db_path,
+              msg_count = db.get_message_count(d),
+              first_prompt = db.get_first_user_prompt(d),
+              timestamp = ts,
+            })
+            db.close(d)
+          end
+        end
+      end
+    end
+  end
+  dir:close()
+
+  -- Sort by ULID descending (most recent first - ULID encodes timestamp)
+  table.sort(sessions, function(a: Session, b: Session): boolean
+    return a.ulid > b.ulid
+  end)
+
+  return sessions
+end
+
+-- Resolve partial ULID prefix to full session ULID
+local function resolve_session(cwd: string, prefix: string): string, string
+  local sessions = list_sessions(cwd)
+  local matches: {string} = {}
+
+  for _, s in ipairs(sessions) do
+    if s.ulid:sub(1, #prefix) == prefix then
+      table.insert(matches, s.ulid)
+    end
+  end
+
+  if #matches == 0 then
+    return nil, "no session matches prefix: " .. prefix
+  elseif #matches > 1 then
+    return nil, "ambiguous prefix: " .. prefix .. " matches " .. #matches .. " sessions"
+  end
+
+  return matches[1], nil
+end
+
 local function usage()
   io.stderr:write([[usage: ah [options] [command] [args...]
 
@@ -53,13 +131,16 @@ commands:
   <prompt>            send prompt to agent
   (no args)           continue from last message
   @N <prompt>         fork from message N with new prompt
+  sessions            list all sessions
   scan                list messages in current branch
   show [N]            show message(s)
   rmm N...            remove messages
 
 options:
   -h, --help          show this help
-  --db PATH           use custom database path (default: .ah/ah.db)
+  -n, --new           start a new session
+  -S, --session ULID  use specific session (prefix match)
+  --db PATH           use custom database path (default: .ah/<ulid>.db)
   -s, --system PROMPT set system prompt for this invocation
   -m, --model MODEL   set model (e.g., claude-sonnet-4-20250514)
 ]])
@@ -363,6 +444,27 @@ local function cmd_show(d: db.DB, seq: integer)
   end
 end
 
+-- List all sessions
+local function cmd_sessions(cwd: string, current_ulid: string)
+  local sessions = list_sessions(cwd)
+  if #sessions == 0 then
+    io.stderr:write("no sessions\n")
+    return
+  end
+
+  for _, s in ipairs(sessions) do
+    local marker = s.ulid == current_ulid and ">" or " "
+    local decoded = ulid.decode(s.ulid)
+    local time_str = decoded and decoded.time or "unknown"
+    local preview = s.first_prompt:gsub("\n", " "):sub(1, 40)
+    if #s.first_prompt > 40 then
+      preview = preview .. "..."
+    end
+    io.write(string.format("%s %s  %s  %2d msgs  %s\n",
+      marker, s.ulid, time_str, s.msg_count, preview))
+  end
+end
+
 -- Remove messages
 local function cmd_rmm(d: db.DB, seqs: {integer})
   for _, seq in ipairs(seqs) do
@@ -380,15 +482,20 @@ local function main(args: {string}): integer, string
   local system_prompt: string = nil
   local model: string = nil
   local db_path: string = nil
+  local new_session: boolean = false
+  local session_prefix: string = nil
+  local cwd = fs.getcwd()
 
   local longopts = {
     {name = "help", has_arg = "none", short = "h"},
+    {name = "new", has_arg = "none", short = "n"},
+    {name = "session", has_arg = "required", short = "S"},
     {name = "db", has_arg = "required"},
     {name = "system", has_arg = "required", short = "s"},
     {name = "model", has_arg = "required", short = "m"},
   }
 
-  local parser = getopt.new(args, "hs:m:", longopts)
+  local parser = getopt.new(args, "hnS:s:m:", longopts)
 
   while true do
     local opt, optarg = parser:next()
@@ -397,6 +504,10 @@ local function main(args: {string}): integer, string
     if opt == "h" or opt == "help" then
       usage()
       return 0
+    elseif opt == "n" or opt == "new" then
+      new_session = true
+    elseif opt == "S" or opt == "session" then
+      session_prefix = optarg
     elseif opt == "db" then
       db_path = optarg
     elseif opt == "s" or opt == "system" then
@@ -411,14 +522,52 @@ local function main(args: {string}): integer, string
 
   local remaining = parser:remaining() or {}
 
+  -- Handle sessions command first (doesn't need db)
+  local cmd = remaining[1]
+  if cmd == "sessions" then
+    -- For sessions command, we need to know which would be default
+    local sessions = list_sessions(cwd)
+    local current_ulid = sessions[1] and sessions[1].ulid or ""
+    cmd_sessions(cwd, current_ulid)
+    return 0
+  end
+
+  -- Session selection logic (only if --db not specified)
+  local session_ulid: string = nil
+  if not db_path then
+    local ah_dir = fs.join(cwd, ".ah")
+    fs.makedirs(ah_dir)
+
+    if new_session then
+      -- -n: force new session
+      session_ulid = ulid.generate()
+    elseif session_prefix then
+      -- -S PREFIX: resolve to specific session
+      local resolved, err = resolve_session(cwd, session_prefix)
+      if not resolved then
+        return 1, err
+      end
+      session_ulid = resolved
+    else
+      -- Default: use most recent session or create new if needed
+      local sessions = list_sessions(cwd)
+      if #sessions > 0 then
+        session_ulid = sessions[1].ulid
+      else
+        -- No existing sessions - will create new if prompt given
+        session_ulid = ulid.generate()
+      end
+    end
+
+    db_path = fs.join(ah_dir, session_ulid .. ".db")
+  end
+
   local d, err = db.open(db_path)
   if not d then
     return 1, err
   end
 
   -- Handle commands
-  local cmd = remaining[1]
-
   if cmd == "scan" then
     cmd_scan(d)
     db.close(d)
@@ -511,5 +660,7 @@ return {
   load_system_prompt = load_system_prompt,
   load_claude_md = load_claude_md,
   tool_key_param = tool_key_param,
+  list_sessions = list_sessions,
+  resolve_session = resolve_session,
   DEFAULT_SYSTEM_PROMPT = DEFAULT_SYSTEM_PROMPT,
 }
