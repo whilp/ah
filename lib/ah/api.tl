@@ -86,9 +86,17 @@ local function stream(messages: {any}, opts: {string:any}, callback: function({s
           local delta = event.delta as {string:any}
           if current_block and delta.type == "text_delta" then
             current_block.text = ((current_block.text or "") as string) .. ((delta.text or "") as string)
+          elseif current_block and delta.type == "input_json_delta" then
+            -- Accumulate tool input JSON
+            current_block.partial_json = ((current_block.partial_json or "") as string) .. ((delta.partial_json or "") as string)
           end
         elseif event.type == "content_block_stop" then
           if current_block and block_index ~= nil then
+            -- Parse accumulated tool input JSON
+            if current_block.partial_json then
+              current_block.input = cosmo.DecodeJson(current_block.partial_json as string)
+              current_block.partial_json = nil
+            end
             content_blocks[block_index + 1] = current_block
           end
           current_block = nil
