@@ -30,6 +30,24 @@ options:
 ]])
 end
 
+-- Extract key parameter from tool input for display
+local function tool_key_param(tool_name: string, tool_input: string): string
+  if not tool_input then return "" end
+  local input = cosmo.DecodeJson(tool_input) as {string:any}
+  if not input then return "" end
+
+  if tool_name == "read" or tool_name == "write" then
+    return (input.path or "") as string
+  elseif tool_name == "edit" then
+    return string.format("%s: %s → %s", input.path or "",
+      ((input.old_string or "") as string):sub(1, 20),
+      ((input.new_string or "") as string):sub(1, 20))
+  elseif tool_name == "bash" then
+    return (input.command or "") as string
+  end
+  return ""
+end
+
 -- Send prompt and run agent loop
 local function run_agent(d: any, session: {string:any}, prompt: string, parent_id: string)
   -- Create user message
@@ -279,26 +297,10 @@ local function cmd_scan(d: any, name: string)
         end
         preview = text
       elseif b.block_type == "tool_use" then
-        -- Extract key parameter for each tool
-        local input_preview = ""
-        if b.tool_input then
-          local input = cosmo.DecodeJson(b.tool_input as string) as {string:any}
-          if input then
-            local key_val: string = nil
-            if b.tool_name == "read" or b.tool_name == "write" or b.tool_name == "edit" then
-              key_val = input.path as string
-            elseif b.tool_name == "bash" then
-              key_val = input.command as string
-            end
-            if key_val then
-              if #key_val > 40 then
-                key_val = key_val:sub(1, 40) .. "..."
-              end
-              input_preview = " " .. key_val
-            end
-          end
-        end
-        table.insert(tool_calls, string.format("→ %s%s", b.tool_name, input_preview))
+        local key = tool_key_param(b.tool_name as string, b.tool_input as string)
+        if #key > 40 then key = key:sub(1, 40) .. "..." end
+        local suffix = key ~= "" and " " .. key or ""
+        table.insert(tool_calls, string.format("→ %s%s", b.tool_name, suffix))
       end
     end
 
@@ -344,24 +346,8 @@ local function cmd_show(d: any, seq: integer)
       io.write((b.content or "") as string)
       io.write("\n")
     elseif b.block_type == "tool_use" then
-      local input_str = ""
-      if b.tool_input then
-        local input = cosmo.DecodeJson(b.tool_input as string) as {string:any}
-        if input then
-          if b.tool_name == "read" then
-            input_str = input.path as string
-          elseif b.tool_name == "write" then
-            input_str = input.path as string
-          elseif b.tool_name == "edit" then
-            input_str = string.format("%s: %s → %s", input.path,
-              ((input.old_string or "") as string):sub(1, 20),
-              ((input.new_string or "") as string):sub(1, 20))
-          elseif b.tool_name == "bash" then
-            input_str = input.command as string
-          end
-        end
-      end
-      io.write(string.format("→ %s %s\n", b.tool_name, input_str))
+      local key = tool_key_param(b.tool_name as string, b.tool_input as string)
+      io.write(string.format("→ %s %s\n", b.tool_name, key))
     elseif b.block_type == "tool_result" then
       local output = ((b.tool_output or "") as string)
       local lines = {}
