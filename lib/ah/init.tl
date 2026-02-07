@@ -15,12 +15,6 @@ global interrupted: boolean = false
 local DEFAULT_SYSTEM_PROMPT = [[You are a coding assistant. Tools: read, write, edit, bash.
 read: examine files. edit: precise text replacement. write: create new files. bash: run commands.]]
 
--- Get global ~/.ah directory
-local function get_global_dir(): string
-  local home = os.getenv("HOME") or ""
-  return fs.join(home, ".ah")
-end
-
 -- Load CLAUDE.md from current directory
 local function load_claude_md(cwd: string): string
   cwd = cwd or fs.getcwd()
@@ -32,28 +26,21 @@ local function load_claude_md(cwd: string): string
 end
 
 -- Load system prompt with precedence:
--- 1. session_system (via -s flag) if set
+-- 1. cli_system (via -s flag) if set
 -- 2. .ah/SYSTEM.md (project) if exists
--- 3. ~/.ah/SYSTEM.md (global) if exists
--- 4. DEFAULT_SYSTEM_PROMPT
+-- 3. DEFAULT_SYSTEM_PROMPT
 -- CLAUDE.md is always appended
-local function load_system_prompt(session_system: string, cwd: string, global_dir: string): string
+local function load_system_prompt(cli_system: string, cwd: string): string
   cwd = cwd or fs.getcwd()
-  global_dir = global_dir or get_global_dir()
   local claude_md = load_claude_md(cwd)
 
-  if session_system then
-    return session_system .. claude_md
+  if cli_system then
+    return cli_system .. claude_md
   end
 
   local project_system = cio.slurp(fs.join(cwd, ".ah", "SYSTEM.md"))
   if project_system then
     return project_system .. claude_md
-  end
-
-  local global_system = cio.slurp(fs.join(global_dir, "SYSTEM.md"))
-  if global_system then
-    return global_system .. claude_md
   end
 
   return DEFAULT_SYSTEM_PROMPT .. claude_md
@@ -66,16 +53,14 @@ commands:
   <prompt>            send prompt to agent
   (no args)           continue from last message
   @N <prompt>         fork from message N with new prompt
-  folder [+name]      list or switch sessions
-  scan [+name]        list messages in session
+  scan                list messages in current branch
   show [N]            show message(s)
   rmm N...            remove messages
-  rmf [+name]         remove session
 
 options:
   -h, --help          show this help
-  -n, --new [+name]   start new session (optionally named)
-  -s, --system PROMPT set system prompt
+  --db PATH           use custom database path (default: .ah/ah.db)
+  -s, --system PROMPT set system prompt for this invocation
   -m, --model MODEL   set model (e.g., claude-sonnet-4-20250514)
 ]])
 end
@@ -103,9 +88,9 @@ local function tool_key_param(tool_name: string, tool_input: string): string
 end
 
 -- Send prompt and run agent loop
-local function run_agent(d: db.DB, session: db.Session, prompt: string, parent_id: string)
+local function run_agent(d: db.DB, system_prompt: string, model: string, prompt: string, parent_id: string)
   -- Create user message
-  local user_msg = db.create_message(d, session.id, "user", parent_id)
+  local user_msg = db.create_message(d, "user", parent_id)
   db.add_content_block(d, user_msg.id, "text", {content = prompt})
 
   -- Build messages from ancestry
@@ -155,13 +140,13 @@ local function run_agent(d: db.DB, session: db.Session, prompt: string, parent_i
   -- Agent loop
   while not interrupted do
     -- Create assistant message
-    local assistant_msg = db.create_message(d, session.id, "assistant", user_msg.id)
+    local assistant_msg = db.create_message(d, "assistant", user_msg.id)
     local current_text = ""
 
     -- Stream response
     local response, err = api.stream(api_messages, {
-      system = session.system_prompt,
-      model = session.model,
+      system = system_prompt,
+      model = model,
       tools = tools.get_tool_definitions(),
     }, function(event: {string:any})
       if event.type == "content_block_delta" and event.delta then
@@ -224,7 +209,7 @@ local function run_agent(d: db.DB, session: db.Session, prompt: string, parent_i
     io.write("\n")
 
     -- Create a new user message for tool results (child of assistant message)
-    local tool_result_msg = db.create_message(d, session.id, "user", assistant_msg.id)
+    local tool_result_msg = db.create_message(d, "user", assistant_msg.id)
 
     -- Add tool results to API messages
     local tool_results_content: {any} = {}
@@ -274,63 +259,8 @@ local function run_agent(d: db.DB, session: db.Session, prompt: string, parent_i
   end
 end
 
--- Format relative time
-local function relative_time(ts: integer): string
-  local now = os.time()
-  local diff = now - ts
-  if diff < 60 then return "now"
-  elseif diff < 3600 then return string.format("%dm", math.floor(diff / 60))
-  elseif diff < 86400 then return string.format("%dh", math.floor(diff / 3600))
-  elseif diff < 604800 then return string.format("%dd", math.floor(diff / 86400))
-  else return string.format("%dw", math.floor(diff / 604800))
-  end
-end
-
--- List sessions
-local function cmd_folder(d: db.DB, name: string)
-  if name then
-    -- Switch to session by name
-    local session = db.get_session_by_name(d, name)
-    if not session then
-      io.stderr:write("session not found: " .. name .. "\n")
-      return
-    end
-    db.set_current_session(d, session.id)
-    io.write("switched to " .. name .. "\n")
-  else
-    -- List sessions
-    local sessions = db.list_sessions(d) as {any}
-    local current = db.get_current_session(d)
-    local current_id = current and current.id or nil
-
-    for _, session in ipairs(sessions) do
-      local s = session as {string:any}
-      local marker = (current_id and current_id == s.id) and "*" or " "
-      local name_str = (s.name or (s.id as string):sub(1, 8)) as string
-      local msg_count = (s.message_count or 0) as integer
-      local age = relative_time(s.updated_at as integer)
-      io.write(string.format("%s %-12s %3d msgs  %s\n", marker, name_str, msg_count, age))
-    end
-  end
-end
-
 -- List messages in current branch (ancestry from current message)
-local function cmd_scan(d: db.DB, name: string)
-  local session: {string:any}
-  if name then
-    session = db.get_session_by_name(d, name) as {string:any}
-    if not session then
-      io.stderr:write("session not found: " .. name .. "\n")
-      return
-    end
-  else
-    session = db.get_current_session(d) as {string:any}
-    if not session then
-      io.stderr:write("no current session\n")
-      return
-    end
-  end
-
+local function cmd_scan(d: db.DB)
   local current = db.get_current_message(d) as {string:any}
   if not current then
     io.stderr:write("no messages\n")
@@ -397,15 +327,9 @@ end
 
 -- Show message content
 local function cmd_show(d: db.DB, seq: integer)
-  local session = db.get_current_session(d)
-  if not session then
-    io.stderr:write("no current session\n")
-    return
-  end
-
   local m: db.Message
   if seq then
-    m = db.get_message_by_seq(d, session.id, seq)
+    m = db.get_message_by_seq(d, seq)
     if not m then
       io.stderr:write("message not found: @" .. seq .. "\n")
       return
@@ -441,14 +365,8 @@ end
 
 -- Remove messages
 local function cmd_rmm(d: db.DB, seqs: {integer})
-  local session = db.get_current_session(d)
-  if not session then
-    io.stderr:write("no current session\n")
-    return
-  end
-
   for _, seq in ipairs(seqs) do
-    local msg = db.get_message_by_seq(d, session.id, seq)
+    local msg = db.get_message_by_seq(d, seq)
     if msg then
       db.delete_message(d, msg.id)
       io.write("deleted @" .. seq .. "\n")
@@ -458,41 +376,19 @@ local function cmd_rmm(d: db.DB, seqs: {integer})
   end
 end
 
--- Remove session
-local function cmd_rmf(d: db.DB, name: string)
-  local session: any
-  if name then
-    session = db.get_session_by_name(d, name)
-    if not session then
-      io.stderr:write("session not found: " .. name .. "\n")
-      return
-    end
-  else
-    session = db.get_current_session(d)
-    if not session then
-      io.stderr:write("no current session\n")
-      return
-    end
-  end
-
-  local s = session as {string:any}
-  db.delete_session(d, s.id as string)
-  io.write("deleted " .. ((s.name or s.id) as string) .. "\n")
-end
-
 local function main(args: {string}): integer, string
-  local new_session = false
   local system_prompt: string = nil
   local model: string = nil
+  local db_path: string = nil
 
   local longopts = {
     {name = "help", has_arg = "none", short = "h"},
-    {name = "new", has_arg = "none", short = "n"},
+    {name = "db", has_arg = "required"},
     {name = "system", has_arg = "required", short = "s"},
     {name = "model", has_arg = "required", short = "m"},
   }
 
-  local parser = getopt.new(args, "hns:m:", longopts)
+  local parser = getopt.new(args, "hs:m:", longopts)
 
   while true do
     local opt, optarg = parser:next()
@@ -501,8 +397,8 @@ local function main(args: {string}): integer, string
     if opt == "h" or opt == "help" then
       usage()
       return 0
-    elseif opt == "n" or opt == "new" then
-      new_session = true
+    elseif opt == "db" then
+      db_path = optarg
     elseif opt == "s" or opt == "system" then
       system_prompt = optarg
     elseif opt == "m" or opt == "model" then
@@ -515,7 +411,7 @@ local function main(args: {string}): integer, string
 
   local remaining = parser:remaining() or {}
 
-  local d, err = db.open()
+  local d, err = db.open(db_path)
   if not d then
     return 1, err
   end
@@ -523,21 +419,8 @@ local function main(args: {string}): integer, string
   -- Handle commands
   local cmd = remaining[1]
 
-  if cmd == "folder" then
-    local name = remaining[2]
-    if name and name:sub(1, 1) == "+" then
-      name = name:sub(2)
-    end
-    cmd_folder(d, name)
-    db.close(d)
-    return 0
-
-  elseif cmd == "scan" then
-    local name = remaining[2]
-    if name and name:sub(1, 1) == "+" then
-      name = name:sub(2)
-    end
-    cmd_scan(d, name)
+  if cmd == "scan" then
+    cmd_scan(d)
     db.close(d)
     return 0
 
@@ -559,29 +442,11 @@ local function main(args: {string}): integer, string
     cmd_rmm(d, seqs)
     db.close(d)
     return 0
-
-  elseif cmd == "rmf" then
-    local name = remaining[2]
-    if name and name:sub(1, 1) == "+" then
-      name = name:sub(2)
-    end
-    cmd_rmf(d, name)
-    db.close(d)
-    return 0
   end
 
   -- Handle prompt or continue
-  local session = db.get_current_session(d)
   local parent_id: string = nil
   local prompt: string = nil
-  local session_name: string = nil
-
-  -- Check for +name when starting new session
-  if new_session and cmd and cmd:sub(1, 1) == "+" then
-    session_name = cmd:sub(2)
-    table.remove(remaining, 1)
-    cmd = remaining[1]
-  end
 
   -- Check for @N fork syntax
   if cmd and cmd:sub(1, 1) == "@" then
@@ -591,12 +456,7 @@ local function main(args: {string}): integer, string
       return 1, "invalid message number: " .. cmd
     end
 
-    if not session then
-      db.close(d)
-      return 1, "no current session"
-    end
-
-    local msg = db.get_message_by_seq(d, session.id, seq)
+    local msg = db.get_message_by_seq(d, seq)
     if not msg then
       db.close(d)
       return 1, "message not found: " .. cmd
@@ -608,31 +468,28 @@ local function main(args: {string}): integer, string
     prompt = table.concat(remaining, " ")
   end
 
-  -- Create or get session
-  if new_session or not session then
-    local effective_system = load_system_prompt(system_prompt, nil, nil)
-    session = db.create_session(d, session_name, fs.getcwd(), effective_system, model)
-  end
-
   -- Get parent message - always continue from last message unless forking with @N
   if not parent_id then
-    local last = db.get_last_message(d, session.id as string)
+    local last = db.get_last_message(d)
     if last then
       parent_id = (last as {string:any}).id as string
     end
-    -- If no last message and no prompt, error
-    if not parent_id and prompt == "" then
+  end
+
+  -- If no prompt, need either something to continue or show help
+  if prompt == "" then
+    if not parent_id then
+      usage()
       db.close(d)
-      return 1, "no messages to continue from"
+      return 0
+    else
+      db.close(d)
+      return 1, "no prompt provided"
     end
   end
 
-  -- If no prompt, show help
-  if prompt == "" and not parent_id then
-    usage()
-    db.close(d)
-    return 0
-  end
+  -- Load system prompt
+  local effective_system = load_system_prompt(system_prompt, nil)
 
   -- Initialize custom tools
   tools.init_custom_tools()
@@ -643,7 +500,7 @@ local function main(args: {string}): integer, string
   end)
 
   -- Run agent
-  run_agent(d, session, prompt, parent_id)
+  run_agent(d, effective_system, model, prompt, parent_id)
 
   db.close(d)
   return 0
@@ -653,7 +510,6 @@ return {
   main = main,
   load_system_prompt = load_system_prompt,
   load_claude_md = load_claude_md,
-  get_global_dir = get_global_dir,
   tool_key_param = tool_key_param,
   DEFAULT_SYSTEM_PROMPT = DEFAULT_SYSTEM_PROMPT,
 }

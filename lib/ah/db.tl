@@ -1,22 +1,11 @@
--- ah/db.lua: SQLite storage for sessions and messages
+-- ah/db.lua: SQLite storage for conversation tree
 local fs = require("cosmic.fs")
 local sqlite = require("cosmic.sqlite")
 local ulid = require("ulid")
 
 local SCHEMA = [[
-create table if not exists sessions (
-  id text primary key,
-  name text unique,
-  created_at integer not null,
-  updated_at integer not null,
-  cwd text,
-  system_prompt text,
-  model text
-);
-
 create table if not exists messages (
   id text primary key,
-  session_id text not null references sessions(id),
   parent_id text references messages(id),
   role text not null,
   seq integer not null,
@@ -41,7 +30,6 @@ create table if not exists context (
   value text not null
 );
 
-create index if not exists idx_messages_session on messages(session_id);
 create index if not exists idx_messages_parent on messages(parent_id);
 create index if not exists idx_content_blocks_message on content_blocks(message_id);
 ]]
@@ -64,20 +52,8 @@ local record DB
   _db: Database
 end
 
-local record Session
-  id: string
-  name: string
-  created_at: integer
-  updated_at: integer
-  cwd: string
-  system_prompt: string
-  model: string
-  message_count: integer
-end
-
 local record Message
   id: string
-  session_id: string
   parent_id: string
   role: string
   seq: integer
@@ -113,14 +89,20 @@ local record UpdateOpts
 end
 
 local function get_db_path(): string
-  local home = os.getenv("HOME") or ""
-  local ah_dir = fs.join(home, ".ah")
+  local ah_dir = ".ah"
   fs.makedirs(ah_dir)
   return fs.join(ah_dir, "ah.db")
 end
 
 local function open(db_path?: string): DB, string
   db_path = db_path or get_db_path()
+
+  -- Ensure parent directory exists for custom paths
+  local parent = fs.dirname(db_path)
+  if parent and parent ~= "" and parent ~= "." then
+    fs.makedirs(parent)
+  end
+
   local db, err = sqlite.open(db_path) as (Database, string)
   if not db then
     return nil, "failed to open database: " .. db_path .. ": " .. (err or "")
@@ -153,96 +135,6 @@ local function set_context(self: DB, key: string, value: string)
   self._db:exec("insert or replace into context (key, value) values (?, ?)", key, value)
 end
 
--- Session operations
-local function create_session(self: DB, name?: string, cwd?: string, system_prompt?: string, model?: string): Session
-  local id = ulid.generate()
-  local now = os.time()
-
-  -- Use explicit non-nil values to avoid Lua vararg nil-dropping issue
-  local stmt = self._db:prepare([[
-    insert into sessions (id, name, created_at, updated_at, cwd, system_prompt, model)
-    values (?, ?, ?, ?, ?, ?, ?)
-  ]])
-  if stmt then
-    stmt:bind(id, name or "", now, now, cwd or "", system_prompt or "", model or "")
-    stmt:exec()
-    stmt:close()
-  end
-
-  set_context(self, "current_session", id)
-
-  return {
-    id = id,
-    name = name,
-    created_at = now,
-    updated_at = now,
-    cwd = cwd,
-    system_prompt = system_prompt,
-    model = model,
-  }
-end
-
-local function get_session(self: DB, id: string): Session
-  for row in self._db:query("select * from sessions where id = ?", id) do
-    return row as Session
-  end
-  return nil
-end
-
-local function get_session_by_name(self: DB, name: string): Session
-  -- First try exact name match
-  for row in self._db:query("select * from sessions where name = ?", name) do
-    return row as Session
-  end
-
-  -- Then try ID prefix match
-  for row in self._db:query("select * from sessions where id like ? || '%'", name) do
-    return row as Session
-  end
-  return nil
-end
-
-local function list_sessions(self: DB): {Session}
-  local sessions: {Session} = {}
-  local sql = [[
-    select s.*,
-      (select count(*) from messages m where m.session_id = s.id) as message_count
-    from sessions s
-    order by s.updated_at desc
-  ]]
-  for row in self._db:query(sql) do
-    table.insert(sessions, row as Session)
-  end
-  return sessions
-end
-
-local function delete_session(self: DB, id: string)
-  self._db:exec([[
-    delete from content_blocks where message_id in
-    (select id from messages where session_id = ?)
-  ]], id)
-
-  self._db:exec("delete from messages where session_id = ?", id)
-  self._db:exec("delete from sessions where id = ?", id)
-
-  local current = get_context(self, "current_session")
-  if current == id then
-    self._db:exec("delete from context where key = 'current_session'")
-  end
-end
-
-local function get_current_session(self: DB): Session
-  local id = get_context(self, "current_session")
-  if id then
-    return get_session(self, id)
-  end
-  return nil
-end
-
-local function set_current_session(self: DB, id: string)
-  set_context(self, "current_session", id)
-end
-
 -- Message operations
 local function get_message(self: DB, id: string): Message
   for row in self._db:query("select * from messages where id = ?", id) do
@@ -251,7 +143,7 @@ local function get_message(self: DB, id: string): Message
   return nil
 end
 
-local function create_message(self: DB, session_id: string, role: string, parent_id?: string): Message
+local function create_message(self: DB, role: string, parent_id?: string): Message
   local id = ulid.generate()
   local now = os.time()
 
@@ -263,17 +155,14 @@ local function create_message(self: DB, session_id: string, role: string, parent
   end
 
   self._db:exec([[
-    insert into messages (id, session_id, parent_id, role, seq, created_at)
-    values (?, ?, ?, ?, ?, ?)
-  ]], id, session_id, parent_id, role, seq, now)
-
-  self._db:exec("update sessions set updated_at = ? where id = ?", now, session_id)
+    insert into messages (id, parent_id, role, seq, created_at)
+    values (?, ?, ?, ?, ?)
+  ]], id, parent_id, role, seq, now)
 
   set_context(self, "current_message", id)
 
   return {
     id = id,
-    session_id = session_id,
     parent_id = parent_id,
     role = role,
     seq = seq,
@@ -307,16 +196,19 @@ local function get_ancestry(self: DB, message_id: string): {Message}
   return messages
 end
 
-local function get_last_message(self: DB, session_id: string): Message
+local function get_last_message(self: DB): Message
+  -- First try current_message from context
   local current = get_current_message(self)
-  if current and current.session_id == session_id then
+  if current then
     return current
   end
 
+  -- Otherwise find the most recent leaf (message with no children)
   for row in self._db:query([[
-    select * from messages where session_id = ?
-    order by seq desc, created_at desc limit 1
-  ]], session_id) do
+    select m.* from messages m
+    where not exists (select 1 from messages c where c.parent_id = m.id)
+    order by m.created_at desc limit 1
+  ]]) do
     return row as Message
   end
   return nil
@@ -411,11 +303,11 @@ local function update_content_block(self: DB, id: string, opts: UpdateOpts)
   end
 end
 
-local function get_message_by_seq(self: DB, session_id: string, seq: integer): Message
+local function get_message_by_seq(self: DB, seq: integer): Message
   for row in self._db:query([[
-    select * from messages where session_id = ? and seq = ?
+    select * from messages where seq = ?
     order by created_at asc limit 1
-  ]], session_id, seq) do
+  ]], seq) do
     return row as Message
   end
   return nil
@@ -424,15 +316,9 @@ end
 return {
   open = open,
   close = close,
-  create_session = create_session,
-  get_session = get_session,
-  get_session_by_name = get_session_by_name,
-  list_sessions = list_sessions,
-  delete_session = delete_session,
-  get_current_session = get_current_session,
-  set_current_session = set_current_session,
   create_message = create_message,
   get_current_message = get_current_message,
+  set_current_message = set_current_message,
   get_ancestry = get_ancestry,
   get_last_message = get_last_message,
   delete_message = delete_message,
@@ -442,7 +328,6 @@ return {
   update_content_block = update_content_block,
   -- Export types for consumers
   DB = DB,
-  Session = Session,
   Message = Message,
   ContentBlock = ContentBlock,
   ContentBlockOpts = ContentBlockOpts,
