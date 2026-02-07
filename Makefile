@@ -29,8 +29,8 @@ $(cosmic):
 reporter := $(cosmic) lib/build/reporter.tl
 
 # ah module
-ah_srcs := $(wildcard lib/ah/*.tl)
-ah_lua := $(patsubst lib/%.tl,$(o)/lib/%.lua,$(ah_srcs)) $(o)/bin/ah.lua
+ah_srcs := $(wildcard lib/ah/*.tl) bin/ah.tl
+ah_lua := $(patsubst %.tl,$(o)/%.lua,$(ah_srcs))
 ah_tests := $(wildcard lib/ah/test_*.tl)
 
 # type declarations
@@ -79,7 +79,7 @@ build: $(ah_lua)
 ## Run teal type checker on all files
 check-types: $(o)/teal-summary.txt
 
-all_teals := $(patsubst %,$(o)/%.teal.ok,$(ah_srcs) bin/ah.tl)
+all_teals := $(patsubst %,$(o)/%.teal.ok,$(ah_srcs))
 
 $(o)/teal-summary.txt: $(all_teals) $(cosmic)
 	@$(reporter) --dir $(o) $(all_teals) | tee $@
