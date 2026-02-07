@@ -9,86 +9,67 @@ MAKEFLAGS += --no-builtin-rules
 MAKEFLAGS += --no-builtin-variables
 MAKEFLAGS += --output-sync
 
-modules :=
 o := o
 
 export PATH := $(CURDIR)/$(o)/bin:$(PATH)
-export STAGE_O := $(CURDIR)/$(o)/staged
-export FETCH_O := $(CURDIR)/$(o)/fetched
-
-# TL_PATH for teal type checker
-TL_PATH := $(CURDIR)/lib/types/?.d.tl;$(CURDIR)/lib/types/?/init.d.tl;$(CURDIR)/$(o)/lib/?.tl;$(CURDIR)/$(o)/lib/?/init.tl;$(CURDIR)/lib/?.tl;$(CURDIR)/lib/?/init.tl
 
 TMP ?= /tmp
 export TMPDIR := $(TMP)
 
 uname_s := $(shell uname -s)
 uname_m := $(shell uname -m)
-os := $(if $(filter Darwin,$(uname_s)),darwin,linux)
-arch := $(subst aarch64,arm64,$(uname_m))
-platform := $(os)-$(arch)
+platform := $(if $(filter Darwin,$(uname_s)),darwin,linux)-$(subst aarch64,arm64,$(uname_m))
 
-include bootstrap.mk
-include 3p/cosmic/cook.mk
-include lib/ah/cook.mk
-include cook.mk
+# cosmic dependency
+cosmic_version := 2026-02-06-c7537ca
+cosmic_url := https://github.com/whilp/cosmic/releases/download/$(cosmic_version)/cosmic-lua
+cosmic_sha := 19f8991a9254f093b83546ecdf780c073b039600f060ab93f6ce78f1ef020bd8
+cosmic := $(o)/bin/cosmic
 
-cp := cp -p
+$(cosmic): | $(o)/bin/.
+	@echo "==> fetching cosmic $(cosmic_version)"
+	@curl -fsSL -o $@ $(cosmic_url)
+	@echo "$(cosmic_sha)  $@" | sha256sum -c - >/dev/null
+	@chmod +x $@
 
-$(o)/%: %
+# build tools
+build_tools := $(o)/bin/make-help.lua $(o)/bin/reporter.lua $(o)/bin/run-test.lua
+
+$(o)/bin/%.lua: lib/build/%.tl $(cosmic)
 	@mkdir -p $(@D)
-	@$(cp) $< $@
+	@$(cosmic) --compile $< > $@
 
-# compile .tl files to .lua
-$(o)/%.lua: %.tl $(types_files) | $(bootstrap_files)
+$(o)/bin/run-test.lua: lib/test/run-test.tl $(cosmic)
 	@mkdir -p $(@D)
-	@$(bootstrap_cosmic) --compile $< > $@
+	@$(cosmic) --compile $< > $@
 
-# define *_staged, *_dir for versioned modules
-$(foreach m,$(modules),$(if $($(m)_version),\
-  $(eval $(m)_staged := $(o)/$(m)/.staged)\
-  $(if $($(m)_dir),,$(eval $(m)_dir := $(o)/$(m)/.staged))))
+# ah module
+ah_srcs := $(wildcard lib/ah/*.tl)
+ah_tl := $(ah_srcs) bin/ah.tl
+ah_lua := $(patsubst lib/%.tl,$(o)/lib/%.lua,$(ah_srcs)) $(o)/bin/ah.lua
+ah_tests := $(wildcard lib/ah/test_*.tl)
 
-# expand module deps
-$(foreach m,$(modules),\
-  $(foreach d,$($(m)_deps),\
-    $(eval $($(m)_files): $($(d)_files))\
-    $(if $($(d)_staged),\
-      $(eval $($(m)_files): $($(d)_staged)))))
+# type declarations
+types := $(wildcard lib/types/*.d.tl lib/types/*/*.d.tl)
+TL_PATH := $(CURDIR)/lib/types/?.d.tl;$(CURDIR)/lib/types/?/init.d.tl;$(CURDIR)/$(o)/lib/?.tl;$(CURDIR)/$(o)/lib/?/init.tl;$(CURDIR)/lib/?.tl;$(CURDIR)/lib/?/init.tl
 
-# versioned modules: o/module/.versioned -> version.lua
-$(foreach m,$(modules),$(if $($(m)_version),\
-  $(eval $(o)/$(m)/.versioned: $($(m)_version) ; @mkdir -p $$(@D) && ln -sfn $(CURDIR)/$$< $$@)))
-all_versioned := $(foreach m,$(modules),$(if $($(m)_version),$(o)/$(m)/.versioned))
+# compile .tl to .lua
+$(o)/lib/%.lua: lib/%.tl $(types) $(cosmic)
+	@mkdir -p $(@D)
+	@$(cosmic) --compile $< > $@
 
-# fetch dependencies
-.PHONY: fetched
-all_fetched := $(patsubst %/.versioned,%/.fetched,$(all_versioned))
-fetched: $(all_fetched)
-$(o)/%/.fetched: $(o)/%/.versioned $(build_files) | $(bootstrap_cosmic)
-	@$(build_fetch) $$(readlink $<) $(platform) $@
+$(o)/bin/%.lua: bin/%.tl $(types) $(cosmic)
+	@mkdir -p $(@D)
+	@$(cosmic) --compile $< > $@
 
-# stage dependencies
-.PHONY: staged
-all_staged := $(patsubst %/.fetched,%/.staged,$(all_fetched))
-staged: $(all_staged)
-$(o)/%/.staged: $(o)/%/.fetched $(build_files)
-	@$(build_stage) $$(readlink $(o)/$*/.versioned) $(platform) $< $@
+# standalone lib files
+$(o)/lib/ulid.lua: lib/ulid.tl $(types) $(cosmic)
+	@mkdir -p $(@D)
+	@$(cosmic) --compile $< > $@
 
-all_tests := $(foreach x,$(modules),$($(x)_tests))
-all_tested := $(patsubst %,o/%.test.ok,$(all_tests))
-
-.PHONY: help
-## Show this help message
-help: $(build_files) | $(bootstrap_cosmic)
-	@$(bootstrap_cosmic) $(o)/bin/make-help.lua $(MAKEFILE_LIST)
-
-.PHONY: test
-## Run all tests (incremental)
-test: $(o)/test-summary.txt
-
-$(o)/test-summary.txt: $(all_tested) | $(build_reporter)
-	@$(reporter) --dir $(o) $^ | tee $@
+# tests
+all_tests := $(ah_tests)
+all_tested := $(patsubst %,$(o)/%.test.ok,$(all_tests))
 
 export TEST_O := $(o)
 export TEST_PLATFORM := $(platform)
@@ -96,46 +77,39 @@ export TEST_BIN := $(o)/bin
 export LUA_PATH := $(CURDIR)/o/bin/?.lua;$(CURDIR)/o/lib/?.lua;$(CURDIR)/o/lib/?/init.lua;$(CURDIR)/lib/?.lua;$(CURDIR)/lib/?/init.lua;;
 export NO_COLOR := 1
 
-# test rule
-$(o)/%.tl.test.ok: $(o)/%.lua $(test_files) | $(bootstrap_files)
+$(o)/%.tl.test.ok: $(o)/%.lua $(ah_lua) $(o)/bin/run-test.lua $(cosmic)
 	@mkdir -p $(@D)
 	@[ -x $< ] || chmod a+x $<
-	-@TEST_DIR=$(TEST_DIR) $(test_runner) $< > $@
+	-@$(cosmic) $(o)/bin/run-test.lua $< > $@
 
-# expand test deps
-$(foreach m,$(modules),\
-  $(eval $(m)_tl_lua := $(patsubst %.tl,$(o)/%.lua,$($(m)_tl_files))))
-$(foreach m,$(modules),\
-  $(eval $(patsubst %,$(o)/%.test.ok,$($(m)_tests)): $($(m)_files) $($(m)_tl_lua))\
-  $(if $($(m)_dir),\
-    $(eval $(patsubst %,$(o)/%.test.ok,$($(m)_tests)): $($(m)_dir))\
-    $(eval $(patsubst %,$(o)/%.test.ok,$($(m)_tests)): TEST_DIR := $($(m)_dir)))\
-  $(foreach d,$($(m)_deps),\
-    $(if $($(d)_dir),\
-      $(eval $(patsubst %,$(o)/%.test.ok,$($(m)_tests)): $($(d)_dir)))\
-    $(eval $(patsubst %,$(o)/%.test.ok,$($(m)_tests)): $($(d)_files) $($(d)_tl_lua))))
+# targets
+.PHONY: help
+help: $(build_tools) $(cosmic)
+	@$(cosmic) $(o)/bin/make-help.lua $(MAKEFILE_LIST)
 
-.PHONY: clean
-## Remove all build artifacts
-clean:
-	@rm -rf $(o)
+.PHONY: test
+## Run all tests (incremental)
+test: $(o)/test-summary.txt
 
-.PHONY: bootstrap
-## Bootstrap build environment
-bootstrap: $(bootstrap_files)
+$(o)/test-summary.txt: $(all_tested) $(o)/bin/reporter.lua $(cosmic)
+	@$(cosmic) $(o)/bin/reporter.lua --dir $(o) $(all_tested) | tee $@
 
+.PHONY: build
+## Build all files
+build: $(ah_lua)
+
+.PHONY: teal
 ## Run teal type checker on all files
 teal: $(o)/teal-summary.txt
 
-all_tl_files := $(foreach x,$(modules),$($(x)_tl_files))
-all_teals := $(patsubst %,$(o)/%.teal.ok,$(all_tl_files))
+all_teals := $(patsubst %,$(o)/%.teal.ok,$(ah_tl))
 
-$(o)/teal-summary.txt: $(all_teals) | $(build_reporter)
-	@$(reporter) --dir $(o) $^ | tee $@
+$(o)/teal-summary.txt: $(all_teals) $(o)/bin/reporter.lua $(cosmic)
+	@$(cosmic) $(o)/bin/reporter.lua --dir $(o) $(all_teals) | tee $@
 
-$(o)/%.tl.teal.ok: %.tl $$(cosmic_bin) $(types_files)
+$(o)/%.tl.teal.ok: %.tl $(cosmic) $(types)
 	@mkdir -p $(@D)
-	@if TL_PATH='$(TL_PATH)' $(cosmic_bin) --check "$<" >/dev/null 2>$@.err; then \
+	@if TL_PATH='$(TL_PATH)' $(cosmic) --check "$<" >/dev/null 2>$@.err; then \
 		echo "pass:" > $@; \
 	else \
 		n=$$(grep -c ': error:' $@.err 2>/dev/null || echo 0); \
@@ -145,5 +119,10 @@ $(o)/%.tl.teal.ok: %.tl $$(cosmic_bin) $(types_files)
 	fi; \
 	rm -f $@.err
 
-debug-modules:
-	@echo $(modules)
+.PHONY: clean
+## Remove all build artifacts
+clean:
+	@rm -rf $(o)
+
+%/.:
+	@mkdir -p $@
