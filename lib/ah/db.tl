@@ -114,6 +114,11 @@ local function open(db_path?: string): DB, string
     return nil, "failed to initialize schema: " .. (schema_err or "")
   end
 
+  -- Enable WAL mode for better crash recovery and concurrent access
+  db:exec("PRAGMA journal_mode=WAL")
+  -- Ensure writes are synced to disk (safety over speed)
+  db:exec("PRAGMA synchronous=NORMAL")
+
   return {_db = db} as DB, nil
 end
 
@@ -121,6 +126,19 @@ local function close(self: DB)
   if self._db then
     self._db:close()
   end
+end
+
+-- Transaction support for atomic operations
+local function begin_transaction(self: DB): boolean, string
+  return self._db:exec("BEGIN IMMEDIATE")
+end
+
+local function commit(self: DB): boolean, string
+  return self._db:exec("COMMIT")
+end
+
+local function rollback(self: DB): boolean, string
+  return self._db:exec("ROLLBACK")
 end
 
 -- Context operations
@@ -320,6 +338,29 @@ local function get_message_count(self: DB): integer
   return 0
 end
 
+-- Clean up orphan messages (messages without content blocks, from crashes)
+-- Only deletes orphans that have no children (leaf orphans)
+local function cleanup_orphans(self: DB): integer
+  -- Find and delete leaf messages with no content blocks
+  -- (messages that have no children pointing to them)
+  local orphans: {string} = {}
+  for row in self._db:query([[
+    select m.id from messages m
+    left join content_blocks c on c.message_id = m.id
+    where not exists (select 1 from messages child where child.parent_id = m.id)
+    group by m.id
+    having count(c.id) = 0
+  ]]) do
+    table.insert(orphans, row.id as string)
+  end
+
+  for _, id in ipairs(orphans) do
+    delete_message(self, id)
+  end
+
+  return #orphans
+end
+
 local function get_first_user_prompt(self: DB): string
   for row in self._db:query([[
     select content from content_blocks
@@ -337,6 +378,9 @@ end
 return {
   open = open,
   close = close,
+  begin_transaction = begin_transaction,
+  commit = commit,
+  rollback = rollback,
   create_message = create_message,
   get_current_message = get_current_message,
   set_current_message = set_current_message,
@@ -349,6 +393,7 @@ return {
   update_content_block = update_content_block,
   get_message_count = get_message_count,
   get_first_user_prompt = get_first_user_prompt,
+  cleanup_orphans = cleanup_orphans,
   -- Export types for consumers
   DB = DB,
   Message = Message,

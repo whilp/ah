@@ -206,21 +206,30 @@ local function run_agent(d: db.DB, system_prompt: string, model: string, prompt:
   end
   local is_oauth = creds.is_oauth or false
 
-  -- Create user message
+  -- Create user message (atomic: message + content block)
+  db.begin_transaction(d)
   local user_msg = db.create_message(d, "user", parent_id)
   db.add_content_block(d, user_msg.id, "text", {content = prompt})
+  db.commit(d)
 
   -- In non-interactive mode, echo the prompt for clarity
   if not is_tty then
     io.stderr:write(">>> " .. prompt .. "\n")
   end
 
-  -- Build messages from ancestry
+  -- Build messages from ancestry (skip incomplete messages from crashes)
   local ancestry = db.get_ancestry(d, user_msg.id)
   local api_messages: {any} = {}
 
   for _, msg in ipairs(ancestry) do
     local blocks = db.get_content_blocks(d, msg.id)
+
+    -- Skip messages with no content blocks (incomplete from crash)
+    if #blocks == 0 then
+      io.stderr:write(string.format("warning: skipping incomplete message %s (no content blocks)\n", msg.id))
+      goto continue
+    end
+
     local content: {any} = {}
 
     for _, block in ipairs(blocks) do
@@ -257,15 +266,14 @@ local function run_agent(d: db.DB, system_prompt: string, model: string, prompt:
       role = msg.role,
       content = content,
     })
+    ::continue::
   end
 
   -- Agent loop
   while not interrupted do
-    -- Create assistant message
-    local assistant_msg = db.create_message(d, "assistant", user_msg.id)
     local current_text = ""
 
-    -- Stream response
+    -- Stream response (don't create message yet - wait until we have content)
     local response, err = api.stream(api_messages, {
       system = system_prompt,
       model = model,
@@ -291,19 +299,21 @@ local function run_agent(d: db.DB, system_prompt: string, model: string, prompt:
       return
     end
 
-    -- Save response content blocks and build assistant message for API
+    -- Collect response content blocks before writing to DB
     local resp = response as {string:any}
     local resp_content = resp.content as {any}
     local assistant_api_content: {any} = {}
+    local assistant_blocks: {{string:any}} = {}
 
     for _, block in ipairs(resp_content) do
       local b = block as {string:any}
       if b.type == "text" then
-        db.add_content_block(d, assistant_msg.id, "text", {content = b.text as string})
+        table.insert(assistant_blocks, {block_type = "text", content = b.text as string})
         table.insert(assistant_api_content, {type = "text", text = b.text})
       elseif b.type == "tool_use" then
         local input_json = json.encode(b.input or {})
-        db.add_content_block(d, assistant_msg.id, "tool_use", {
+        table.insert(assistant_blocks, {
+          block_type = "tool_use",
           tool_id = b.id as string,
           tool_name = b.name as string,
           tool_input = input_json,
@@ -317,6 +327,22 @@ local function run_agent(d: db.DB, system_prompt: string, model: string, prompt:
       end
     end
 
+    -- Atomically write assistant message + all content blocks
+    db.begin_transaction(d)
+    local assistant_msg = db.create_message(d, "assistant", user_msg.id)
+    for _, blk in ipairs(assistant_blocks) do
+      if blk.block_type == "text" then
+        db.add_content_block(d, assistant_msg.id, "text", {content = blk.content as string})
+      elseif blk.block_type == "tool_use" then
+        db.add_content_block(d, assistant_msg.id, "tool_use", {
+          tool_id = blk.tool_id as string,
+          tool_name = blk.tool_name as string,
+          tool_input = blk.tool_input as string,
+        })
+      end
+    end
+    db.commit(d)
+
     -- Add assistant message to API messages
     table.insert(api_messages, {role = "assistant", content = assistant_api_content})
 
@@ -327,17 +353,14 @@ local function run_agent(d: db.DB, system_prompt: string, model: string, prompt:
       break  -- Done, no tool calls
     end
 
-    -- Execute tool calls and create user message for results
+    -- Execute tool calls and collect results before writing to DB
     -- Only add newline if there was response text
     if current_text ~= "" then
       io.write("\n")
     end
 
-    -- Create a new user message for tool results (child of assistant message)
-    local tool_result_msg = db.create_message(d, "user", assistant_msg.id)
-
-    -- Add tool results to API messages
     local tool_results_content: {any} = {}
+    local tool_result_blocks: {{string:any}} = {}
     local think_time = (resp.think_time or 0) as number
 
     for i, tool_call in ipairs(tool_calls) do
@@ -406,8 +429,8 @@ local function run_agent(d: db.DB, system_prompt: string, model: string, prompt:
         end
       end
 
-      -- Save tool result to the new user message
-      db.add_content_block(d, tool_result_msg.id, "tool_result", {
+      -- Collect for later atomic write
+      table.insert(tool_result_blocks, {
         tool_id = tc.id as string,
         tool_output = result,
         is_error = is_error,
@@ -422,6 +445,18 @@ local function run_agent(d: db.DB, system_prompt: string, model: string, prompt:
       })
     end
 
+    -- Atomically write tool result message + all content blocks
+    db.begin_transaction(d)
+    local tool_result_msg = db.create_message(d, "user", assistant_msg.id)
+    for _, blk in ipairs(tool_result_blocks) do
+      db.add_content_block(d, tool_result_msg.id, "tool_result", {
+        tool_id = blk.tool_id as string,
+        tool_output = blk.tool_output as string,
+        is_error = blk.is_error as boolean,
+      })
+    end
+    db.commit(d)
+
     -- Add the tool results as a user message to API messages
     table.insert(api_messages, {role = "user", content = tool_results_content})
 
@@ -433,6 +468,10 @@ end
 -- List messages in current branch (ancestry from current message)
 local function cmd_scan(d: db.DB)
   local current = db.get_current_message(d) as {string:any}
+  if not current then
+    -- Fall back to last message if current not set (e.g., after cleanup)
+    current = db.get_last_message(d) as {string:any}
+  end
   if not current then
     io.stderr:write("no messages\n")
     return
@@ -569,6 +608,10 @@ local function cmd_rmm(d: db.DB, seqs: {integer})
 end
 
 local function main(args: {string}): integer, string
+  -- Enable core dumps for crash debugging
+  -- RLIMIT_CORE = 4 on Linux, RLIM_INFINITY = -1
+  unix.setrlimit(4, -1, -1)
+
   local model: string = nil
   local db_path: string = nil
   local output_path: string = nil
@@ -712,6 +755,12 @@ local function main(args: {string}): integer, string
   local d, err = db.open(db_path)
   if not d then
     return 1, err
+  end
+
+  -- Clean up any orphan messages from previous crashes
+  local orphans_cleaned = db.cleanup_orphans(d)
+  if orphans_cleaned > 0 then
+    io.stderr:write(string.format("cleaned up %d orphan message(s) from previous crash\n", orphans_cleaned))
   end
 
   -- Handle commands

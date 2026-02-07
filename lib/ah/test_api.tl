@@ -145,4 +145,38 @@ local function test_parse_api_error_malformed_json()
 end
 test_parse_api_error_malformed_json()
 
+-- Tests for fix_empty_arrays (fixes empty Lua tables encoding as {} instead of [])
+local function test_fix_empty_arrays_content()
+  -- Simulates message with no content blocks (e.g., after segfault)
+  local input = '{"role":"user","content":{}}'
+  local result = api.fix_empty_arrays(input)
+  assert(result == '{"role":"user","content":[]}', "should fix empty content: " .. result)
+end
+test_fix_empty_arrays_content()
+
+local function test_fix_empty_arrays_nested()
+  -- Multiple messages with empty content
+  local input = '{"messages":[{"role":"user","content":{}},{"role":"assistant","content":{}}]}'
+  local result = api.fix_empty_arrays(input)
+  assert(result:find('"content":%[%]'), "should fix nested empty content")
+  assert(not result:find('"content":%{%}'), "should not have any empty object content")
+end
+test_fix_empty_arrays_nested()
+
+local function test_fix_empty_arrays_with_data()
+  -- Should not affect non-empty content
+  local input = '{"role":"user","content":[{"type":"text","text":"hello"}]}'
+  local result = api.fix_empty_arrays(input)
+  assert(result == input, "should not modify non-empty content")
+end
+test_fix_empty_arrays_with_data()
+
+local function test_fix_empty_arrays_tool_result()
+  -- Tool result content can also be empty
+  local input = '{"type":"tool_result","tool_use_id":"123","content":{}}'
+  local result = api.fix_empty_arrays(input)
+  assert(result:find('"content":%[%]'), "should fix tool_result empty content")
+end
+test_fix_empty_arrays_tool_result()
+
 print("all api tests passed")
