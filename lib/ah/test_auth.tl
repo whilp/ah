@@ -1,10 +1,6 @@
-#!/usr/bin/env run-test.lua
-local cosmo = require("cosmo")
-local path = require("cosmo.path")
+#!/usr/bin/env cosmic
 local unix = require("cosmo.unix")
 local auth = require("ah.auth")
-
-global TEST_TMPDIR: string
 
 local function test_get_auth_headers_api_key()
   local creds: auth.Credentials = {

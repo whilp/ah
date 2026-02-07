@@ -28,13 +28,9 @@ $(cosmic): | $(o)/bin/.
 	@chmod +x $@
 
 # build tools
-build_tools := $(o)/bin/make-help.lua $(o)/bin/reporter.lua $(o)/bin/run-test.lua
+build_tools := $(o)/bin/make-help.lua $(o)/bin/reporter.lua
 
 $(o)/bin/%.lua: lib/build/%.tl $(cosmic)
-	@mkdir -p $(@D)
-	@$(cosmic) --compile $< > $@
-
-$(o)/bin/run-test.lua: lib/test/run-test.tl $(cosmic)
 	@mkdir -p $(@D)
 	@$(cosmic) --compile $< > $@
 
@@ -63,10 +59,18 @@ all_tested := $(patsubst %,$(o)/%.test.ok,$(all_tests))
 
 export LUA_PATH := $(CURDIR)/o/bin/?.lua;$(CURDIR)/o/lib/?.lua;$(CURDIR)/o/lib/?/init.lua;$(CURDIR)/lib/?.lua;$(CURDIR)/lib/?/init.lua;;
 
-$(o)/%.tl.test.ok: $(o)/%.lua $(ah_lua) $(o)/bin/run-test.lua $(cosmic)
+$(o)/%.tl.test.ok: $(o)/%.lua $(ah_lua) $(cosmic)
 	@mkdir -p $(@D)
-	@[ -x $< ] || chmod a+x $<
-	-@$(cosmic) $(o)/bin/run-test.lua $< > $@
+	@tmpdir=$$(mktemp -d); \
+	if TEST_TMPDIR=$$tmpdir $(cosmic) $< >$$tmpdir/out 2>&1; then \
+		echo "pass:" > $@; \
+	else \
+		echo "fail:" > $@; \
+	fi; \
+	echo "" >> $@; echo "## stdout" >> $@; echo "" >> $@; \
+	cat $$tmpdir/out >> $@; \
+	echo "## stderr" >> $@; echo "" >> $@; \
+	rm -rf $$tmpdir
 
 # targets
 .PHONY: help

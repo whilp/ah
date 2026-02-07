@@ -1,4 +1,4 @@
-#!/usr/bin/env run-test.lua
+#!/usr/bin/env cosmic
 -- test_api.tl: tests for Claude API module
 local api = require("ah.api")
 

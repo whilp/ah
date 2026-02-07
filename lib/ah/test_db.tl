@@ -1,8 +1,8 @@
-#!/usr/bin/env run-test.lua
+#!/usr/bin/env cosmic
 local fs = require("cosmic.fs")
 local db = require("ah.db")
 
-global TEST_TMPDIR: string
+local TEST_TMPDIR = os.getenv("TEST_TMPDIR") or "/tmp"
 
 local function test_open_close()
   local db_path = fs.join(TEST_TMPDIR, "test.db")

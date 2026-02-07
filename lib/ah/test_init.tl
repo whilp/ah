@@ -1,4 +1,4 @@
-#!/usr/bin/env run-test.lua
+#!/usr/bin/env cosmic
 -- test_init.tl: tests for init module (system prompt loading)
 local fs = require("cosmic.fs")
 local cio = require("cosmic.io")
