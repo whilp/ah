@@ -16,10 +16,6 @@ export PATH := $(CURDIR)/$(o)/bin:$(PATH)
 TMP ?= /tmp
 export TMPDIR := $(TMP)
 
-uname_s := $(shell uname -s)
-uname_m := $(shell uname -m)
-platform := $(if $(filter Darwin,$(uname_s)),darwin,linux)-$(subst aarch64,arm64,$(uname_m))
-
 # cosmic dependency
 cosmic_version := 2026-02-06-c7537ca
 cosmic_url := https://github.com/whilp/cosmic/releases/download/$(cosmic_version)/cosmic-lua
@@ -72,7 +68,6 @@ all_tests := $(ah_tests)
 all_tested := $(patsubst %,$(o)/%.test.ok,$(all_tests))
 
 export TEST_O := $(o)
-export TEST_PLATFORM := $(platform)
 export TEST_BIN := $(o)/bin
 export LUA_PATH := $(CURDIR)/o/bin/?.lua;$(CURDIR)/o/lib/?.lua;$(CURDIR)/o/lib/?/init.lua;$(CURDIR)/lib/?.lua;$(CURDIR)/lib/?/init.lua;;
 export NO_COLOR := 1
