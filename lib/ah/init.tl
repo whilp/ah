@@ -8,6 +8,7 @@ local unix = require("cosmo.unix")
 local db = require("ah.db")
 local api = require("ah.api")
 local tools = require("ah.tools")
+local auth = require("ah.auth")
 local ulid = require("ulid")
 
 -- Session record for listing
@@ -170,6 +171,14 @@ end
 
 -- Send prompt and run agent loop
 local function run_agent(d: db.DB, system_prompt: string, model: string, prompt: string, parent_id: string)
+  -- Load credentials to determine if OAuth mode
+  local creds, creds_err = auth.load_credentials()
+  if not creds then
+    io.stderr:write("error: " .. creds_err .. "\n")
+    return
+  end
+  local is_oauth = creds.is_oauth or false
+
   -- Create user message
   local user_msg = db.create_message(d, "user", parent_id)
   db.add_content_block(d, user_msg.id, "text", {content = prompt})
@@ -228,7 +237,7 @@ local function run_agent(d: db.DB, system_prompt: string, model: string, prompt:
     local response, err = api.stream(api_messages, {
       system = system_prompt,
       model = model,
-      tools = tools.get_tool_definitions(),
+      tools = tools.get_tool_definitions(is_oauth),
     }, function(event: {string:any})
       if event.type == "content_block_delta" and event.delta then
         local delta = event.delta as {string:any}

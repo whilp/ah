@@ -58,7 +58,7 @@ local function test_bash_exit_code()
 end
 
 local function test_tool_definitions()
-  local defs = tools.get_tool_definitions()
+  local defs = tools.get_tool_definitions(false)
   assert(#defs == 4, "should have 4 tools")
 
   for _, d in ipairs(defs) do
@@ -412,5 +412,48 @@ local function test_read_text_not_image()
   print("✓ read tool treats .txt as text, not image")
 end
 test_read_text_not_image()
+
+-- Tool name normalization tests (for OAuth mode)
+local function test_to_claude_code_name()
+  assert(tools.to_claude_code_name("read") == "Read", "read -> Read")
+  assert(tools.to_claude_code_name("write") == "Write", "write -> Write")
+  assert(tools.to_claude_code_name("edit") == "Edit", "edit -> Edit")
+  assert(tools.to_claude_code_name("bash") == "Bash", "bash -> Bash")
+  assert(tools.to_claude_code_name("custom") == "custom", "unknown names unchanged")
+  print("✓ to_claude_code_name works")
+end
+test_to_claude_code_name()
+
+local function test_from_claude_code_name()
+  assert(tools.from_claude_code_name("Read") == "read", "Read -> read")
+  assert(tools.from_claude_code_name("Write") == "write", "Write -> write")
+  assert(tools.from_claude_code_name("Edit") == "edit", "Edit -> edit")
+  assert(tools.from_claude_code_name("Bash") == "bash", "Bash -> bash")
+  assert(tools.from_claude_code_name("Custom") == "Custom", "unknown names unchanged")
+  print("✓ from_claude_code_name works")
+end
+test_from_claude_code_name()
+
+local function test_get_tool_definitions_oauth()
+  local defs_normal = tools.get_tool_definitions(false)
+  local defs_oauth = tools.get_tool_definitions(true)
+
+  assert(#defs_normal == #defs_oauth, "should have same number of tools")
+
+  -- Find read tool in each
+  local read_normal: {string:any} = nil
+  local read_oauth: {string:any} = nil
+  for _, d in ipairs(defs_normal) do
+    if (d as {string:any}).name == "read" then read_normal = d as {string:any} end
+  end
+  for _, d in ipairs(defs_oauth) do
+    if (d as {string:any}).name == "Read" then read_oauth = d as {string:any} end
+  end
+
+  assert(read_normal, "should have read tool in normal mode")
+  assert(read_oauth, "should have Read tool in oauth mode")
+  print("✓ get_tool_definitions handles oauth mode")
+end
+test_get_tool_definitions_oauth()
 
 print("\nAll tools tests passed!")

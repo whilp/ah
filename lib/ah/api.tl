@@ -2,10 +2,12 @@
 local json = require("cosmic.json")
 local fetch = require("cosmic.fetch")
 local auth = require("ah.auth")
+local tools_mod = require("ah.tools")
 
 local API_URL = "https://api.anthropic.com/v1/messages"
 local DEFAULT_MODEL = "claude-sonnet-4-20250514"
 local DEFAULT_MAX_TOKENS = 8192
+local CLAUDE_CODE_IDENTITY = "You are Claude Code, Anthropic's official CLI for Claude."
 
 -- Parse API error response to extract clean message
 local function parse_api_error(status: integer, body: string): string
@@ -22,16 +24,32 @@ local function parse_api_error(status: integer, body: string): string
   return string.format("API error %d: %s", status, err_body)
 end
 
-local function build_request(messages: {any}, opts: {string:any}): {string:any}
+local function build_request(messages: {any}, opts: {string:any}, is_oauth: boolean): {string:any}
   opts = opts or {}
-  return {
+  local req: {string:any} = {
     model = opts.model or DEFAULT_MODEL,
     max_tokens = opts.max_tokens or DEFAULT_MAX_TOKENS,
-    system = opts.system,
     messages = messages,
-    tools = opts.tools,
     stream = opts.stream ~= false,
   }
+
+  -- Format system prompt
+  if is_oauth then
+    -- OAuth: Claude Code identity MUST be in first system block, user prompt in second
+    local system_blocks: {{string:any}} = {{type = "text", text = CLAUDE_CODE_IDENTITY}}
+    if opts.system then
+      table.insert(system_blocks, {type = "text", text = opts.system as string})
+    end
+    req.system = system_blocks
+  elseif opts.system then
+    req.system = opts.system
+  end
+
+  -- Only include tools if provided (allows testing without tools)
+  if opts.tools and #(opts.tools as {any}) > 0 then
+    req.tools = opts.tools
+  end
+  return req
 end
 
 -- Parse SSE stream line by line
@@ -54,7 +72,7 @@ local function stream(messages: {any}, opts: {string:any}, callback: function({s
   opts = opts or {}
   opts.stream = true
 
-  local req = build_request(messages, opts)
+  local req = build_request(messages, opts, creds.is_oauth or false)
   local headers = auth.get_auth_headers(creds)
   local body = json.encode(req)
 
@@ -129,6 +147,16 @@ local function stream(messages: {any}, opts: {string:any}, callback: function({s
             response.content = content_blocks
           end
         end
+      end
+    end
+  end
+
+  -- For OAuth, convert tool names back from Claude Code format
+  if creds.is_oauth and response and response.content then
+    for _, block in ipairs(response.content as {any}) do
+      local b = block as {string:any}
+      if b.type == "tool_use" and b.name then
+        b.name = tools_mod.from_claude_code_name(b.name as string)
       end
     end
   end
