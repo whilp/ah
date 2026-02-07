@@ -3,7 +3,7 @@ local child = require("cosmic.child")
 local unix = require("cosmo.unix")
 
 local FRAMES = {"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
-local INTERVAL_NS = 80000000  -- 80ms in nanoseconds
+local INTERVAL_NS = 120000000  -- 120ms in nanoseconds
 
 local record Spinner
   pid: number
