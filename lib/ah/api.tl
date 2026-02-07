@@ -1,8 +1,21 @@
 -- ah/api.lua: Claude Messages API with streaming
 local json = require("cosmic.json")
 local fetch = require("cosmic.fetch")
+local unix = require("cosmo.unix")
 local auth = require("ah.auth")
 local tools_mod = require("ah.tools")
+local spinner = require("ah.spinner")
+
+-- ANSI styling (only when stderr is a tty)
+local is_tty = unix.isatty(2)
+local DIM = is_tty and "\27[2m" or ""
+local RESET = is_tty and "\27[0m" or ""
+
+-- Get monotonic time in seconds
+local function now(): number
+  local s, ns = unix.clock_gettime(unix.CLOCK_MONOTONIC)
+  return s + ns / 1e9
+end
 
 local API_URL = "https://api.anthropic.com/v1/messages"
 local DEFAULT_MODEL = "claude-sonnet-4-20250514"
@@ -76,12 +89,19 @@ local function stream(messages: {any}, opts: {string:any}, callback: function({s
   local headers = auth.get_auth_headers(creds)
   local body = json.encode(req)
 
+  -- Start spinner while waiting for API
+  local spin = spinner.start()
+  local start = now()
+
   local result = fetch.Fetch(API_URL, {
     method = "POST",
     headers = headers,
     body = body,
     maxresponse = 10 * 1024 * 1024,
   } as fetch.Opts)
+
+  local elapsed = now() - start
+  spinner.stop(spin)
 
   if not result.ok then
     return nil, "fetch failed: " .. (result.error or "unknown error")
@@ -159,6 +179,11 @@ local function stream(messages: {any}, opts: {string:any}, callback: function({s
         b.name = tools_mod.from_claude_code_name(b.name as string)
       end
     end
+  end
+
+  -- Attach think time to response
+  if response then
+    response.think_time = elapsed
   end
 
   return response
