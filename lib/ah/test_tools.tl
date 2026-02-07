@@ -53,6 +53,34 @@ local function test_bash_exit_code()
   print("✓ bash tool handles exit codes")
 end
 
+local function test_tool_definitions()
+  local defs = tools.get_tool_definitions()
+  assert(#defs == 4, "should have 4 tools")
+
+  for _, d in ipairs(defs) do
+    local def = d as {string:any}
+    assert(def.name, "tool should have name")
+    assert(def.description, "tool should have description")
+    assert(def.input_schema, "tool should have input_schema")
+    local schema = def.input_schema as {string:any}
+    assert(schema.type == "object", "schema type should be object")
+    assert(schema.properties, "schema should have properties")
+    assert(schema.required, "schema should have required array")
+  end
+
+  -- Check read tool specifically
+  local read_def = defs[1] as {string:any}
+  assert(read_def.name == "read", "first tool should be read")
+  local read_schema = read_def.input_schema as {string:any}
+  local read_props = read_schema.properties as {string:any}
+  local read_required = read_schema.required as {string}
+  assert(read_props.path, "read should have path property")
+  assert(read_required[1] == "path", "path should be required")
+
+  print("✓ tool definitions are correct")
+end
+
+test_tool_definitions()
 test_read_tool()
 test_read_nonexistent()
 test_write_tool()
