@@ -14,9 +14,9 @@ TMP ?= /tmp
 export TMPDIR := $(TMP)
 
 # cosmic dependency
-cosmic_version := 2026-02-06-c7537ca
+cosmic_version := 2026-02-07-53a41de
 cosmic_url := https://github.com/whilp/cosmic/releases/download/$(cosmic_version)/cosmic-lua
-cosmic_sha := 19f8991a9254f093b83546ecdf780c073b039600f060ab93f6ce78f1ef020bd8
+cosmic_sha := ba17a3f86ca46c48dadab3734c034d220e4f7ef8979009e04b15083b8276b0bb
 cosmic := $(o)/bin/cosmic
 
 $(cosmic):
