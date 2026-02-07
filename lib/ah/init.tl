@@ -5,6 +5,10 @@ local json = require("cosmic.json")
 local getopt = require("cosmic.getopt")
 local unix = require("cosmo.unix")
 
+local cosmo = require("cosmo")
+local zip = require("cosmic.zip")
+local embed = require("cosmic.embed")
+local pathlib = require("cosmo.path")
 local db = require("ah.db")
 local api = require("ah.api")
 local tools = require("ah.tools")
@@ -26,32 +30,42 @@ global interrupted: boolean = false
 local DEFAULT_SYSTEM_PROMPT = [[You are a coding assistant. Tools: read, write, edit, bash.
 read: examine files. edit: precise text replacement. write: create new files. bash: run commands.]]
 
--- Load CLAUDE.md from current directory
+-- Load CLAUDE.md with embedded base prepended
 local function load_claude_md(cwd: string): string
   cwd = cwd or fs.getcwd()
-  local content = cio.slurp(fs.join(cwd, "CLAUDE.md"))
-  if content then
-    return "\n\n# Project Context\n\n" .. content
+  local result = ""
+
+  -- Load embedded base claude.md first
+  local sys_claude = cio.slurp("/zip/embed/sys/claude.md")
+  if sys_claude then
+    result = "\n\n" .. sys_claude
   end
-  return ""
+
+  -- Append project CLAUDE.md
+  local project_claude = cio.slurp(fs.join(cwd, "CLAUDE.md"))
+  if project_claude then
+    result = result .. "\n\n# Project Context\n\n" .. project_claude
+  end
+
+  return result
 end
 
 -- Load system prompt with precedence:
--- 1. cli_system (via -s flag) if set
--- 2. .ah/SYSTEM.md (project) if exists
--- 3. DEFAULT_SYSTEM_PROMPT
+-- 1. /zip/embed/system.md (user override)
+-- 2. /zip/embed/sys/system.md (ah default)
 -- CLAUDE.md is always appended
-local function load_system_prompt(cli_system: string, cwd: string): string
+local function load_system_prompt(cwd: string): string
   cwd = cwd or fs.getcwd()
   local claude_md = load_claude_md(cwd)
 
-  if cli_system then
-    return cli_system .. claude_md
+  local user_system = cio.slurp("/zip/embed/system.md")
+  if user_system then
+    return user_system .. claude_md
   end
 
-  local project_system = cio.slurp(fs.join(cwd, ".ah", "SYSTEM.md"))
-  if project_system then
-    return project_system .. claude_md
+  local sys_system = cio.slurp("/zip/embed/sys/system.md")
+  if sys_system then
+    return sys_system .. claude_md
   end
 
   return DEFAULT_SYSTEM_PROMPT .. claude_md
@@ -136,13 +150,14 @@ commands:
   scan                list messages in current branch
   show [N]            show message(s)
   rmm N...            remove messages
+  embed <dir>         embed files into /zip/embed/
+  extract <dir>       extract /zip/embed/ to directory
 
 options:
   -h, --help          show this help
   -n, --new           start a new session
   -S, --session ULID  use specific session (prefix match)
   --db PATH           use custom database path (default: .ah/<ulid>.db)
-  -s, --system PROMPT set system prompt for this invocation
   -m, --model MODEL   set model (e.g., claude-sonnet-4-20250514)
 ]])
 end
@@ -488,9 +503,9 @@ local function cmd_rmm(d: db.DB, seqs: {integer})
 end
 
 local function main(args: {string}): integer, string
-  local system_prompt: string = nil
   local model: string = nil
   local db_path: string = nil
+  local output_path: string = nil
   local new_session: boolean = false
   local session_prefix: string = nil
   local cwd = fs.getcwd()
@@ -500,11 +515,11 @@ local function main(args: {string}): integer, string
     {name = "new", has_arg = "none", short = "n"},
     {name = "session", has_arg = "required", short = "S"},
     {name = "db", has_arg = "required"},
-    {name = "system", has_arg = "required", short = "s"},
     {name = "model", has_arg = "required", short = "m"},
+    {name = "output", has_arg = "required", short = "o"},
   }
 
-  local parser = getopt.new(args, "hnS:s:m:", longopts)
+  local parser = getopt.new(args, "hnS:m:o:", longopts)
 
   while true do
     local opt, optarg = parser:next()
@@ -519,10 +534,10 @@ local function main(args: {string}): integer, string
       session_prefix = optarg
     elseif opt == "db" then
       db_path = optarg
-    elseif opt == "s" or opt == "system" then
-      system_prompt = optarg
     elseif opt == "m" or opt == "model" then
       model = optarg
+    elseif opt == "o" or opt == "output" then
+      output_path = optarg
     elseif opt == "?" then
       usage()
       return 1
@@ -531,13 +546,70 @@ local function main(args: {string}): integer, string
 
   local remaining = parser:remaining() or {}
 
-  -- Handle sessions command first (doesn't need db)
+  -- Handle commands that don't need db
   local cmd = remaining[1]
   if cmd == "sessions" then
-    -- For sessions command, we need to know which would be default
     local sessions = list_sessions(cwd)
     local current_ulid = sessions[1] and sessions[1].ulid or ""
     cmd_sessions(cwd, current_ulid)
+    return 0
+
+  elseif cmd == "embed" then
+    local src_dir = remaining[2]
+    if not src_dir then
+      io.stderr:write("usage: ah embed <dir> [-o <file>]\n")
+      return 1
+    end
+    -- Create temp structure with embed/ prefix
+    local tmpdir = unix.mkdtemp("/tmp/ah-embed-XXXXXX")
+    local embed_link = pathlib.join(tmpdir, "embed")
+    unix.symlink(fs.realpath(src_dir), embed_link)
+    local result = embed.run({tmpdir}, output_path)
+    unix.rmrf(tmpdir)
+    if result.ok then
+      io.write(result.message .. "\n")
+      return 0
+    else
+      io.stderr:write("embed: " .. result.message .. "\n")
+      return 1
+    end
+
+  elseif cmd == "extract" then
+    local output_dir = remaining[2]
+    if not output_dir then
+      io.stderr:write("usage: ah extract <dir>\n")
+      return 1
+    end
+    -- Extract only files from embed/ prefix
+    local exe_path = arg[-1]
+    local exe_data = cosmo.Slurp(exe_path)
+    if not exe_data then
+      io.stderr:write("extract: cannot read executable\n")
+      return 1
+    end
+    local reader, err = zip.from(exe_data)
+    if not reader then
+      io.stderr:write("extract: " .. (err or "no zip archive found") .. "\n")
+      return 1
+    end
+    local prefix = "embed/"
+    local entries = reader:list()
+    local count = 0
+    for _, name in ipairs(entries) do
+      if name:sub(1, #prefix) == prefix and name:sub(-1) ~= "/" then
+        local content = reader:read(name)
+        if content then
+          local rel_name = name:sub(#prefix + 1)
+          local filepath = pathlib.join(output_dir, rel_name)
+          local dir = pathlib.dirname(filepath)
+          unix.makedirs(dir)
+          cosmo.Barf(filepath, content)
+          count = count + 1
+        end
+      end
+    end
+    reader:close()
+    io.write("extracted " .. count .. " file(s) to " .. output_dir .. "\n")
     return 0
   end
 
@@ -647,7 +719,7 @@ local function main(args: {string}): integer, string
   end
 
   -- Load system prompt
-  local effective_system = load_system_prompt(system_prompt, nil)
+  local effective_system = load_system_prompt(cwd)
 
   -- Initialize custom tools
   tools.init_custom_tools()

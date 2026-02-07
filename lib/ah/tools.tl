@@ -494,10 +494,27 @@ local function init_custom_tools()
   local home = os.getenv("HOME") or ""
   local cwd = fs.getcwd()
 
-  -- Load Lua module tools from .ah/tools/
+  -- Load Lua module tools: embedded sys -> global -> project (later overrides earlier)
+  local sys_tools = load_custom_tools_from_dir("/zip/embed/sys/tools")
   local global_tools_dir = fs.join(home, ".ah", "tools")
   local project_tools_dir = fs.join(cwd, ".ah", "tools")
-  custom_tools = load_custom_tools(global_tools_dir, project_tools_dir)
+  local user_tools = load_custom_tools(global_tools_dir, project_tools_dir)
+
+  -- Merge: user tools override sys tools
+  custom_tools = sys_tools
+  for _, tool in ipairs(user_tools) do
+    local found = false
+    for i, existing in ipairs(custom_tools) do
+      if existing.name == tool.name then
+        custom_tools[i] = tool
+        found = true
+        break
+      end
+    end
+    if not found then
+      table.insert(custom_tools, tool)
+    end
+  end
 
   -- Load CLI tools from .ah/bin/
   local global_bin_dir = fs.join(home, ".ah", "bin")

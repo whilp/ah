@@ -95,7 +95,14 @@ $(o)/embed/.lua/%.lua: $(o)/lib/%.lua
 	@mkdir -p $(@D)
 	@cp $< $@
 
-$(o)/bin/ah: $(o)/embed/main.lua $(ah_lib_lua) $(ah_dep_lua) $(cosmic)
+$(o)/embed/embed/sys/%: sys/%
+	@mkdir -p $(@D)
+	@cp $< $@
+
+ah_sys_files := $(shell find sys -type f 2>/dev/null)
+ah_sys := $(patsubst sys/%,$(o)/embed/embed/sys/%,$(ah_sys_files))
+
+$(o)/bin/ah: $(o)/embed/main.lua $(ah_lib_lua) $(ah_dep_lua) $(ah_sys) $(cosmic)
 	@echo "==> embedding ah"
 	@$(cosmic) --embed $(o)/embed --output $@
 

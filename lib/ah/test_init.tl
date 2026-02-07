@@ -12,29 +12,10 @@ local function test_load_system_prompt_default()
   local empty_dir = fs.join(TEST_TMPDIR, "empty")
   fs.makedirs(empty_dir)
 
-  local prompt = init.load_system_prompt(nil, empty_dir)
+  local prompt = init.load_system_prompt(empty_dir)
   assert(prompt == init.DEFAULT_SYSTEM_PROMPT, "should use default prompt when no files exist")
 end
 test_load_system_prompt_default()
-
-local function test_load_system_prompt_cli_override()
-  -- -s flag should take precedence over everything
-  local prompt = init.load_system_prompt("Custom via -s", TEST_TMPDIR)
-  assert(prompt:match("Custom via %-s"), "cli prompt should override")
-end
-test_load_system_prompt_cli_override()
-
-local function test_load_system_prompt_project()
-  local cwd = fs.join(TEST_TMPDIR, "cwd_proj")
-  local project_ah = fs.join(cwd, ".ah")
-  fs.makedirs(project_ah)
-
-  cio.barf(fs.join(project_ah, "SYSTEM.md"), "Project system prompt")
-
-  local prompt = init.load_system_prompt(nil, cwd)
-  assert(prompt:match("Project system prompt"), "should load project SYSTEM.md")
-end
-test_load_system_prompt_project()
 
 local function test_load_claude_md()
   local cwd = fs.join(TEST_TMPDIR, "cwd_claude")
@@ -58,29 +39,15 @@ test_load_claude_md_missing()
 
 local function test_load_system_prompt_with_claude_md()
   local cwd = fs.join(TEST_TMPDIR, "cwd_with_claude")
-  local project_ah = fs.join(cwd, ".ah")
-  fs.makedirs(project_ah)
+  fs.makedirs(cwd)
 
-  cio.barf(fs.join(project_ah, "SYSTEM.md"), "You are a coding assistant.")
   cio.barf(fs.join(cwd, "CLAUDE.md"), "This is my project context")
 
-  local prompt = init.load_system_prompt(nil, cwd)
-  assert(prompt:match("You are a coding assistant"), "should include system prompt")
+  local prompt = init.load_system_prompt(cwd)
   assert(prompt:match("Project Context"), "should have CLAUDE.md header")
   assert(prompt:match("This is my project context"), "should append CLAUDE.md content")
 end
 test_load_system_prompt_with_claude_md()
-
-local function test_cli_prompt_with_claude_md()
-  local cwd = fs.join(TEST_TMPDIR, "cwd_cli_claude")
-  fs.makedirs(cwd)
-  cio.barf(fs.join(cwd, "CLAUDE.md"), "Project notes here")
-
-  local prompt = init.load_system_prompt("Custom prompt", cwd)
-  assert(prompt:match("Custom prompt"), "should use cli prompt")
-  assert(prompt:match("Project notes here"), "should append CLAUDE.md to cli prompt")
-end
-test_cli_prompt_with_claude_md()
 
 -- Tests for tool_key_param
 local function test_tool_key_param_bash()
