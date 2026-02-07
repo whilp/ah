@@ -28,11 +28,13 @@ $(cosmic): | $(o)/bin/.
 	@chmod +x $@
 
 # build tools
-build_tools := $(o)/bin/make-help.lua $(o)/bin/reporter.lua
+build_tools := $(o)/bin/make-help.lua
 
 $(o)/bin/%.lua: lib/build/%.tl $(cosmic)
 	@mkdir -p $(@D)
 	@$(cosmic) --compile $< > $@
+
+reporter := $(cosmic) lib/build/reporter.tl
 
 # ah module
 ah_srcs := $(wildcard lib/ah/*.tl)
@@ -74,8 +76,8 @@ help: $(build_tools) $(cosmic)
 ## Run all tests (incremental)
 test: $(o)/test-summary.txt
 
-$(o)/test-summary.txt: $(all_tested) $(o)/bin/reporter.lua $(cosmic)
-	@$(cosmic) $(o)/bin/reporter.lua --dir $(o) $(all_tested) | tee $@
+$(o)/test-summary.txt: $(all_tested) $(cosmic)
+	@$(reporter) --dir $(o) $(all_tested) | tee $@
 
 .PHONY: build
 ## Build all files
@@ -87,8 +89,8 @@ teal: $(o)/teal-summary.txt
 
 all_teals := $(patsubst %,$(o)/%.teal.ok,$(ah_tl))
 
-$(o)/teal-summary.txt: $(all_teals) $(o)/bin/reporter.lua $(cosmic)
-	@$(cosmic) $(o)/bin/reporter.lua --dir $(o) $(all_teals) | tee $@
+$(o)/teal-summary.txt: $(all_teals) $(cosmic)
+	@$(reporter) --dir $(o) $(all_teals) | tee $@
 
 $(o)/%.tl.teal.ok: %.tl $(cosmic) $(types)
 	@mkdir -p $(@D)
