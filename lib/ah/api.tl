@@ -1,35 +1,86 @@
 -- ah/api.lua: Claude Messages API with streaming
 local json = require("cosmic.json")
 local fetch = require("cosmic.fetch")
-local unix = require("cosmo.unix")
 local auth = require("ah.auth")
 local tools_mod = require("ah.tools")
-local spinner = require("ah.spinner")
-
--- ANSI styling (only when stderr is a tty)
-local is_tty = unix.isatty(2)
-local DIM = is_tty and "\27[2m" or ""
-local RESET = is_tty and "\27[0m" or ""
-
--- Get monotonic time in seconds
-local function now(): number
-  local s, ns = unix.clock_gettime(unix.CLOCK_MONOTONIC)
-  return s + ns / 1e9
-end
 
 local API_URL = "https://api.anthropic.com/v1/messages"
-
--- Fix empty Lua tables that should be JSON arrays
--- Lua can't distinguish {} (object) from [] (array), so empty tables encode as {}
--- The API expects content fields to be arrays, so we fix them via string replacement
-local function fix_empty_arrays(json_str: string): string
-  -- Fix "content":{} -> "content":[]
-  -- This handles both message content and tool_result content
-  return (json_str:gsub('"content":%{%}', '"content":[]'))
-end
 local DEFAULT_MODEL = "claude-sonnet-4-20250514"
 local DEFAULT_MAX_TOKENS = 8192
 local CLAUDE_CODE_IDENTITY = "You are Claude Code, Anthropic's official CLI for Claude."
+
+local MAX_RETRIES = 3
+local BASE_DELAY_MS = 1000
+local MAX_RETRY_DELAY_MS = 60000
+
+-- Check if an error is retryable (rate limits, server errors)
+local function is_retryable_error(status: integer, error_text: string): boolean
+  -- Retryable status codes
+  if status == 429 or status == 500 or status == 502 or status == 503 or status == 504 then
+    return true
+  end
+  -- Check error text for rate limit patterns
+  local text = (error_text or ""):lower()
+  if text:match("rate[%s_-]*limit") or text:match("overloaded") then
+    return true
+  end
+  return false
+end
+
+-- Extract retry delay from headers or error message
+-- Returns delay in milliseconds, or nil if not found
+local function extract_retry_delay(error_text: string, headers: {string:string}): integer
+  headers = headers or {}
+
+  -- Check Retry-After header (seconds)
+  local retry_after = headers["retry-after"] or headers["Retry-After"]
+  if retry_after then
+    local seconds = tonumber(retry_after)
+    if seconds and seconds > 0 then
+      return math.floor(seconds * 1000 + 1000) as integer
+    end
+  end
+
+  -- Check x-ratelimit-reset-after header (seconds)
+  local reset_after = headers["x-ratelimit-reset-after"]
+  if reset_after then
+    local seconds = tonumber(reset_after)
+    if seconds and seconds > 0 then
+      return math.floor(seconds * 1000 + 1000) as integer
+    end
+  end
+
+  -- Parse error text patterns
+  local text = error_text or ""
+
+  -- "retry in Xs" or "retry in Xms"
+  local retry_seconds = text:match("retry in (%d+)s")
+  if retry_seconds then
+    return math.floor(tonumber(retry_seconds) * 1000 + 1000) as integer
+  end
+  local retry_ms = text:match("retry in (%d+)ms")
+  if retry_ms then
+    return math.floor(tonumber(retry_ms) + 1000) as integer
+  end
+
+  -- "reset after Xs" or "reset after XhYmZs"
+  local reset_seconds = text:match("reset after (%d+)s")
+  if reset_seconds then
+    return math.floor(tonumber(reset_seconds) * 1000 + 1000) as integer
+  end
+
+  return nil
+end
+
+-- Sleep for given milliseconds
+local function sleep_ms(ms: integer)
+  local child = require("cosmic.child")
+  local seconds = ms / 1000
+  local handle = child.spawn({"sleep", string.format("%.3f", seconds)})
+  if handle then
+    handle:wait()
+  end
+end
 
 -- Parse API error response to extract clean message
 local function parse_api_error(status: integer, body: string): string
@@ -95,26 +146,54 @@ local function stream(messages: {any}, opts: {string:any}, callback: function({s
   opts.stream = true
 
   local req = build_request(messages, opts, creds.is_oauth or false)
-  local headers = auth.get_auth_headers(creds)
-  local encoded = json.encode(req)
-  local body = fix_empty_arrays(encoded)
+  local auth_headers = auth.get_auth_headers(creds)
+  local body = json.encode(req)
 
-  -- Start spinner while waiting for API
-  local spin = spinner.start()
-  local start = now()
+  -- Retry loop for transient errors
+  local result: fetch.Result = nil
+  local last_error: string = nil
 
-  local result = fetch.Fetch(API_URL, {
-    method = "POST",
-    headers = headers,
-    body = body,
-    maxresponse = 10 * 1024 * 1024,
-  } as fetch.Opts)
+  for attempt = 0, MAX_RETRIES do
+    result = fetch.Fetch(API_URL, {
+      method = "POST",
+      headers = auth_headers,
+      body = body,
+      maxresponse = 10 * 1024 * 1024,
+    } as fetch.Opts)
 
-  local elapsed = now() - start
-  spinner.stop(spin)
+    if not result.ok then
+      last_error = "fetch failed: " .. (result.error or "unknown error")
+      -- Network errors are retryable
+      if attempt < MAX_RETRIES then
+        local delay_ms = BASE_DELAY_MS * (2 ^ attempt)
+        sleep_ms(delay_ms as integer)
+      end
+    elseif result.status == 200 then
+      break
+    else
+      local status = result.status as integer
+      local error_body = result.body or ""
+      last_error = parse_api_error(status, error_body)
 
-  if not result.ok then
-    return nil, "fetch failed: " .. (result.error or "unknown error")
+      if attempt < MAX_RETRIES and is_retryable_error(status, error_body) then
+        -- Try to get delay from headers or error message
+        local delay_ms: integer = extract_retry_delay(error_body, result.headers as {string:string})
+        if not delay_ms then
+          delay_ms = math.floor(BASE_DELAY_MS * (2 ^ attempt)) as integer
+        end
+        -- Cap the delay
+        if delay_ms > MAX_RETRY_DELAY_MS then
+          return nil, last_error
+        end
+        sleep_ms(delay_ms)
+      else
+        return nil, last_error
+      end
+    end
+  end
+
+  if not result or not result.ok then
+    return nil, last_error or "fetch failed"
   end
 
   if result.status ~= 200 then
@@ -191,11 +270,6 @@ local function stream(messages: {any}, opts: {string:any}, callback: function({s
     end
   end
 
-  -- Attach think time to response
-  if response then
-    response.think_time = elapsed
-  end
-
   return response
 end
 
@@ -218,6 +292,10 @@ return {
   extract_tool_calls = extract_tool_calls,
   build_request = build_request,
   parse_api_error = parse_api_error,
-  fix_empty_arrays = fix_empty_arrays,
+  is_retryable_error = is_retryable_error,
+  extract_retry_delay = extract_retry_delay,
   DEFAULT_MODEL = DEFAULT_MODEL,
+  MAX_RETRIES = MAX_RETRIES,
+  BASE_DELAY_MS = BASE_DELAY_MS,
+  MAX_RETRY_DELAY_MS = MAX_RETRY_DELAY_MS,
 }

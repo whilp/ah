@@ -145,38 +145,38 @@ local function test_parse_api_error_malformed_json()
 end
 test_parse_api_error_malformed_json()
 
--- Tests for fix_empty_arrays (fixes empty Lua tables encoding as {} instead of [])
-local function test_fix_empty_arrays_content()
-  -- Simulates message with no content blocks (e.g., after segfault)
-  local input = '{"role":"user","content":{}}'
-  local result = api.fix_empty_arrays(input)
-  assert(result == '{"role":"user","content":[]}', "should fix empty content: " .. result)
+-- Tests for retry behavior on 429 errors
+local function test_is_retryable_error()
+  -- 429 should be retryable
+  assert(api.is_retryable_error(429, "rate limit"), "429 should be retryable")
+  -- 500 errors should be retryable
+  assert(api.is_retryable_error(500, "internal error"), "500 should be retryable")
+  assert(api.is_retryable_error(502, "bad gateway"), "502 should be retryable")
+  assert(api.is_retryable_error(503, "unavailable"), "503 should be retryable")
+  assert(api.is_retryable_error(504, "timeout"), "504 should be retryable")
+  -- 400 errors should not be retryable
+  assert(not api.is_retryable_error(400, "bad request"), "400 should not be retryable")
+  assert(not api.is_retryable_error(401, "unauthorized"), "401 should not be retryable")
+  -- Rate limit text should make it retryable
+  assert(api.is_retryable_error(200, "rate limit exceeded"), "rate limit text should be retryable")
+  assert(api.is_retryable_error(200, "overloaded"), "overloaded text should be retryable")
 end
-test_fix_empty_arrays_content()
+test_is_retryable_error()
 
-local function test_fix_empty_arrays_nested()
-  -- Multiple messages with empty content
-  local input = '{"messages":[{"role":"user","content":{}},{"role":"assistant","content":{}}]}'
-  local result = api.fix_empty_arrays(input)
-  assert(result:find('"content":%[%]'), "should fix nested empty content")
-  assert(not result:find('"content":%{%}'), "should not have any empty object content")
-end
-test_fix_empty_arrays_nested()
+local function test_extract_retry_delay()
+  -- From Retry-After header (seconds)
+  local headers = {["retry-after"] = "5"}
+  local delay = api.extract_retry_delay("", headers)
+  assert(delay and delay >= 5000, "should parse Retry-After seconds, got: " .. tostring(delay))
 
-local function test_fix_empty_arrays_with_data()
-  -- Should not affect non-empty content
-  local input = '{"role":"user","content":[{"type":"text","text":"hello"}]}'
-  local result = api.fix_empty_arrays(input)
-  assert(result == input, "should not modify non-empty content")
-end
-test_fix_empty_arrays_with_data()
+  -- From error message pattern "retry in Xs"
+  delay = api.extract_retry_delay("Please retry in 10s", {})
+  assert(delay and delay >= 10000, "should parse 'retry in Xs' pattern, got: " .. tostring(delay))
 
-local function test_fix_empty_arrays_tool_result()
-  -- Tool result content can also be empty
-  local input = '{"type":"tool_result","tool_use_id":"123","content":{}}'
-  local result = api.fix_empty_arrays(input)
-  assert(result:find('"content":%[%]'), "should fix tool_result empty content")
+  -- From error message pattern "reset after Xs"
+  delay = api.extract_retry_delay("Your quota will reset after 30s", {})
+  assert(delay and delay >= 30000, "should parse 'reset after Xs' pattern, got: " .. tostring(delay))
 end
-test_fix_empty_arrays_tool_result()
+test_extract_retry_delay()
 
 print("all api tests passed")
