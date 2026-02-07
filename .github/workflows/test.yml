@@ -12,5 +12,5 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Run tests
-        run: make test
+      - name: Run tests and type checks
+        run: make -j ci
