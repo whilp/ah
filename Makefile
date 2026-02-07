@@ -61,16 +61,9 @@ export LUA_PATH := $(CURDIR)/o/bin/?.lua;$(CURDIR)/o/lib/?.lua;$(CURDIR)/o/lib/?
 
 $(o)/%.tl.test.ok: $(o)/%.lua $(ah_lua) $(cosmic)
 	@mkdir -p $(@D)
-	@tmpdir=$$(mktemp -d); \
-	if TEST_TMPDIR=$$tmpdir $(cosmic) $< >$$tmpdir/out 2>&1; then \
-		echo "pass:" > $@; \
-	else \
-		echo "fail:" > $@; \
-	fi; \
-	echo "" >> $@; echo "## stdout" >> $@; echo "" >> $@; \
-	cat $$tmpdir/out >> $@; \
-	echo "## stderr" >> $@; echo "" >> $@; \
-	rm -rf $$tmpdir
+	@d=$$(mktemp -d); TEST_TMPDIR=$$d $(cosmic) $< >$$d/out 2>&1 \
+		&& echo "pass:" > $@ || echo "fail:" > $@; \
+	cat $$d/out >> $@; rm -rf $$d
 
 # targets
 .PHONY: help

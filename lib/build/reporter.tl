@@ -8,8 +8,7 @@ local record CheckResult
   name: string
   file: string
   checker: string
-  stdout: string
-  stderr: string
+  output: string
 end
 
 local record CategorizedResults
@@ -21,15 +20,14 @@ end
 
 local function parse_result(content: string): CheckResult
   local result: CheckResult = {}
-  local first_line = content:match("^([^\n]+)")
+  local first_line, rest = content:match("^([^\n]*)\n?(.*)")
   if not first_line then
     return nil
   end
   local status, message = first_line:match("^(%w+):?%s*(.*)")
   result.status = status or first_line
   result.message = message ~= "" and message or nil
-  result.stdout = content:match("## stdout\n\n(.-)\n## stderr") or ""
-  result.stderr = content:match("## stderr\n\n(.*)$") or ""
+  result.output = rest or ""
   return result
 end
 
@@ -101,8 +99,7 @@ local function main(...: string): integer, string
         local result: CheckResult = {
           status = parsed.status,
           message = parsed.message,
-          stdout = parsed.stdout,
-          stderr = parsed.stderr,
+          output = parsed.output,
           name = strip_prefix(file, dir):gsub(strip_suffix, ""),
           file = file,
           checker = checker ~= "test" and checker or nil,
@@ -144,8 +141,8 @@ local function main(...: string): integer, string
       if result.message then
         table.insert(lines, result.message)
       end
-      if result.stderr and result.stderr ~= "" then
-        table.insert(lines, truncate_lines(result.stderr, 10))
+      if result.output and result.output ~= "" then
+        table.insert(lines, truncate_lines(result.output, 10))
       end
     end
   end
