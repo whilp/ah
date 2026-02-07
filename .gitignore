@@ -4,3 +4,4 @@ o/
 # wrapper script (generated)
 /ah
 .env
+.ah/

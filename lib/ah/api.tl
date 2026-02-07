@@ -18,6 +18,15 @@ local function now(): number
 end
 
 local API_URL = "https://api.anthropic.com/v1/messages"
+
+-- Fix empty Lua tables that should be JSON arrays
+-- Lua can't distinguish {} (object) from [] (array), so empty tables encode as {}
+-- The API expects content fields to be arrays, so we fix them via string replacement
+local function fix_empty_arrays(json_str: string): string
+  -- Fix "content":{} -> "content":[]
+  -- This handles both message content and tool_result content
+  return (json_str:gsub('"content":%{%}', '"content":[]'))
+end
 local DEFAULT_MODEL = "claude-sonnet-4-20250514"
 local DEFAULT_MAX_TOKENS = 8192
 local CLAUDE_CODE_IDENTITY = "You are Claude Code, Anthropic's official CLI for Claude."
@@ -87,7 +96,8 @@ local function stream(messages: {any}, opts: {string:any}, callback: function({s
 
   local req = build_request(messages, opts, creds.is_oauth or false)
   local headers = auth.get_auth_headers(creds)
-  local body = json.encode(req)
+  local encoded = json.encode(req)
+  local body = fix_empty_arrays(encoded)
 
   -- Start spinner while waiting for API
   local spin = spinner.start()
@@ -208,5 +218,6 @@ return {
   extract_tool_calls = extract_tool_calls,
   build_request = build_request,
   parse_api_error = parse_api_error,
+  fix_empty_arrays = fix_empty_arrays,
   DEFAULT_MODEL = DEFAULT_MODEL,
 }

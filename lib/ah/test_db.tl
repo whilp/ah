@@ -165,4 +165,130 @@ local function test_get_first_user_prompt()
 end
 test_get_first_user_prompt()
 
+-- Test orphan cleanup
+local function test_cleanup_orphans()
+  local db_path = fs.join(TEST_TMPDIR, "orphan_test.db")
+  local d = db.open(db_path)
+
+  -- Create a valid message with content
+  local msg1 = db.create_message(d, "user")
+  db.add_content_block(d, msg1.id, "text", {content = "hello"})
+
+  -- Create a leaf orphan message (no content blocks - simulates crash)
+  local orphan = db.create_message(d, "assistant", msg1.id)
+  -- Intentionally NOT adding content blocks
+
+  assert(db.get_message_count(d) == 2, "should have 2 messages before cleanup")
+
+  -- Cleanup should remove the leaf orphan
+  local cleaned = db.cleanup_orphans(d)
+  assert(cleaned == 1, "should have cleaned 1 orphan, got " .. cleaned)
+  assert(db.get_message_count(d) == 1, "should have 1 message after cleanup")
+
+  db.close(d)
+end
+test_cleanup_orphans()
+
+-- Test that orphan cleanup preserves parent chain
+local function test_cleanup_preserves_chain()
+  local db_path = fs.join(TEST_TMPDIR, "orphan_chain.db")
+  local d = db.open(db_path)
+
+  -- Create: valid -> orphan -> valid
+  local msg1 = db.create_message(d, "user")
+  db.add_content_block(d, msg1.id, "text", {content = "hello"})
+
+  local orphan = db.create_message(d, "assistant", msg1.id)
+  -- Intentionally NOT adding content blocks (orphan)
+
+  local msg2 = db.create_message(d, "user", orphan.id)
+  db.add_content_block(d, msg2.id, "text", {content = "world"})
+
+  assert(db.get_message_count(d) == 3, "should have 3 messages")
+
+  -- Cleanup should NOT remove the orphan because it has a child
+  local cleaned = db.cleanup_orphans(d)
+  assert(cleaned == 0, "should not clean orphan with children, got " .. cleaned)
+  assert(db.get_message_count(d) == 3, "should still have 3 messages")
+
+  -- Ancestry from msg2 should include all 3 messages
+  local ancestry = db.get_ancestry(d, msg2.id)
+  assert(#ancestry == 3, "ancestry should include all 3 messages")
+
+  db.close(d)
+end
+test_cleanup_preserves_chain()
+
+-- Test transaction support
+local function test_transactions()
+  local db_path = fs.join(TEST_TMPDIR, "tx_test.db")
+  local d = db.open(db_path)
+
+  -- Test basic transaction
+  db.begin_transaction(d)
+  local msg = db.create_message(d, "user")
+  db.add_content_block(d, msg.id, "text", {content = "hello"})
+  db.commit(d)
+
+  local blocks = db.get_content_blocks(d, msg.id)
+  assert(#blocks == 1, "should have 1 block after commit")
+
+  -- Test rollback
+  db.begin_transaction(d)
+  local msg2 = db.create_message(d, "assistant", msg.id)
+  db.add_content_block(d, msg2.id, "text", {content = "response"})
+  db.rollback(d)
+
+  -- After rollback, msg2 should not exist
+  local count = db.get_message_count(d)
+  assert(count == 1, "should have only 1 message after rollback, got " .. count)
+
+  db.close(d)
+end
+test_transactions()
+
+-- Test that demonstrates the empty content serialization bug
+-- When a message has no content blocks (e.g., after a segfault during tool execution),
+-- the empty content table serializes as {} (object) instead of [] (array),
+-- causing API error: "messages.N.content: Input should be a valid list"
+local function test_empty_content_serialization()
+  local json = require("cosmic.json")
+  local db_path = fs.join(TEST_TMPDIR, "empty_content.db")
+  local d = db.open(db_path)
+
+  -- Simulate a segfault scenario: message created but no content blocks added
+  local msg = db.create_message(d, "user")
+  -- Intentionally NOT adding any content blocks
+
+  -- Build API message like init.tl does (lines 287-324)
+  local blocks = db.get_content_blocks(d, msg.id)
+  local content: {any} = {}
+  for _, block in ipairs(blocks) do
+    if block.block_type == "text" then
+      table.insert(content, {type = "text", text = block.content})
+    end
+  end
+  local api_message = {role = msg.role, content = content}
+
+  -- This is the bug: empty Lua table {} serializes as JSON object {}, not array []
+  local encoded = json.encode(api_message)
+
+  -- The API expects: {"role":"user","content":[]}
+  -- But we get:      {"role":"user","content":{}}
+  local expected_array = '"content":[]'
+  local actual_object = '"content":{}'
+
+  assert(encoded:find(actual_object),
+    "bug demonstration: empty content should serialize as {} (showing the bug exists)")
+
+  -- This assertion would fail, demonstrating the bug
+  -- assert(encoded:find(expected_array),
+  --   "empty content should serialize as [] (array), not {} (object)")
+
+  print("  (confirmed: empty content serializes as {} not [])")
+
+  db.close(d)
+end
+test_empty_content_serialization()
+
 print("all db tests passed")
