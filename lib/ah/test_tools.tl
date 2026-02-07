@@ -58,7 +58,7 @@ local function test_bash_exit_code()
 end
 
 local function test_tool_definitions()
-  local defs = tools.get_tool_definitions()
+  local defs = tools.get_tool_definitions(false)
   assert(#defs == 4, "should have 4 tools")
 
   for _, d in ipairs(defs) do
