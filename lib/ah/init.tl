@@ -1,8 +1,8 @@
 -- ah/init.tl: agent loop and CLI interface
-local cosmo = require("cosmo")
-local path = require("cosmo.path")
-local unix = require("cosmo.unix")
-local getopt = require("cosmo.getopt")
+local fs = require("cosmic.fs")
+local cio = require("cosmic.io")
+local json = require("cosmic.json")
+local getopt = require("cosmic.getopt")
 
 local db = require("ah.db")
 local api = require("ah.api")
@@ -16,13 +16,13 @@ local DEFAULT_SYSTEM_PROMPT = "You are a helpful assistant."
 -- Get global ~/.ah directory
 local function get_global_dir(): string
   local home = os.getenv("HOME") or ""
-  return path.join(home, ".ah")
+  return fs.join(home, ".ah")
 end
 
 -- Load CLAUDE.md from current directory
 local function load_claude_md(cwd: string): string
-  cwd = cwd or unix.getcwd()
-  local content = cosmo.Slurp(path.join(cwd, "CLAUDE.md"))
+  cwd = cwd or fs.getcwd()
+  local content = cio.slurp(fs.join(cwd, "CLAUDE.md"))
   if content then
     return "\n\n# Project Context\n\n" .. content
   end
@@ -36,7 +36,7 @@ end
 -- 4. DEFAULT_SYSTEM_PROMPT
 -- CLAUDE.md is always appended
 local function load_system_prompt(session_system: string, cwd: string, global_dir: string): string
-  cwd = cwd or unix.getcwd()
+  cwd = cwd or fs.getcwd()
   global_dir = global_dir or get_global_dir()
   local claude_md = load_claude_md(cwd)
 
@@ -44,12 +44,12 @@ local function load_system_prompt(session_system: string, cwd: string, global_di
     return session_system .. claude_md
   end
 
-  local project_system = cosmo.Slurp(path.join(cwd, ".ah", "SYSTEM.md"))
+  local project_system = cio.slurp(fs.join(cwd, ".ah", "SYSTEM.md"))
   if project_system then
     return project_system .. claude_md
   end
 
-  local global_system = cosmo.Slurp(path.join(global_dir, "SYSTEM.md"))
+  local global_system = cio.slurp(fs.join(global_dir, "SYSTEM.md"))
   if global_system then
     return global_system .. claude_md
   end
@@ -81,7 +81,7 @@ end
 -- Extract key parameter from tool input for display
 local function tool_key_param(tool_name: string, tool_input: string): string
   if not tool_input then return "" end
-  local input = cosmo.DecodeJson(tool_input) as {string:any}
+  local input = json.decode(tool_input) as {string:any}
   if not input then return "" end
 
   if tool_name == "read" or tool_name == "write" then
@@ -114,7 +114,7 @@ local function run_agent(d: any, session: {string:any}, prompt: string, parent_i
       if block.block_type == "text" then
         table.insert(content, {type = "text", text = block.content})
       elseif block.block_type == "tool_use" then
-        local input = block.tool_input and cosmo.DecodeJson(block.tool_input as string) or {}
+        local input = block.tool_input and json.decode(block.tool_input as string) or {}
         table.insert(content, {
           type = "tool_use",
           id = block.tool_id,
@@ -180,7 +180,7 @@ local function run_agent(d: any, session: {string:any}, prompt: string, parent_i
         db.add_content_block(d, assistant_msg.id as string, "text", {content = b.text})
         table.insert(assistant_api_content, {type = "text", text = b.text})
       elseif b.type == "tool_use" then
-        local input_json = cosmo.EncodeJson(b.input or {})
+        local input_json = json.encode(b.input or {})
         db.add_content_block(d, assistant_msg.id as string, "tool_use", {
           tool_id = b.id,
           tool_name = b.name,
@@ -456,10 +456,10 @@ local function main(args: {string}): integer, string
   local model: string = nil
 
   local longopts = {
-    {"help", "none"},
-    {"new", "none"},
-    {"system", "required"},
-    {"model", "required"},
+    {name = "help", has_arg = "none", short = "h"},
+    {name = "new", has_arg = "none", short = "n"},
+    {name = "system", has_arg = "required", short = "s"},
+    {name = "model", has_arg = "required", short = "m"},
   }
 
   local parser = getopt.new(args, "hns:m:", longopts)
@@ -581,7 +581,7 @@ local function main(args: {string}): integer, string
   -- Create or get session
   if new_session or not session then
     local effective_system = load_system_prompt(system_prompt, nil, nil)
-    session = db.create_session(d, session_name, unix.getcwd(), effective_system, model)
+    session = db.create_session(d, session_name, fs.getcwd(), effective_system, model)
   end
 
   -- Get parent message - always continue from last message unless forking with @N
@@ -612,14 +612,6 @@ local function main(args: {string}): integer, string
 
   db.close(d)
   return 0
-end
-
-if cosmo.is_main() then
-  local code, err = main(arg)
-  if err then
-    io.stderr:write("error: " .. err .. "\n")
-  end
-  os.exit(code)
 end
 
 return {

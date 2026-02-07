@@ -1,8 +1,7 @@
 #!/usr/bin/env cosmic
 -- test_tools.tl: tests for agent tools
-local cosmo = require("cosmo")
-local path = require("cosmo.path")
-local unix = require("cosmo.unix")
+local fs = require("cosmic.fs")
+local cio = require("cosmic.io")
 local tools = require("ah.tools")
 
 local TEST_TMPDIR = os.getenv("TEST_TMPDIR") or "/tmp"
@@ -38,7 +37,7 @@ local function test_edit_tool()
     new_string = "goodbye"
   })
   assert(not is_error, "edit should succeed: " .. result)
-  
+
   local content, _ = tools.execute_tool("read", {path = test_file})
   assert(content:match("goodbye world"), "content should be changed")
   print("✓ edit tool works")
@@ -112,8 +111,8 @@ end
 test_is_valid_tool()
 
 local function test_load_custom_tools_empty_dir()
-  local empty_dir = path.join(TEST_TMPDIR, "empty_tools")
-  unix.makedirs(empty_dir)
+  local empty_dir = fs.join(TEST_TMPDIR, "empty_tools")
+  fs.makedirs(empty_dir)
 
   local loaded = tools.load_custom_tools_from_dir(empty_dir)
   assert(#loaded == 0, "should load 0 tools from empty dir")
@@ -129,10 +128,10 @@ end
 test_load_custom_tools_nonexistent()
 
 local function test_load_custom_tool()
-  local tool_dir = path.join(TEST_TMPDIR, "custom_tools")
-  unix.makedirs(tool_dir)
+  local tool_dir = fs.join(TEST_TMPDIR, "custom_tools")
+  fs.makedirs(tool_dir)
 
-  cosmo.Barf(path.join(tool_dir, "hello.lua"), [[
+  cio.barf(fs.join(tool_dir, "hello.lua"), [[
 return {
   name = "hello",
   description = "Say hello",
@@ -156,12 +155,12 @@ end
 test_load_custom_tool()
 
 local function test_invalid_tool_skipped()
-  local tool_dir = path.join(TEST_TMPDIR, "invalid_tools")
-  unix.makedirs(tool_dir)
+  local tool_dir = fs.join(TEST_TMPDIR, "invalid_tools")
+  fs.makedirs(tool_dir)
 
-  cosmo.Barf(path.join(tool_dir, "bad.lua"), "return nil")
-  cosmo.Barf(path.join(tool_dir, "also_bad.lua"), "return {}")
-  cosmo.Barf(path.join(tool_dir, "good.lua"), [[
+  cio.barf(fs.join(tool_dir, "bad.lua"), "return nil")
+  cio.barf(fs.join(tool_dir, "also_bad.lua"), "return {}")
+  cio.barf(fs.join(tool_dir, "good.lua"), [[
 return {
   name = "good",
   description = "Good tool",
@@ -178,12 +177,12 @@ end
 test_invalid_tool_skipped()
 
 local function test_custom_tool_override()
-  local global_dir = path.join(TEST_TMPDIR, "global_tools")
-  local project_dir = path.join(TEST_TMPDIR, "project_tools")
-  unix.makedirs(global_dir)
-  unix.makedirs(project_dir)
+  local global_dir = fs.join(TEST_TMPDIR, "global_tools")
+  local project_dir = fs.join(TEST_TMPDIR, "project_tools")
+  fs.makedirs(global_dir)
+  fs.makedirs(project_dir)
 
-  cosmo.Barf(path.join(global_dir, "foo.lua"), [[
+  cio.barf(fs.join(global_dir, "foo.lua"), [[
 return {
   name = "foo",
   description = "global foo",
@@ -192,7 +191,7 @@ return {
 }
 ]])
 
-  cosmo.Barf(path.join(project_dir, "foo.lua"), [[
+  cio.barf(fs.join(project_dir, "foo.lua"), [[
 return {
   name = "foo",
   description = "project foo",

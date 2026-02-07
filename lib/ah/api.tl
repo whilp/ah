@@ -1,5 +1,5 @@
 -- ah/api.lua: Claude Messages API with streaming
-local cosmo = require("cosmo")
+local json = require("cosmic.json")
 local fetch = require("cosmic.fetch")
 local auth = require("ah.auth")
 
@@ -41,7 +41,7 @@ local function stream(messages: {any}, opts: {string:any}, callback: function({s
 
   local req = build_request(messages, opts)
   local headers = auth.get_auth_headers(creds)
-  local body = cosmo.EncodeJson(req)
+  local body = json.encode(req)
 
   local result = fetch.Fetch(API_URL, {
     method = "POST",
@@ -67,7 +67,7 @@ local function stream(messages: {any}, opts: {string:any}, callback: function({s
   for line in result.body:gmatch("[^\r\n]+") do
     local kind, data = parse_sse_line(line)
     if kind == "data" and data ~= "[DONE]" then
-      local event = cosmo.DecodeJson(data) as {string:any}
+      local event = json.decode(data) as {string:any}
       if event then
         if callback then
           callback(event)
@@ -94,7 +94,7 @@ local function stream(messages: {any}, opts: {string:any}, callback: function({s
           if current_block and block_index ~= nil then
             -- Parse accumulated tool input JSON
             if current_block.partial_json then
-              current_block.input = cosmo.DecodeJson(current_block.partial_json as string)
+              current_block.input = json.decode(current_block.partial_json as string)
               current_block.partial_json = nil
             end
             content_blocks[block_index + 1] = current_block

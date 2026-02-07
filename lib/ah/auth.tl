@@ -1,6 +1,7 @@
 -- ah/auth.lua: OAuth/API key credential loading
-local cosmo = require("cosmo")
-local path = require("cosmo.path")
+local fs = require("cosmic.fs")
+local io = require("cosmic.io")
+local json = require("cosmic.json")
 
 local record Credentials
   access_token: string
@@ -25,10 +26,10 @@ local function load_credentials(): Credentials, string
   -- 3. Read ~/.claude/.credentials.json
   local home = os.getenv("HOME")
   if home then
-    local cred_path = path.join(home, ".claude", ".credentials.json")
-    local content = cosmo.Slurp(cred_path)
+    local cred_path = fs.join(home, ".claude", ".credentials.json")
+    local content = io.slurp(cred_path)
     if content then
-      local creds = cosmo.DecodeJson(content) as Credentials
+      local creds = json.decode(content) as Credentials
       if creds and creds.access_token then
         return creds
       end

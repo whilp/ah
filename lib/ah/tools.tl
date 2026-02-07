@@ -1,7 +1,6 @@
 -- ah/tools.tl: agent tools (read, write, edit, bash)
-local cosmo = require("cosmo")
-local path = require("cosmo.path")
-local unix = require("cosmo.unix")
+local fs = require("cosmic.fs")
+local cio = require("cosmic.io")
 local child = require("cosmic.child")
 
 local record Tool
@@ -33,7 +32,7 @@ local read_tool: Tool = {
       return "error: path is required", true
     end
 
-    local content = cosmo.Slurp(file_path)
+    local content = cio.slurp(file_path)
     if not content then
       return "error: failed to read file: " .. file_path, true
     end
@@ -91,12 +90,12 @@ local write_tool: Tool = {
     end
 
     -- Create parent directories if needed
-    local dir = path.dirname(file_path)
+    local dir = fs.dirname(file_path)
     if dir and dir ~= "" then
-      unix.makedirs(dir)
+      fs.makedirs(dir)
     end
 
-    local ok = cosmo.Barf(file_path, content, tonumber("644", 8))
+    local ok = cio.barf(file_path, content, tonumber("644", 8))
     if not ok then
       return "error: failed to write file: " .. file_path, true
     end
@@ -133,7 +132,7 @@ local edit_tool: Tool = {
       return "error: new_string is required", true
     end
 
-    local content = cosmo.Slurp(file_path)
+    local content = cio.slurp(file_path)
     if not content then
       return "error: failed to read file: " .. file_path, true
     end
@@ -150,7 +149,7 @@ local edit_tool: Tool = {
     -- Perform replacement
     local new_content = content:gsub(old_string:gsub("[%(%)%.%%%+%-%*%?%[%]%^%$]", "%%%1"), new_string, 1)
 
-    local ok = cosmo.Barf(file_path, new_content, tonumber("644", 8))
+    local ok = cio.barf(file_path, new_content, tonumber("644", 8))
     if not ok then
       return "error: failed to write file: " .. file_path, true
     end
@@ -222,7 +221,7 @@ end
 local function load_custom_tools_from_dir(dir: string): {Tool}
   local loaded: {Tool} = {}
 
-  local dh = unix.opendir(dir)
+  local dh = fs.opendir(dir)
   if not dh then return loaded end
 
   while true do
@@ -230,7 +229,7 @@ local function load_custom_tools_from_dir(dir: string): {Tool}
     if not name then break end
 
     if name:match("%.lua$") then
-      local tool_path = path.join(dir, name)
+      local tool_path = fs.join(dir, name)
       local chunk, load_err = loadfile(tool_path)
       if chunk then
         local ok, result = pcall(chunk)
@@ -282,8 +281,9 @@ end
 -- Initialize custom tools from standard locations
 local function init_custom_tools()
   local home = os.getenv("HOME") or ""
-  local global_tools_dir = path.join(home, ".ah", "tools")
-  local project_tools_dir = path.join(unix.getcwd(), ".ah", "tools")
+  local global_tools_dir = fs.join(home, ".ah", "tools")
+  local cwd = fs.getcwd()
+  local project_tools_dir = fs.join(cwd, ".ah", "tools")
 
   custom_tools = load_custom_tools(global_tools_dir, project_tools_dir)
 end

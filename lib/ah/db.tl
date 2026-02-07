@@ -1,8 +1,6 @@
 -- ah/db.lua: SQLite storage for sessions and messages
-local cosmo = require("cosmo")
-local path = require("cosmo.path")
-local unix = require("cosmo.unix")
-local lsqlite3 = require("cosmo.lsqlite3")
+local fs = require("cosmic.fs")
+local sqlite = require("cosmic.sqlite")
 local ulid = require("ulid")
 
 local SCHEMA = [[
@@ -50,22 +48,22 @@ create index if not exists idx_content_blocks_message on content_blocks(message_
 
 local function get_db_path()
   local home = os.getenv("HOME") or ""
-  local ah_dir = path.join(home, ".ah")
-  unix.makedirs(ah_dir)
-  return path.join(ah_dir, "ah.db")
+  local ah_dir = fs.join(home, ".ah")
+  fs.makedirs(ah_dir)
+  return fs.join(ah_dir, "ah.db")
 end
 
 local function open(db_path)
   db_path = db_path or get_db_path()
-  local db = lsqlite3.open(db_path)
+  local db, err = sqlite.open(db_path)
   if not db then
-    return nil, "failed to open database: " .. db_path
+    return nil, "failed to open database: " .. db_path .. ": " .. (err or "")
   end
 
-  local rc = db:exec(SCHEMA)
-  if rc ~= 0 then
+  local ok, schema_err = db:exec(SCHEMA)
+  if not ok then
     db:close()
-    return nil, "failed to initialize schema"
+    return nil, "failed to initialize schema: " .. (schema_err or "")
   end
 
   return {_db = db}
@@ -79,34 +77,31 @@ end
 
 -- Context operations
 local function get_context(self, key)
-  local stmt = self._db:prepare("select value from context where key = ?")
-  stmt:bind_values(key)
-  for row in stmt:nrows() do
-    stmt:finalize()
+  for row in self._db:query("select value from context where key = ?", key) do
     return row.value
   end
-  stmt:finalize()
   return nil
 end
 
 local function set_context(self, key, value)
-  local stmt = self._db:prepare("insert or replace into context (key, value) values (?, ?)")
-  stmt:bind_values(key, value)
-  stmt:step()
-  stmt:finalize()
+  self._db:exec("insert or replace into context (key, value) values (?, ?)", key, value)
 end
 
 -- Session operations
 local function create_session(self, name, cwd, system_prompt, model)
   local id = ulid.generate()
   local now = os.time()
+
+  -- Use explicit non-nil values to avoid Lua vararg nil-dropping issue
   local stmt = self._db:prepare([[
     insert into sessions (id, name, created_at, updated_at, cwd, system_prompt, model)
     values (?, ?, ?, ?, ?, ?, ?)
   ]])
-  stmt:bind_values(id, name, now, now, cwd, system_prompt, model)
-  stmt:step()
-  stmt:finalize()
+  if stmt then
+    stmt:bind(id, name or "", now, now, cwd or "", system_prompt or "", model or "")
+    stmt:exec()
+    stmt:close()
+  end
 
   set_context(self, "current_session", id)
 
@@ -122,34 +117,22 @@ local function create_session(self, name, cwd, system_prompt, model)
 end
 
 local function get_session(self, id)
-  local stmt = self._db:prepare("select * from sessions where id = ?")
-  stmt:bind_values(id)
-  for row in stmt:nrows() do
-    stmt:finalize()
+  for row in self._db:query("select * from sessions where id = ?", id) do
     return row
   end
-  stmt:finalize()
   return nil
 end
 
 local function get_session_by_name(self, name)
   -- First try exact name match
-  local stmt = self._db:prepare("select * from sessions where name = ?")
-  stmt:bind_values(name)
-  for row in stmt:nrows() do
-    stmt:finalize()
+  for row in self._db:query("select * from sessions where name = ?", name) do
     return row
   end
-  stmt:finalize()
 
   -- Then try ID prefix match
-  stmt = self._db:prepare("select * from sessions where id like ? || '%'")
-  stmt:bind_values(name)
-  for row in stmt:nrows() do
-    stmt:finalize()
+  for row in self._db:query("select * from sessions where id like ? || '%'", name) do
     return row
   end
-  stmt:finalize()
   return nil
 end
 
@@ -161,30 +144,20 @@ local function list_sessions(self)
     from sessions s
     order by s.updated_at desc
   ]]
-  for row in self._db:nrows(sql) do
+  for row in self._db:query(sql) do
     table.insert(sessions, row)
   end
   return sessions
 end
 
 local function delete_session(self, id)
-  local stmt = self._db:prepare([[
+  self._db:exec([[
     delete from content_blocks where message_id in
     (select id from messages where session_id = ?)
-  ]])
-  stmt:bind_values(id)
-  stmt:step()
-  stmt:finalize()
+  ]], id)
 
-  stmt = self._db:prepare("delete from messages where session_id = ?")
-  stmt:bind_values(id)
-  stmt:step()
-  stmt:finalize()
-
-  stmt = self._db:prepare("delete from sessions where id = ?")
-  stmt:bind_values(id)
-  stmt:step()
-  stmt:finalize()
+  self._db:exec("delete from messages where session_id = ?", id)
+  self._db:exec("delete from sessions where id = ?", id)
 
   local current = get_context(self, "current_session")
   if current == id then
@@ -206,13 +179,9 @@ end
 
 -- Message operations
 local function get_message(self, id)
-  local stmt = self._db:prepare("select * from messages where id = ?")
-  stmt:bind_values(id)
-  for row in stmt:nrows() do
-    stmt:finalize()
+  for row in self._db:query("select * from messages where id = ?", id) do
     return row
   end
-  stmt:finalize()
   return nil
 end
 
@@ -222,26 +191,17 @@ local function create_message(self, session_id, role, parent_id)
 
   local seq = 0
   if parent_id then
-    local stmt = self._db:prepare("select seq from messages where id = ?")
-    stmt:bind_values(parent_id)
-    for row in stmt:nrows() do
+    for row in self._db:query("select seq from messages where id = ?", parent_id) do
       seq = row.seq + 1
     end
-    stmt:finalize()
   end
 
-  local stmt = self._db:prepare([[
+  self._db:exec([[
     insert into messages (id, session_id, parent_id, role, seq, created_at)
     values (?, ?, ?, ?, ?, ?)
-  ]])
-  stmt:bind_values(id, session_id, parent_id, role, seq, now)
-  stmt:step()
-  stmt:finalize()
+  ]], id, session_id, parent_id, role, seq, now)
 
-  local update_stmt = self._db:prepare("update sessions set updated_at = ? where id = ?")
-  update_stmt:bind_values(now, session_id)
-  update_stmt:step()
-  update_stmt:finalize()
+  self._db:exec("update sessions set updated_at = ? where id = ?", now, session_id)
 
   set_context(self, "current_message", id)
 
@@ -287,29 +247,18 @@ local function get_last_message(self, session_id)
     return current
   end
 
-  local stmt = self._db:prepare([[
+  for row in self._db:query([[
     select * from messages where session_id = ?
     order by seq desc, created_at desc limit 1
-  ]])
-  stmt:bind_values(session_id)
-  for row in stmt:nrows() do
-    stmt:finalize()
+  ]], session_id) do
     return row
   end
-  stmt:finalize()
   return nil
 end
 
 local function delete_message(self, id)
-  local stmt = self._db:prepare("delete from content_blocks where message_id = ?")
-  stmt:bind_values(id)
-  stmt:step()
-  stmt:finalize()
-
-  stmt = self._db:prepare("delete from messages where id = ?")
-  stmt:bind_values(id)
-  stmt:step()
-  stmt:finalize()
+  self._db:exec("delete from content_blocks where message_id = ?", id)
+  self._db:exec("delete from messages where id = ?", id)
 
   local current = get_context(self, "current_message")
   if current == id then
@@ -323,20 +272,16 @@ local function add_content_block(self, message_id, block_type, opts)
   local id = ulid.generate()
 
   local seq = 0
-  local seq_stmt = self._db:prepare("select max(seq) as max_seq from content_blocks where message_id = ?")
-  seq_stmt:bind_values(message_id)
-  for row in seq_stmt:nrows() do
+  for row in self._db:query("select max(seq) as max_seq from content_blocks where message_id = ?", message_id) do
     if row.max_seq then
       seq = row.max_seq + 1
     end
   end
-  seq_stmt:finalize()
 
-  local stmt = self._db:prepare([[
+  self._db:exec([[
     insert into content_blocks (id, message_id, block_type, seq, content, tool_id, tool_name, tool_input, tool_output, is_error)
     values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  ]])
-  stmt:bind_values(
+  ]],
     id, message_id, block_type, seq,
     opts.content,
     opts.tool_id,
@@ -345,8 +290,6 @@ local function add_content_block(self, message_id, block_type, opts)
     opts.tool_output,
     opts.is_error and 1 or 0
   )
-  stmt:step()
-  stmt:finalize()
 
   return {
     id = id,
@@ -364,15 +307,12 @@ end
 
 local function get_content_blocks(self, message_id)
   local blocks = {}
-  local stmt = self._db:prepare([[
+  for row in self._db:query([[
     select * from content_blocks where message_id = ?
     order by seq asc
-  ]])
-  stmt:bind_values(message_id)
-  for row in stmt:nrows() do
+  ]], message_id) do
     table.insert(blocks, row)
   end
-  stmt:finalize()
   return blocks
 end
 
@@ -397,23 +337,21 @@ local function update_content_block(self, id, opts)
 
   table.insert(values, id)
   local sql = "update content_blocks set " .. table.concat(sets, ", ") .. " where id = ?"
-  local stmt = self._db:prepare(sql)
-  stmt:bind_values(table.unpack(values))
-  stmt:step()
-  stmt:finalize()
+  local stmt, err = self._db:prepare(sql)
+  if stmt then
+    stmt:bind(table.unpack(values))
+    stmt:exec()
+    stmt:close()
+  end
 end
 
 local function get_message_by_seq(self, session_id, seq)
-  local stmt = self._db:prepare([[
+  for row in self._db:query([[
     select * from messages where session_id = ? and seq = ?
     order by created_at asc limit 1
-  ]])
-  stmt:bind_values(session_id, seq)
-  for row in stmt:nrows() do
-    stmt:finalize()
+  ]], session_id, seq) do
     return row
   end
-  stmt:finalize()
   return nil
 end
 

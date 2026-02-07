@@ -1,11 +1,11 @@
 #!/usr/bin/env run-test.lua
-local path = require("cosmo.path")
+local fs = require("cosmic.fs")
 local db = require("ah.db")
 
 global TEST_TMPDIR: string
 
 local function test_open_close()
-  local db_path = path.join(TEST_TMPDIR, "test.db")
+  local db_path = fs.join(TEST_TMPDIR, "test.db")
   local d, err = db.open(db_path)
   assert(d, "failed to open db: " .. tostring(err))
   db.close(d)
@@ -13,7 +13,7 @@ end
 test_open_close()
 
 local function test_session_crud()
-  local db_path = path.join(TEST_TMPDIR, "test.db")
+  local db_path = fs.join(TEST_TMPDIR, "test.db")
   local d = db.open(db_path)
 
   -- Create session
@@ -52,7 +52,7 @@ end
 test_session_crud()
 
 local function test_messages()
-  local db_path = path.join(TEST_TMPDIR, "test.db")
+  local db_path = fs.join(TEST_TMPDIR, "test.db")
   local d = db.open(db_path)
 
   local session = db.create_session(d)
@@ -89,7 +89,7 @@ end
 test_messages()
 
 local function test_content_blocks()
-  local db_path = path.join(TEST_TMPDIR, "test.db")
+  local db_path = fs.join(TEST_TMPDIR, "test.db")
   local d = db.open(db_path)
 
   local session = db.create_session(d)
@@ -126,7 +126,7 @@ end
 test_content_blocks()
 
 local function test_forking()
-  local db_path = path.join(TEST_TMPDIR, "test.db")
+  local db_path = fs.join(TEST_TMPDIR, "test.db")
   local d = db.open(db_path)
 
   local session = db.create_session(d)
