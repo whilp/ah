@@ -1,4 +1,3 @@
-.SECONDEXPANSION:
 .SECONDARY:
 SHELL := /bin/bash
 .SHELLFLAGS := -o pipefail -ec
@@ -58,19 +57,11 @@ $(o)/bin/%.lua: bin/%.tl $(types) $(cosmic)
 	@mkdir -p $(@D)
 	@$(cosmic) --compile $< > $@
 
-# standalone lib files
-$(o)/lib/ulid.lua: lib/ulid.tl $(types) $(cosmic)
-	@mkdir -p $(@D)
-	@$(cosmic) --compile $< > $@
-
 # tests
 all_tests := $(ah_tests)
 all_tested := $(patsubst %,$(o)/%.test.ok,$(all_tests))
 
-export TEST_O := $(o)
-export TEST_BIN := $(o)/bin
 export LUA_PATH := $(CURDIR)/o/bin/?.lua;$(CURDIR)/o/lib/?.lua;$(CURDIR)/o/lib/?/init.lua;$(CURDIR)/lib/?.lua;$(CURDIR)/lib/?/init.lua;;
-export NO_COLOR := 1
 
 $(o)/%.tl.test.ok: $(o)/%.lua $(ah_lua) $(o)/bin/run-test.lua $(cosmic)
 	@mkdir -p $(@D)
