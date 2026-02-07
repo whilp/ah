@@ -47,10 +47,11 @@ end
 
 local function get_auth_headers(creds: Credentials): {string:string}
   if creds.is_oauth then
-    -- OAuth-specific headers for Claude Max
+    -- OAuth-specific headers for Claude Max (mimics Claude Code)
     return {
+      ["accept"] = "application/json",
       ["anthropic-version"] = "2023-06-01",
-      ["anthropic-beta"] = "claude-code-20250219,oauth-2025-04-20",
+      ["anthropic-beta"] = "claude-code-20250219,oauth-2025-04-20,fine-grained-tool-streaming-2025-05-14,interleaved-thinking-2025-05-14",
       ["anthropic-dangerous-direct-browser-access"] = "true",
       ["authorization"] = "Bearer " .. creds.access_token,
       ["content-type"] = "application/json",
