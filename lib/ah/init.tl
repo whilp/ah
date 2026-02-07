@@ -177,6 +177,18 @@ local function run_agent(d: any, session: {string:any}, prompt: string, parent_i
   end
 end
 
+-- Format relative time
+local function relative_time(ts: integer): string
+  local now = os.time()
+  local diff = now - ts
+  if diff < 60 then return "now"
+  elseif diff < 3600 then return string.format("%dm", math.floor(diff / 60))
+  elseif diff < 86400 then return string.format("%dh", math.floor(diff / 3600))
+  elseif diff < 604800 then return string.format("%dd", math.floor(diff / 86400))
+  else return string.format("%dw", math.floor(diff / 604800))
+  end
+end
+
 -- List sessions
 local function cmd_folder(d: any, name: string)
   if name then
@@ -196,19 +208,16 @@ local function cmd_folder(d: any, name: string)
 
     for _, session in ipairs(sessions) do
       local s = session as {string:any}
-      local marker = ""
-      if current_id and current_id == s.id then
-        marker = "* "
-      else
-        marker = "  "
-      end
+      local marker = (current_id and current_id == s.id) and "*" or " "
       local name_str = (s.name or (s.id as string):sub(1, 8)) as string
-      io.write(string.format("%s%s\n", marker, name_str))
+      local msg_count = (s.message_count or 0) as integer
+      local age = relative_time(s.updated_at as integer)
+      io.write(string.format("%s %-12s %3d msgs  %s\n", marker, name_str, msg_count, age))
     end
   end
 end
 
--- List messages in session
+-- List messages in current branch (ancestry from current message)
 local function cmd_scan(d: any, name: string)
   local session: {string:any}
   if name then
@@ -225,33 +234,83 @@ local function cmd_scan(d: any, name: string)
     end
   end
 
-  local messages = db.list_messages(d, session.id as string) as {{string:any}}
   local current = db.get_current_message(d) as {string:any}
-  local current_id = current and current.id or nil
+  if not current then
+    io.stderr:write("no messages\n")
+    return
+  end
 
-  for _, m in ipairs(messages) do
-    local indent = string.rep("  ", m.seq as integer)
-    local marker = ""
-    if current_id and current_id == m.id then
-      marker = ">"
-    else
-      marker = " "
-    end
+  -- Get ancestry (current branch only)
+  local messages = db.get_ancestry(d, current.id as string) as {{string:any}}
 
-    -- Get first content block for preview
+  for i, m in ipairs(messages) do
     local blocks = db.get_content_blocks(d, m.id as string) as {{string:any}}
-    local preview = ""
-    if blocks[1] then
-      local b = blocks[1]
-      if b.content then
-        preview = (b.content as string):sub(1, 50):gsub("\n", " ")
-        if #(b.content as string) > 50 then
-          preview = preview .. "..."
-        end
+    local is_current = (i == #messages)
+    local marker = is_current and ">" or " "
+
+    -- Role indicator
+    local role_char = m.role == "user" and "U" or "A"
+
+    -- Check if this is a tool-result-only message (skip display, show inline)
+    local has_text = false
+    local has_tool_result = false
+    for _, b in ipairs(blocks) do
+      if b.block_type == "text" and b.content and (b.content as string):match("%S") then
+        has_text = true
+      elseif b.block_type == "tool_result" then
+        has_tool_result = true
       end
     end
 
-    io.write(string.format("%s%s%d %s: %s\n", marker, indent, m.seq as integer, m.role, preview))
+    -- Skip pure tool-result messages (they're shown inline with previous assistant)
+    if has_tool_result and not has_text then
+      goto continue
+    end
+
+    -- Build preview
+    local preview = ""
+    local tool_calls: {string} = {}
+
+    for _, b in ipairs(blocks) do
+      if b.block_type == "text" and b.content then
+        local text = (b.content as string):gsub("\n", " "):sub(1, 60)
+        if #(b.content as string) > 60 then
+          text = text .. "..."
+        end
+        preview = text
+      elseif b.block_type == "tool_use" then
+        -- Extract key parameter for each tool
+        local input_preview = ""
+        if b.tool_input then
+          local input = cosmo.DecodeJson(b.tool_input as string) as {string:any}
+          if input then
+            local key_val: string = nil
+            if b.tool_name == "read" or b.tool_name == "write" or b.tool_name == "edit" then
+              key_val = input.path as string
+            elseif b.tool_name == "bash" then
+              key_val = input.command as string
+            end
+            if key_val then
+              if #key_val > 40 then
+                key_val = key_val:sub(1, 40) .. "..."
+              end
+              input_preview = " " .. key_val
+            end
+          end
+        end
+        table.insert(tool_calls, string.format("→ %s%s", b.tool_name, input_preview))
+      end
+    end
+
+    -- Print message line
+    io.write(string.format("%s%3d %s: %s\n", marker, m.seq as integer, role_char, preview))
+
+    -- Print tool calls on separate lines
+    for _, tc in ipairs(tool_calls) do
+      io.write(string.format("       %s\n", tc))
+    end
+
+    ::continue::
   end
 end
 
@@ -285,9 +344,32 @@ local function cmd_show(d: any, seq: integer)
       io.write((b.content or "") as string)
       io.write("\n")
     elseif b.block_type == "tool_use" then
-      io.write(string.format("→ %s %s\n", b.tool_name, b.tool_input or ""))
+      local input_str = ""
+      if b.tool_input then
+        local input = cosmo.DecodeJson(b.tool_input as string) as {string:any}
+        if input then
+          if b.tool_name == "read" then
+            input_str = input.path as string
+          elseif b.tool_name == "write" then
+            input_str = input.path as string
+          elseif b.tool_name == "edit" then
+            input_str = string.format("%s: %s → %s", input.path,
+              ((input.old_string or "") as string):sub(1, 20),
+              ((input.new_string or "") as string):sub(1, 20))
+          elseif b.tool_name == "bash" then
+            input_str = input.command as string
+          end
+        end
+      end
+      io.write(string.format("→ %s %s\n", b.tool_name, input_str))
     elseif b.block_type == "tool_result" then
-      io.write(string.format("← %s\n", ((b.tool_output or "") as string):sub(1, 100)))
+      local output = ((b.tool_output or "") as string)
+      local lines = {}
+      for line in output:gmatch("[^\n]+") do
+        table.insert(lines, line)
+        if #lines >= 5 then break end
+      end
+      io.write(string.format("← %s\n", table.concat(lines, "\n  ")))
     end
   end
 end

@@ -143,7 +143,13 @@ end
 
 local function list_sessions(self)
   local sessions = {}
-  for row in self._db:nrows("select * from sessions order by updated_at desc") do
+  local sql = [[
+    select s.*,
+      (select count(*) from messages m where m.session_id = s.id) as message_count
+    from sessions s
+    order by s.updated_at desc
+  ]]
+  for row in self._db:nrows(sql) do
     table.insert(sessions, row)
   end
   return sessions
