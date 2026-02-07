@@ -34,8 +34,8 @@ ah_lua := $(patsubst %.tl,$(o)/%.lua,$(ah_srcs))
 ah_tests := $(wildcard lib/ah/test_*.tl)
 
 # type declarations
-types := $(wildcard lib/types/*.d.tl lib/types/*/*.d.tl)
-TL_PATH := lib/?.tl;lib/?/init.tl;lib/types/?.d.tl;lib/types/?/init.d.tl;/zip/.lua/?.tl;/zip/.lua/?/init.tl;/zip/.lua/types/?.d.tl;/zip/.lua/types/?/init.d.tl
+types := lib/types/ulid.d.tl
+TL_PATH := lib/?.tl;lib/?/init.tl;lib/types/?.d.tl;/zip/.lua/?.tl;/zip/.lua/?/init.tl;/zip/.lua/types/?.d.tl;/zip/.lua/types/?/init.d.tl
 
 # compile .tl to .lua
 $(o)/%.lua: %.tl $(types) $(cosmic)

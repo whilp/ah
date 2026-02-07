@@ -48,7 +48,7 @@ local function stream(messages: {any}, opts: {string:any}, callback: function({s
     headers = headers,
     body = body,
     maxresponse = 10 * 1024 * 1024,
-  })
+  } as fetch.Opts)
 
   if not result.ok then
     return nil, "fetch failed: " .. (result.error or "unknown error")
