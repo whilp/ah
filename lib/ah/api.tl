@@ -7,6 +7,21 @@ local API_URL = "https://api.anthropic.com/v1/messages"
 local DEFAULT_MODEL = "claude-sonnet-4-20250514"
 local DEFAULT_MAX_TOKENS = 8192
 
+-- Parse API error response to extract clean message
+local function parse_api_error(status: integer, body: string): string
+  local err_body = body or ""
+  if err_body ~= "" then
+    local parsed = json.decode(err_body) as {string:any}
+    if parsed and parsed.error then
+      local e = parsed.error as {string:any}
+      if e.message then
+        return string.format("API error %d: %s", status, e.message as string)
+      end
+    end
+  end
+  return string.format("API error %d: %s", status, err_body)
+end
+
 local function build_request(messages: {any}, opts: {string:any}): {string:any}
   opts = opts or {}
   return {
@@ -55,7 +70,7 @@ local function stream(messages: {any}, opts: {string:any}, callback: function({s
   end
 
   if result.status ~= 200 then
-    return nil, string.format("API error %d: %s", result.status as integer, result.body or "")
+    return nil, parse_api_error(result.status as integer, result.body)
   end
 
   -- Parse SSE response
@@ -139,5 +154,6 @@ return {
   stream = stream,
   extract_tool_calls = extract_tool_calls,
   build_request = build_request,
+  parse_api_error = parse_api_error,
   DEFAULT_MODEL = DEFAULT_MODEL,
 }

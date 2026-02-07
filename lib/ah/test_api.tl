@@ -91,4 +91,47 @@ local function test_build_request_with_tools()
 end
 test_build_request_with_tools()
 
+-- Tests for parse_api_error
+local function test_parse_api_error_rate_limit()
+  local body = '{"type":"error","error":{"type":"rate_limit_error","message":"Rate limit exceeded"}}'
+  local err = api.parse_api_error(429, body)
+  assert(err == "API error 429: Rate limit exceeded", "should extract message, got: " .. err)
+end
+test_parse_api_error_rate_limit()
+
+local function test_parse_api_error_invalid_request()
+  local body = '{"type":"error","error":{"type":"invalid_request_error","message":"Invalid model specified"}}'
+  local err = api.parse_api_error(400, body)
+  assert(err:match("400"), "should include status code")
+  assert(err:match("Invalid model specified"), "should include error message")
+end
+test_parse_api_error_invalid_request()
+
+local function test_parse_api_error_plain_text()
+  local err = api.parse_api_error(500, "Internal Server Error")
+  assert(err:match("500"), "should include status code")
+  assert(err:match("Internal Server Error"), "should include body as fallback")
+end
+test_parse_api_error_plain_text()
+
+local function test_parse_api_error_empty_body()
+  local err = api.parse_api_error(503, "")
+  assert(err:match("503"), "should include status code")
+end
+test_parse_api_error_empty_body()
+
+local function test_parse_api_error_nil_body()
+  local err = api.parse_api_error(502, nil)
+  assert(err:match("502"), "should include status code")
+end
+test_parse_api_error_nil_body()
+
+local function test_parse_api_error_malformed_json()
+  local body = '{"type":"error","error":{'  -- incomplete JSON
+  local err = api.parse_api_error(400, body)
+  assert(err:match("400"), "should include status code")
+  -- Should fall back to raw body
+end
+test_parse_api_error_malformed_json()
+
 print("all api tests passed")
