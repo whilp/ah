@@ -3,6 +3,7 @@ local io = require("cosmic.io")
 
 local record Credentials
   access_token: string
+  is_oauth: boolean
 end
 
 local function parse_env_file(path: string): {string:string}
@@ -24,20 +25,41 @@ local function parse_env_file(path: string): {string:string}
 end
 
 local function load_credentials(): Credentials, string
+  -- Priority: CLAUDE_CODE_OAUTH_TOKEN (OAuth tokens for Claude Max)
+  local oauth_token = os.getenv("CLAUDE_CODE_OAUTH_TOKEN")
+  if oauth_token then
+    return {access_token = oauth_token, is_oauth = true}
+  end
+
+  -- Fall back to ANTHROPIC_API_KEY (regular API key)
   local api_key = os.getenv("ANTHROPIC_API_KEY")
   if api_key then
-    return {access_token = api_key}
+    return {access_token = api_key, is_oauth = false}
   end
 
   local env = parse_env_file(".env")
   if env and env.ANTHROPIC_API_KEY then
-    return {access_token = env.ANTHROPIC_API_KEY}
+    return {access_token = env.ANTHROPIC_API_KEY, is_oauth = false}
   end
 
-  return nil, "no credentials found (set ANTHROPIC_API_KEY)"
+  return nil, "no credentials found (set ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN)"
 end
 
 local function get_auth_headers(creds: Credentials): {string:string}
+  if creds.is_oauth then
+    -- OAuth-specific headers for Claude Max
+    return {
+      ["anthropic-version"] = "2023-06-01",
+      ["anthropic-beta"] = "claude-code-20250219,oauth-2025-04-20",
+      ["anthropic-dangerous-direct-browser-access"] = "true",
+      ["authorization"] = "Bearer " .. creds.access_token,
+      ["content-type"] = "application/json",
+      ["user-agent"] = "claude-cli/2.1.2 (external, cli)",
+      ["x-app"] = "cli",
+    }
+  end
+
+  -- Regular API key headers
   return {
     ["anthropic-version"] = "2023-06-01",
     ["content-type"] = "application/json",

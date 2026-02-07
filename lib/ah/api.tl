@@ -2,10 +2,12 @@
 local json = require("cosmic.json")
 local fetch = require("cosmic.fetch")
 local auth = require("ah.auth")
+local tools_mod = require("ah.tools")
 
 local API_URL = "https://api.anthropic.com/v1/messages"
 local DEFAULT_MODEL = "claude-sonnet-4-20250514"
 local DEFAULT_MAX_TOKENS = 8192
+local CLAUDE_CODE_IDENTITY = "You are Claude Code, Anthropic's official CLI for Claude."
 
 -- Parse API error response to extract clean message
 local function parse_api_error(status: integer, body: string): string
@@ -53,6 +55,15 @@ local function stream(messages: {any}, opts: {string:any}, callback: function({s
 
   opts = opts or {}
   opts.stream = true
+
+  -- For OAuth, prepend Claude Code identity to system prompt
+  if creds.is_oauth then
+    if opts.system then
+      opts.system = CLAUDE_CODE_IDENTITY .. "\n\n" .. (opts.system as string)
+    else
+      opts.system = CLAUDE_CODE_IDENTITY
+    end
+  end
 
   local req = build_request(messages, opts)
   local headers = auth.get_auth_headers(creds)
@@ -129,6 +140,16 @@ local function stream(messages: {any}, opts: {string:any}, callback: function({s
             response.content = content_blocks
           end
         end
+      end
+    end
+  end
+
+  -- For OAuth, convert tool names back from Claude Code format
+  if creds.is_oauth and response and response.content then
+    for _, block in ipairs(response.content as {any}) do
+      local b = block as {string:any}
+      if b.type == "tool_use" and b.name then
+        b.name = tools_mod.from_claude_code_name(b.name as string)
       end
     end
   end
