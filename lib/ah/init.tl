@@ -11,7 +11,8 @@ local tools = require("ah.tools")
 -- Global for signal handling
 global interrupted: boolean = false
 
-local DEFAULT_SYSTEM_PROMPT = "You are a helpful assistant."
+local DEFAULT_SYSTEM_PROMPT = [[You are a coding assistant. Tools: read, write, edit, bash.
+read: examine files. edit: precise text replacement. write: create new files. bash: run commands.]]
 
 -- Get global ~/.ah directory
 local function get_global_dir(): string
@@ -122,10 +123,19 @@ local function run_agent(d: db.DB, session: db.Session, prompt: string, parent_i
           input = input,
         })
       elseif block.block_type == "tool_result" then
+        -- Check if result is structured (image content)
+        local tool_output = block.tool_output as string
+        local api_content: any = tool_output
+        if tool_output and tool_output:sub(1, 14) == '{"__image__":' then
+          local parsed = json.decode(tool_output) as {string:any}
+          if parsed and parsed.__image__ and parsed.content then
+            api_content = parsed.content
+          end
+        end
         table.insert(content, {
           type = "tool_result",
           tool_use_id = block.tool_id,
-          content = block.tool_output,
+          content = api_content,
           is_error = block.is_error == 1,
         })
       end
@@ -220,6 +230,15 @@ local function run_agent(d: db.DB, session: db.Session, prompt: string, parent_i
 
       local result, is_error = tools.execute_tool(tc.name as string, (tc.input or {}) as {string:any})
 
+      -- Check if result is structured (image content)
+      local api_content: any = result
+      if result:sub(1, 14) == '{"__image__":' then
+        local parsed = json.decode(result) as {string:any}
+        if parsed and parsed.__image__ and parsed.content then
+          api_content = parsed.content
+        end
+      end
+
       -- Save tool result to the new user message
       db.add_content_block(d, tool_result_msg.id, "tool_result", {
         tool_id = tc.id as string,
@@ -231,7 +250,7 @@ local function run_agent(d: db.DB, session: db.Session, prompt: string, parent_i
       table.insert(tool_results_content, {
         type = "tool_result",
         tool_use_id = tc.id,
-        content = result,
+        content = api_content,
         is_error = is_error,
       })
     end
