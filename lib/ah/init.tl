@@ -14,6 +14,7 @@ local api = require("ah.api")
 local tools = require("ah.tools")
 local auth = require("ah.auth")
 local ulid = require("ulid")
+local spinner = require("ah.spinner")
 
 -- Session record for listing
 local record Session
@@ -26,6 +27,17 @@ end
 
 -- Global for signal handling
 global interrupted: boolean = false
+
+-- ANSI styling (only when stderr is a tty)
+local is_tty = unix.isatty(2)
+local DIM = is_tty and "\27[2m" or ""
+local RESET = is_tty and "\27[0m" or ""
+
+-- Get monotonic time in seconds
+local function now(): number
+  local s, ns = unix.clock_gettime(unix.CLOCK_MONOTONIC)
+  return s + ns / 1e9
+end
 
 local DEFAULT_SYSTEM_PROMPT = [[You are a coding assistant. Tools: read, write, edit, bash.
 read: examine files. edit: precise text replacement. write: create new files. bash: run commands.]]
@@ -198,6 +210,11 @@ local function run_agent(d: db.DB, system_prompt: string, model: string, prompt:
   local user_msg = db.create_message(d, "user", parent_id)
   db.add_content_block(d, user_msg.id, "text", {content = prompt})
 
+  -- In non-interactive mode, echo the prompt for clarity
+  if not is_tty then
+    io.stderr:write(">>> " .. prompt .. "\n")
+  end
+
   -- Build messages from ancestry
   local ancestry = db.get_ancestry(d, user_msg.id)
   local api_messages: {any} = {}
@@ -311,25 +328,74 @@ local function run_agent(d: db.DB, system_prompt: string, model: string, prompt:
     end
 
     -- Execute tool calls and create user message for results
-    io.write("\n")
+    -- Only add newline if there was response text
+    if current_text ~= "" then
+      io.write("\n")
+    end
 
     -- Create a new user message for tool results (child of assistant message)
     local tool_result_msg = db.create_message(d, "user", assistant_msg.id)
 
     -- Add tool results to API messages
     local tool_results_content: {any} = {}
+    local think_time = (resp.think_time or 0) as number
 
-    for _, tool_call in ipairs(tool_calls) do
+    for i, tool_call in ipairs(tool_calls) do
       local tc = tool_call as {string:any}
       local input_json = json.encode(tc.input or {})
       local key = tool_key_param(tc.name as string, input_json)
-      if key ~= "" then
-        io.stderr:write(string.format("→ %s %s\n", tc.name, key))
-      else
-        io.stderr:write(string.format("→ %s\n", tc.name))
+
+      -- Start spinner with tool name
+      local spin = spinner.start(tc.name as string)
+      local start = now()
+      local result, is_error = tools.execute_tool(tc.name as string, (tc.input or {}) as {string:any})
+      local elapsed = now() - start
+      spinner.stop(spin)
+
+      -- First tool includes think time in its timing
+      if i == 1 then
+        elapsed = elapsed + think_time
       end
 
-      local result, is_error = tools.execute_tool(tc.name as string, (tc.input or {}) as {string:any})
+      -- Show tool result block
+      local prefix = is_tty and "⠋ " or ""
+      local indent = "  "
+
+      -- Blank line before first tool block only
+      if i == 1 then
+        io.stderr:write("\n")
+      end
+
+      -- Line 1: tool name and timing
+      io.stderr:write(string.format("%s%s%s (%.1fs)%s\n", DIM, prefix, tc.name, elapsed, RESET))
+
+      -- Line 2: command (for bash) or key param
+      if key ~= "" then
+        local cmd_prefix = tc.name == "bash" and "$ " or ""
+        io.stderr:write(string.format("%s%s%s%s%s\n", DIM, indent, cmd_prefix, key, RESET))
+      end
+
+      -- Show truncated output (first 3 lines, then count)
+      if result and result ~= "" and result ~= "(no output)" then
+        local lines: {string} = {}
+        for line in result:gmatch("[^\n]+") do
+          table.insert(lines, line)
+        end
+        local max_lines = 3
+        for j = 1, math.min(max_lines, #lines) do
+          local line = lines[j]
+          if #line > 80 then
+            line = line:sub(1, 77) .. "..."
+          end
+          io.stderr:write(string.format("%s%s%s%s\n", DIM, indent, line, RESET))
+        end
+        if #lines > max_lines then
+          io.stderr:write(string.format("%s%s... (%d more lines)%s\n", DIM, indent, #lines - max_lines, RESET))
+        end
+      end
+
+      -- Blank line after tool block
+      io.stderr:write("\n")
 
       -- Check if result is structured (image content)
       local api_content: any = result
@@ -706,15 +772,27 @@ local function main(args: {string}): integer, string
     end
   end
 
-  -- If no prompt, need either something to continue or show help
+  -- If no prompt, read from stdin
   if prompt == "" then
-    if not parent_id then
+    -- Show prompt indicator if stdin is a tty
+    if unix.isatty(0) then
+      io.stderr:write(">>> ")
+      io.stderr:flush()
+    end
+    local ok, input = pcall(io.read, "*a")
+    if not ok or not input then
+      -- Interrupted or EOF
+      io.stderr:write("\n")
+      db.close(d)
+      return 0
+    end
+    prompt = input
+    -- Trim trailing newline
+    prompt = prompt:gsub("%s+$", "")
+    if prompt == "" then
       usage()
       db.close(d)
       return 0
-    else
-      db.close(d)
-      return 1, "no prompt provided"
     end
   end
 
