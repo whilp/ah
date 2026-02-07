@@ -38,11 +38,7 @@ types := $(wildcard lib/types/*.d.tl lib/types/*/*.d.tl)
 TL_PATH := lib/?.tl;lib/?/init.tl;lib/types/?.d.tl;lib/types/?/init.d.tl;/zip/.lua/?.tl;/zip/.lua/?/init.tl;/zip/.lua/types/?.d.tl;/zip/.lua/types/?/init.d.tl
 
 # compile .tl to .lua
-$(o)/lib/%.lua: lib/%.tl $(types) $(cosmic)
-	@mkdir -p $(@D)
-	@$(cosmic) --compile $< > $@
-
-$(o)/bin/%.lua: bin/%.tl $(types) $(cosmic)
+$(o)/%.lua: %.tl $(types) $(cosmic)
 	@mkdir -p $(@D)
 	@$(cosmic) --compile $< > $@
 
