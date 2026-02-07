@@ -7,25 +7,12 @@ local API_URL = "https://api.anthropic.com/v1/messages"
 local DEFAULT_MODEL = "claude-sonnet-4-20250514"
 local DEFAULT_MAX_TOKENS = 8192
 
-local CLAUDE_CODE_IDENTITY = "You are Claude Code, Anthropic's official CLI for Claude."
-
-local function build_request(messages: {any}, opts: {string:any}, needs_identity: boolean): {string:any}
+local function build_request(messages: {any}, opts: {string:any}): {string:any}
   opts = opts or {}
-
-  -- Build system prompt, prepending Claude Code identity if needed for OAuth
-  local system = opts.system as string
-  if needs_identity then
-    if system and system ~= "" then
-      system = CLAUDE_CODE_IDENTITY .. "\n\n" .. system
-    else
-      system = CLAUDE_CODE_IDENTITY
-    end
-  end
-
   return {
     model = opts.model or DEFAULT_MODEL,
     max_tokens = opts.max_tokens or DEFAULT_MAX_TOKENS,
-    system = system,
+    system = opts.system,
     messages = messages,
     tools = opts.tools,
     stream = opts.stream ~= false,
@@ -52,8 +39,7 @@ local function stream(messages: {any}, opts: {string:any}, callback: function({s
   opts = opts or {}
   opts.stream = true
 
-  local needs_identity = auth.needs_claude_code_identity(creds)
-  local req = build_request(messages, opts, needs_identity)
+  local req = build_request(messages, opts)
   local headers = auth.get_auth_headers(creds)
   local body = cosmo.EncodeJson(req)
 
@@ -137,8 +123,7 @@ local function call(messages: {any}, opts: {string:any}): {string:any}, string
   opts = opts or {}
   opts.stream = false
 
-  local needs_identity = auth.needs_claude_code_identity(creds)
-  local req = build_request(messages, opts, needs_identity)
+  local req = build_request(messages, opts)
   local headers = auth.get_auth_headers(creds)
   local body = cosmo.EncodeJson(req)
 

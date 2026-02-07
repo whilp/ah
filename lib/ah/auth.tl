@@ -38,10 +38,6 @@ local function load_credentials(): Credentials, string
   return nil, "no credentials found (set ANTHROPIC_API_KEY)"
 end
 
-local function is_oauth_token(token: string): boolean
-  return token:find("sk%-ant%-oat") ~= nil
-end
-
 local function get_auth_headers(creds: Credentials): {string:string}
   local headers: {string:string} = {
     ["anthropic-version"] = "2023-06-01",
@@ -50,12 +46,6 @@ local function get_auth_headers(creds: Credentials): {string:string}
 
   if creds.is_api_key then
     headers["x-api-key"] = creds.access_token
-  elseif is_oauth_token(creds.access_token) then
-    -- Stealth mode: mimic Claude Code headers for OAuth tokens
-    headers["Authorization"] = "Bearer " .. creds.access_token
-    headers["anthropic-beta"] = "claude-code-20250219,oauth-2025-04-20"
-    headers["user-agent"] = "claude-cli/2.1.2 (external, cli)"
-    headers["x-app"] = "cli"
   else
     headers["Authorization"] = "Bearer " .. creds.access_token
   end
@@ -63,13 +53,8 @@ local function get_auth_headers(creds: Credentials): {string:string}
   return headers
 end
 
-local function needs_claude_code_identity(creds: Credentials): boolean
-  return not creds.is_api_key and is_oauth_token(creds.access_token)
-end
-
 return {
   Credentials = Credentials,
   load_credentials = load_credentials,
   get_auth_headers = get_auth_headers,
-  needs_claude_code_identity = needs_claude_code_identity,
 }
