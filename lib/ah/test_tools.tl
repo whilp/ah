@@ -211,4 +211,206 @@ return {
 end
 test_custom_tool_override()
 
+-- Bash timeout tests
+local function test_bash_timeout()
+  -- Use a short timeout (1 second) on a command that would take longer
+  local result, is_error = tools.execute_tool("bash", {command = "sleep 5", timeout = 1000})
+  assert(is_error, "should report error for timeout")
+  assert(result:match("timed out"), "should indicate timeout: " .. result)
+  print("✓ bash timeout works")
+end
+test_bash_timeout()
+
+local function test_bash_timeout_not_triggered()
+  -- Quick command should not timeout
+  local result, is_error = tools.execute_tool("bash", {command = "echo fast", timeout = 5000})
+  assert(not is_error, "quick command should succeed")
+  assert(result:match("fast"), "should capture output")
+  assert(not result:match("timed out"), "should not timeout")
+  print("✓ bash timeout does not affect fast commands")
+end
+test_bash_timeout_not_triggered()
+
+-- CLI tool tests
+local function test_load_cli_tools_empty_dir()
+  local empty_dir = fs.join(TEST_TMPDIR, "empty_bin")
+  fs.makedirs(empty_dir)
+
+  local loaded = tools.load_cli_tools_from_dir(empty_dir)
+  assert(#loaded == 0, "should load 0 tools from empty dir")
+  print("✓ load_cli_tools handles empty directory")
+end
+test_load_cli_tools_empty_dir()
+
+local function test_load_cli_tools_nonexistent()
+  local loaded = tools.load_cli_tools_from_dir("/nonexistent/bin")
+  assert(#loaded == 0, "should return empty for nonexistent dir")
+  print("✓ load_cli_tools handles nonexistent directory")
+end
+test_load_cli_tools_nonexistent()
+
+local function test_load_cli_tool_with_md()
+  local bin_dir = fs.join(TEST_TMPDIR, "cli_tools_md")
+  fs.makedirs(bin_dir)
+
+  -- Create executable script
+  local script_path = fs.join(bin_dir, "greet")
+  cio.barf(script_path, [[#!/bin/sh
+echo "Hello, $1!"
+]], tonumber("755", 8))
+
+  -- Create description file
+  cio.barf(fs.join(bin_dir, "greet.md"), "Greet someone by name\n\nUsage: greet <name>")
+
+  local loaded = tools.load_cli_tools_from_dir(bin_dir)
+  assert(#loaded == 1, "should load 1 tool")
+  assert(loaded[1].name == "greet", "tool name should be greet")
+  assert(loaded[1].description == "Greet someone by name", "should use first paragraph from md")
+
+  local result, is_error = loaded[1].execute({args = "World"})
+  assert(not is_error, "should execute successfully")
+  assert(result:match("Hello, World!"), "should run command: " .. result)
+  print("✓ load_cli_tools loads tool with .md description")
+end
+test_load_cli_tool_with_md()
+
+local function test_load_cli_tool_with_help()
+  local bin_dir = fs.join(TEST_TMPDIR, "cli_tools_help")
+  fs.makedirs(bin_dir)
+
+  -- Create executable that responds to --help
+  local script_path = fs.join(bin_dir, "helper")
+  cio.barf(script_path, [[#!/bin/sh
+if [ "$1" = "--help" ]; then
+  echo "A helpful utility"
+  exit 0
+fi
+echo "running: $@"
+]], tonumber("755", 8))
+
+  local loaded = tools.load_cli_tools_from_dir(bin_dir)
+  assert(#loaded == 1, "should load 1 tool")
+  assert(loaded[1].name == "helper", "tool name should be helper")
+  assert(loaded[1].description == "A helpful utility", "should use --help output")
+  print("✓ load_cli_tools uses --help for description")
+end
+test_load_cli_tool_with_help()
+
+local function test_cli_tool_override()
+  local global_dir = fs.join(TEST_TMPDIR, "global_bin")
+  local project_dir = fs.join(TEST_TMPDIR, "project_bin")
+  fs.makedirs(global_dir)
+  fs.makedirs(project_dir)
+
+  cio.barf(fs.join(global_dir, "mytool"), "#!/bin/sh\necho global", tonumber("755", 8))
+  cio.barf(fs.join(global_dir, "mytool.md"), "Global version")
+
+  cio.barf(fs.join(project_dir, "mytool"), "#!/bin/sh\necho project", tonumber("755", 8))
+  cio.barf(fs.join(project_dir, "mytool.md"), "Project version")
+
+  local all = tools.load_cli_tools(global_dir, project_dir)
+  local mytool: tools.Tool = nil
+  for _, t in ipairs(all) do
+    if t.name == "mytool" then mytool = t end
+  end
+  assert(mytool, "should have mytool")
+  assert(mytool.description == "Project version", "project should override global")
+
+  local result, _ = mytool.execute({})
+  assert(result:match("project"), "should run project version")
+  print("✓ project CLI tools override global CLI tools")
+end
+test_cli_tool_override()
+
+-- Image read tests
+local json = require("cosmic.json")
+
+local function test_read_image_png()
+  -- Create a minimal valid PNG (1x1 transparent pixel)
+  local png_data = "\137PNG\r\n\26\n\0\0\0\rIHDR\0\0\0\1\0\0\0\1\8\6\0\0\0\31\21\196\137\0\0\0\nIDATx\156c\0\1\0\0\5\0\1\r\10-\180\0\0\0\0IEND\174B`\130"
+  local png_path = fs.join(TEST_TMPDIR, "test.png")
+  cio.barf(png_path, png_data)
+
+  local result, is_error = tools.execute_tool("read", {path = png_path})
+  assert(not is_error, "should read image successfully")
+
+  local parsed = json.decode(result) as {string:any}
+  assert(parsed, "result should be valid JSON")
+  assert(parsed.__image__ == true, "should have __image__ marker")
+  assert(parsed.content, "should have content array")
+
+  local content = (parsed.content as {any})[1] as {string:any}
+  assert(content.type == "image", "content type should be image")
+  assert(content.source, "should have source")
+
+  local source = content.source as {string:any}
+  assert(source.type == "base64", "source type should be base64")
+  assert(source.media_type == "image/png", "media type should be image/png")
+  assert(source.data and #(source.data as string) > 0, "should have base64 data")
+  print("✓ read tool handles PNG images")
+end
+test_read_image_png()
+
+local function test_read_image_jpg()
+  -- Create a minimal JPEG (not valid image but has correct extension)
+  local jpg_path = fs.join(TEST_TMPDIR, "test.jpg")
+  cio.barf(jpg_path, "fake jpg content")
+
+  local result, is_error = tools.execute_tool("read", {path = jpg_path})
+  assert(not is_error, "should read jpg successfully")
+
+  local parsed = json.decode(result) as {string:any}
+  assert(parsed.__image__ == true, "should have __image__ marker")
+
+  local content = (parsed.content as {any})[1] as {string:any}
+  local source = content.source as {string:any}
+  assert(source.media_type == "image/jpeg", "media type should be image/jpeg")
+  print("✓ read tool handles JPEG images")
+end
+test_read_image_jpg()
+
+local function test_read_image_webp()
+  local webp_path = fs.join(TEST_TMPDIR, "test.webp")
+  cio.barf(webp_path, "fake webp content")
+
+  local result, is_error = tools.execute_tool("read", {path = webp_path})
+  assert(not is_error, "should read webp successfully")
+
+  local parsed = json.decode(result) as {string:any}
+  local content = (parsed.content as {any})[1] as {string:any}
+  local source = content.source as {string:any}
+  assert(source.media_type == "image/webp", "media type should be image/webp")
+  print("✓ read tool handles WebP images")
+end
+test_read_image_webp()
+
+local function test_read_image_gif()
+  local gif_path = fs.join(TEST_TMPDIR, "test.gif")
+  cio.barf(gif_path, "GIF89a fake")
+
+  local result, is_error = tools.execute_tool("read", {path = gif_path})
+  assert(not is_error, "should read gif successfully")
+
+  local parsed = json.decode(result) as {string:any}
+  local content = (parsed.content as {any})[1] as {string:any}
+  local source = content.source as {string:any}
+  assert(source.media_type == "image/gif", "media type should be image/gif")
+  print("✓ read tool handles GIF images")
+end
+test_read_image_gif()
+
+local function test_read_text_not_image()
+  -- Ensure .txt files are still treated as text
+  local txt_path = fs.join(TEST_TMPDIR, "test.txt")
+  cio.barf(txt_path, "hello world")
+
+  local result, is_error = tools.execute_tool("read", {path = txt_path})
+  assert(not is_error, "should read txt successfully")
+  assert(not result:match("__image__"), "txt should not be treated as image")
+  assert(result:match("1\t"), "should have line numbers")
+  assert(result:match("hello world"), "should have content")
+  print("✓ read tool treats .txt as text, not image")
+end
+test_read_text_not_image()
+
 print("\nAll tools tests passed!")
