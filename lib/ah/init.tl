@@ -346,6 +346,9 @@ local function run_agent(d: db.DB, system_prompt: string, model: string, prompt:
       local prefix = is_tty and "⠋ " or ""
       local indent = "  "
 
+      -- Blank line before tool block
+      io.stderr:write("\n")
+
       -- Line 1: tool name and timing
       io.stderr:write(string.format("%s%s%s (%.1fs)%s\n", DIM, prefix, tc.name, elapsed, RESET))
 
@@ -373,6 +376,9 @@ local function run_agent(d: db.DB, system_prompt: string, model: string, prompt:
           io.stderr:write(string.format("%s%s... (%d more lines)%s\n", DIM, indent, #lines - max_lines, RESET))
         end
       end
+
+      -- Blank line after tool block
+      io.stderr:write("\n")
 
       -- Check if result is structured (image content)
       local api_content: any = result
