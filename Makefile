@@ -68,6 +68,7 @@ help:
 	@echo "  build               Build all files"
 	@echo "  ah                  Build ah executable archive"
 	@echo "  check-types         Run teal type checker on all files"
+	@echo "  ci                  Run tests and type checks"
 	@echo "  clean               Remove all build artifacts"
 
 .PHONY: test
@@ -122,6 +123,10 @@ $(o)/%.tl.teal.ok: %.tl $(cosmic)
 		grep ': error:' $@.err >> $@ 2>/dev/null || true; \
 	fi; \
 	rm -f $@.err
+
+.PHONY: ci
+## Run tests and type checks
+ci: test check-types
 
 .PHONY: clean
 ## Remove all build artifacts

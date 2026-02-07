@@ -102,7 +102,7 @@ local function main(...: string): integer, string
           output = parsed.output,
           name = strip_prefix(file, dir):gsub(strip_suffix, ""),
           file = file,
-          checker = checker ~= "test" and checker or nil,
+          checker = checker,
         }
         local status_list = (results as {string:{CheckResult}})[result.status]
         if status_list then
