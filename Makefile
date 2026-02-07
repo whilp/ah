@@ -7,6 +7,7 @@ MAKEFLAGS += --no-print-directory
 MAKEFLAGS += --no-builtin-rules
 MAKEFLAGS += --no-builtin-variables
 MAKEFLAGS += --output-sync
+export COSMIC_NO_WELCOME = 1
 
 o := o
 
@@ -19,6 +20,8 @@ cosmic_url := https://github.com/whilp/cosmic/releases/download/$(cosmic_version
 cosmic_sha := ba17a3f86ca46c48dadab3734c034d220e4f7ef8979009e04b15083b8276b0bb
 cosmic := $(o)/bin/cosmic
 
+.PHONY: cosmic
+cosmic: $(cosmic)
 $(cosmic):
 	@mkdir -p $(@D)
 	@echo "==> fetching cosmic $(cosmic_version)"

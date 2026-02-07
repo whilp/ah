@@ -3,6 +3,7 @@ local fs = require("cosmic.fs")
 local cio = require("cosmic.io")
 local json = require("cosmic.json")
 local getopt = require("cosmic.getopt")
+local unix = require("cosmo.unix")
 
 local db = require("ah.db")
 local api = require("ah.api")
@@ -92,7 +93,11 @@ local function tool_key_param(tool_name: string, tool_input: string): string
       ((input.old_string or "") as string):sub(1, 20),
       ((input.new_string or "") as string):sub(1, 20))
   elseif tool_name == "bash" then
-    return (input.command or "") as string
+    local cmd = (input.command or "") as string
+    if #cmd > 80 then
+      return cmd:sub(1, 77) .. "..."
+    end
+    return cmd
   end
   return ""
 end
@@ -226,7 +231,13 @@ local function run_agent(d: db.DB, session: db.Session, prompt: string, parent_i
 
     for _, tool_call in ipairs(tool_calls) do
       local tc = tool_call as {string:any}
-      io.stderr:write(string.format("→ %s\n", tc.name))
+      local input_json = json.encode(tc.input or {})
+      local key = tool_key_param(tc.name as string, input_json)
+      if key ~= "" then
+        io.stderr:write(string.format("→ %s %s\n", tc.name, key))
+      else
+        io.stderr:write(string.format("→ %s\n", tc.name))
+      end
 
       local result, is_error = tools.execute_tool(tc.name as string, (tc.input or {}) as {string:any})
 
@@ -626,6 +637,11 @@ local function main(args: {string}): integer, string
   -- Initialize custom tools
   tools.init_custom_tools()
 
+  -- Install SIGINT handler for graceful Ctrl+C
+  unix.sigaction(unix.SIGINT, function()
+    interrupted = true
+  end)
+
   -- Run agent
   run_agent(d, session, prompt, parent_id)
 
@@ -638,5 +654,6 @@ return {
   load_system_prompt = load_system_prompt,
   load_claude_md = load_claude_md,
   get_global_dir = get_global_dir,
+  tool_key_param = tool_key_param,
   DEFAULT_SYSTEM_PROMPT = DEFAULT_SYSTEM_PROMPT,
 }
