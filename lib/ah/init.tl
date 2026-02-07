@@ -692,15 +692,20 @@ local function main(args: {string}): integer, string
     end
   end
 
-  -- If no prompt, need either something to continue or show help
+  -- If no prompt, read from stdin
   if prompt == "" then
-    if not parent_id then
+    -- Show prompt indicator if stdin is a tty
+    if unix.isatty(0) then
+      io.stderr:write(">>> ")
+      io.stderr:flush()
+    end
+    prompt = io.read("*a") or ""
+    -- Trim trailing newline
+    prompt = prompt:gsub("%s+$", "")
+    if prompt == "" then
       usage()
       db.close(d)
       return 0
-    else
-      db.close(d)
-      return 1, "no prompt provided"
     end
   end
 
