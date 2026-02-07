@@ -102,22 +102,34 @@ local function run_agent(d: any, session: {string:any}, prompt: string, parent_i
       return
     end
 
-    -- Save response content blocks
+    -- Save response content blocks and build assistant message for API
     local resp = response as {string:any}
     local resp_content = resp.content as {any}
+    local assistant_api_content: {any} = {}
+
     for _, block in ipairs(resp_content) do
       local b = block as {string:any}
       if b.type == "text" then
-        db.add_content_block(d, assistant_msg.id, "text", {content = b.text})
+        db.add_content_block(d, assistant_msg.id as string, "text", {content = b.text})
+        table.insert(assistant_api_content, {type = "text", text = b.text})
       elseif b.type == "tool_use" then
         local input_json = cosmo.EncodeJson(b.input or {})
-        db.add_content_block(d, assistant_msg.id, "tool_use", {
+        db.add_content_block(d, assistant_msg.id as string, "tool_use", {
           tool_id = b.id,
           tool_name = b.name,
           tool_input = input_json,
         })
+        table.insert(assistant_api_content, {
+          type = "tool_use",
+          id = b.id,
+          name = b.name,
+          input = b.input or {},
+        })
       end
     end
+
+    -- Add assistant message to API messages
+    table.insert(api_messages, {role = "assistant", content = assistant_api_content})
 
     -- Check for tool calls
     local tool_calls = api.extract_tool_calls(response) as {any}
@@ -126,32 +138,30 @@ local function run_agent(d: any, session: {string:any}, prompt: string, parent_i
       break  -- Done, no tool calls
     end
 
-    -- Execute tool calls
+    -- Execute tool calls and create user message for results
     io.write("\n")
+
+    -- Create a new user message for tool results (child of assistant message)
+    local tool_result_msg = db.create_message(d, session.id as string, "user", assistant_msg.id as string) as {string:any}
+
+    -- Add tool results to API messages
+    local tool_results_content: {any} = {}
+
     for _, tool_call in ipairs(tool_calls) do
       local tc = tool_call as {string:any}
       io.stderr:write(string.format("→ %s\n", tc.name))
 
       local result, is_error = tools.execute_tool(tc.name as string, (tc.input or {}) as {string:any})
 
-      -- Save tool result to user message (as continuation)
-      db.add_content_block(d, user_msg.id, "tool_result", {
+      -- Save tool result to the new user message
+      db.add_content_block(d, tool_result_msg.id as string, "tool_result", {
         tool_id = tc.id,
         tool_output = result,
         is_error = is_error,
       })
 
-      -- Add to API messages
-      local last_msg = api_messages[#api_messages] as {string:any}
-      local user_content: {any}
-      if last_msg.role ~= "user" then
-        -- Need new user message for tool results
-        table.insert(api_messages, {role = "user", content = {}})
-        user_content = (api_messages[#api_messages] as {string:any}).content as {any}
-      else
-        user_content = last_msg.content as {any}
-      end
-      table.insert(user_content, {
+      -- Add to API messages content
+      table.insert(tool_results_content, {
         type = "tool_result",
         tool_use_id = tc.id,
         content = result,
@@ -159,8 +169,11 @@ local function run_agent(d: any, session: {string:any}, prompt: string, parent_i
       })
     end
 
+    -- Add the tool results as a user message to API messages
+    table.insert(api_messages, {role = "user", content = tool_results_content})
+
     -- Update user_msg for next iteration parent
-    user_msg = assistant_msg
+    user_msg = tool_result_msg
   end
 end
 
@@ -441,13 +454,14 @@ local function main(args: {string}): integer, string
     session = db.create_session(d, nil, unix.getcwd(), system_prompt)
   end
 
-  -- Get parent message if continuing
-  if not parent_id and prompt == "" then
-    local last = db.get_last_message(d, session.id)
+  -- Get parent message - always continue from last message unless forking with @N
+  if not parent_id then
+    local last = db.get_last_message(d, session.id as string)
     if last then
-      parent_id = last.id
-      prompt = ""  -- Will continue
-    else
+      parent_id = (last as {string:any}).id as string
+    end
+    -- If no last message and no prompt, error
+    if not parent_id and prompt == "" then
       db.close(d)
       return 1, "no messages to continue from"
     end

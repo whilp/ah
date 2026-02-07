@@ -7,12 +7,25 @@ local API_URL = "https://api.anthropic.com/v1/messages"
 local DEFAULT_MODEL = "claude-sonnet-4-20250514"
 local DEFAULT_MAX_TOKENS = 8192
 
-local function build_request(messages, opts)
+local CLAUDE_CODE_IDENTITY = "You are Claude Code, Anthropic's official CLI for Claude."
+
+local function build_request(messages: {any}, opts: {string:any}, needs_identity: boolean): {string:any}
   opts = opts or {}
+
+  -- Build system prompt, prepending Claude Code identity if needed for OAuth
+  local system = opts.system as string
+  if needs_identity then
+    if system and system ~= "" then
+      system = CLAUDE_CODE_IDENTITY .. "\n\n" .. system
+    else
+      system = CLAUDE_CODE_IDENTITY
+    end
+  end
+
   return {
     model = opts.model or DEFAULT_MODEL,
     max_tokens = opts.max_tokens or DEFAULT_MAX_TOKENS,
-    system = opts.system,
+    system = system,
     messages = messages,
     tools = opts.tools,
     stream = opts.stream ~= false,
@@ -30,7 +43,7 @@ local function parse_sse_line(line)
 end
 
 -- Stream API call with callback for each event
-local function stream(messages: {any}, opts: {string:any}, callback: function(any))
+local function stream(messages: {any}, opts: {string:any}, callback: function({string:any}))
   local creds, err = auth.load_credentials()
   if not creds then
     return nil, err
@@ -39,7 +52,8 @@ local function stream(messages: {any}, opts: {string:any}, callback: function(an
   opts = opts or {}
   opts.stream = true
 
-  local req = build_request(messages, opts)
+  local needs_identity = auth.needs_claude_code_identity(creds)
+  local req = build_request(messages, opts, needs_identity)
   local headers = auth.get_auth_headers(creds)
   local body = cosmo.EncodeJson(req)
 
@@ -123,7 +137,8 @@ local function call(messages: {any}, opts: {string:any}): {string:any}, string
   opts = opts or {}
   opts.stream = false
 
-  local req = build_request(messages, opts)
+  local needs_identity = auth.needs_claude_code_identity(creds)
+  local req = build_request(messages, opts, needs_identity)
   local headers = auth.get_auth_headers(creds)
   local body = cosmo.EncodeJson(req)
 
