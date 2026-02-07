@@ -699,7 +699,14 @@ local function main(args: {string}): integer, string
       io.stderr:write(">>> ")
       io.stderr:flush()
     end
-    prompt = io.read("*a") or ""
+    local ok, input = pcall(io.read, "*a")
+    if not ok or not input then
+      -- Interrupted or EOF
+      io.stderr:write("\n")
+      db.close(d)
+      return 0
+    end
+    prompt = input
     -- Trim trailing newline
     prompt = prompt:gsub("%s+$", "")
     if prompt == "" then
