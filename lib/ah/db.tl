@@ -298,20 +298,6 @@ local function get_last_message(self, session_id)
   return nil
 end
 
-local function list_messages(self, session_id)
-  local messages = {}
-  local stmt = self._db:prepare([[
-    select * from messages where session_id = ?
-    order by seq asc, created_at asc
-  ]])
-  stmt:bind_values(session_id)
-  for row in stmt:nrows() do
-    table.insert(messages, row)
-  end
-  stmt:finalize()
-  return messages
-end
-
 local function delete_message(self, id)
   local stmt = self._db:prepare("delete from content_blocks where message_id = ?")
   stmt:bind_values(id)
@@ -432,8 +418,6 @@ end
 return {
   open = open,
   close = close,
-  get_context = get_context,
-  set_context = set_context,
   create_session = create_session,
   get_session = get_session,
   get_session_by_name = get_session_by_name,
@@ -442,12 +426,9 @@ return {
   get_current_session = get_current_session,
   set_current_session = set_current_session,
   create_message = create_message,
-  get_message = get_message,
   get_current_message = get_current_message,
-  set_current_message = set_current_message,
   get_ancestry = get_ancestry,
   get_last_message = get_last_message,
-  list_messages = list_messages,
   delete_message = delete_message,
   get_message_by_seq = get_message_by_seq,
   add_content_block = add_content_block,

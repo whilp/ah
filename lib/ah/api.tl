@@ -121,38 +121,6 @@ local function stream(messages: {any}, opts: {string:any}, callback: function({s
   return response
 end
 
--- Non-streaming API call
-local function call(messages: {any}, opts: {string:any}): {string:any}, string
-  local creds, err = auth.load_credentials()
-  if not creds then
-    return nil, err
-  end
-
-  opts = opts or {}
-  opts.stream = false
-
-  local req = build_request(messages, opts)
-  local headers = auth.get_auth_headers(creds)
-  local body = cosmo.EncodeJson(req)
-
-  local result = fetch.Fetch(API_URL, {
-    method = "POST",
-    headers = headers,
-    body = body,
-    maxresponse = 10 * 1024 * 1024,
-  })
-
-  if not result.ok then
-    return nil, "fetch failed: " .. (result.error or "unknown error")
-  end
-
-  if result.status ~= 200 then
-    return nil, string.format("API error %d: %s", result.status as integer, result.body or "")
-  end
-
-  return cosmo.DecodeJson(result.body) as {string:any}
-end
-
 -- Extract tool calls from response
 local function extract_tool_calls(response)
   local tool_calls = {}
@@ -166,36 +134,7 @@ local function extract_tool_calls(response)
   return tool_calls
 end
 
--- Extract text from response
-local function extract_text(response)
-  local texts = {}
-  if response and response.content then
-    for _, block in ipairs(response.content) do
-      if block.type == "text" and block.text then
-        table.insert(texts, block.text)
-      end
-    end
-  end
-  return table.concat(texts, "")
-end
-
--- Build tool result message
-local function build_tool_result(tool_use_id, content, is_error)
-  return {
-    type = "tool_result",
-    tool_use_id = tool_use_id,
-    content = content,
-    is_error = is_error or false,
-  }
-end
-
 return {
-  API_URL = API_URL,
-  DEFAULT_MODEL = DEFAULT_MODEL,
-  build_request = build_request,
   stream = stream,
-  call = call,
   extract_tool_calls = extract_tool_calls,
-  extract_text = extract_text,
-  build_tool_result = build_tool_result,
 }

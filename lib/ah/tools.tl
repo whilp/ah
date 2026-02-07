@@ -234,13 +234,6 @@ local function execute_tool(name: string, input: {string:any}): string, boolean
 end
 
 return {
-  Tool = Tool,
-  read_tool = read_tool,
-  write_tool = write_tool,
-  edit_tool = edit_tool,
-  bash_tool = bash_tool,
-  all_tools = all_tools,
-  get_tool = get_tool,
   get_tool_definitions = get_tool_definitions,
   execute_tool = execute_tool,
 }
