@@ -3,6 +3,7 @@
 local fs = require("cosmic.fs")
 local cio = require("cosmic.io")
 local init = require("ah.init")
+local db = require("ah.db")
 
 local TEST_TMPDIR = os.getenv("TEST_TMPDIR") or "/tmp"
 
@@ -133,5 +134,118 @@ local function test_tool_key_param_unknown_tool()
   assert(key == "", "should return empty string for unknown tool")
 end
 test_tool_key_param_unknown_tool()
+
+-- Session management tests
+
+local function test_list_sessions_empty()
+  local cwd = fs.join(TEST_TMPDIR, "sessions_empty")
+  fs.makedirs(fs.join(cwd, ".ah"))
+
+  local sessions = init.list_sessions(cwd)
+  assert(#sessions == 0, "empty .ah should have 0 sessions")
+end
+test_list_sessions_empty()
+
+local function test_list_sessions()
+  local cwd = fs.join(TEST_TMPDIR, "sessions_list")
+  local ah_dir = fs.join(cwd, ".ah")
+  fs.makedirs(ah_dir)
+
+  -- Create two session dbs with different ULIDs (26 chars each)
+  -- Use ULIDs that sort predictably (earlier timestamp = lexically smaller)
+  local ulid1 = "01KGW111111111111111111111"  -- earlier (26 chars)
+  local ulid2 = "01KGW222222222222222222222"  -- later (26 chars)
+
+  local d1 = db.open(fs.join(ah_dir, ulid1 .. ".db"))
+  local msg1 = db.create_message(d1, "user")
+  db.add_content_block(d1, msg1.id, "text", {content = "Hello world"})
+  db.close(d1)
+
+  local d2 = db.open(fs.join(ah_dir, ulid2 .. ".db"))
+  local msg2a = db.create_message(d2, "user")
+  db.add_content_block(d2, msg2a.id, "text", {content = "Fix the login bug"})
+  local msg2b = db.create_message(d2, "assistant", msg2a.id)
+  db.add_content_block(d2, msg2b.id, "text", {content = "I'll help"})
+  local msg2c = db.create_message(d2, "user", msg2b.id)
+  db.add_content_block(d2, msg2c.id, "text", {content = "Thanks"})
+  db.close(d2)
+
+  local sessions = init.list_sessions(cwd)
+  assert(#sessions == 2, "should have 2 sessions, got " .. #sessions)
+  -- Sorted by ULID descending (most recent first)
+  assert(sessions[1].ulid == ulid2, "first should be ulid2 (most recent)")
+  assert(sessions[2].ulid == ulid1, "second should be ulid1")
+
+  assert(sessions[1].msg_count == 3, "session 2 should have 3 messages")
+  assert(sessions[1].first_prompt == "Fix the login bug", "session 2 first prompt mismatch")
+
+  assert(sessions[2].msg_count == 1, "session 1 should have 1 message")
+  assert(sessions[2].first_prompt == "Hello world", "session 1 first prompt mismatch")
+end
+test_list_sessions()
+
+local function test_resolve_session_exact()
+  local cwd = fs.join(TEST_TMPDIR, "sessions_resolve")
+  local ah_dir = fs.join(cwd, ".ah")
+  fs.makedirs(ah_dir)
+
+  local ulid1 = "01KGWAAAAAAAAAAAAAAAAAAAAA"  -- 26 chars
+  local d1 = db.open(fs.join(ah_dir, ulid1 .. ".db"))
+  db.create_message(d1, "user")
+  db.close(d1)
+
+  -- Exact match
+  local resolved, err = init.resolve_session(cwd, ulid1)
+  assert(resolved == ulid1, "exact match should work: " .. tostring(err))
+end
+test_resolve_session_exact()
+
+local function test_resolve_session_prefix()
+  local cwd = fs.join(TEST_TMPDIR, "sessions_prefix")
+  local ah_dir = fs.join(cwd, ".ah")
+  fs.makedirs(ah_dir)
+
+  local ulid1 = "01KGWBBBBBBBBBBBBBBBBBBBBB"  -- 26 chars
+  local d1 = db.open(fs.join(ah_dir, ulid1 .. ".db"))
+  db.create_message(d1, "user")
+  db.close(d1)
+
+  -- Prefix match
+  local resolved, err = init.resolve_session(cwd, "01KGWB")
+  assert(resolved == ulid1, "prefix match should work: " .. tostring(err))
+end
+test_resolve_session_prefix()
+
+local function test_resolve_session_ambiguous()
+  local cwd = fs.join(TEST_TMPDIR, "sessions_ambig")
+  local ah_dir = fs.join(cwd, ".ah")
+  fs.makedirs(ah_dir)
+
+  local ulid1 = "01KGWCCCCC1111111111111111"  -- 26 chars
+  local ulid2 = "01KGWCCCCC2222222222222222"  -- 26 chars
+  local d1 = db.open(fs.join(ah_dir, ulid1 .. ".db"))
+  db.create_message(d1, "user")
+  db.close(d1)
+  local d2 = db.open(fs.join(ah_dir, ulid2 .. ".db"))
+  db.create_message(d2, "user")
+  db.close(d2)
+
+  -- Ambiguous prefix
+  local resolved, err = init.resolve_session(cwd, "01KGWCCCCC")
+  assert(not resolved, "ambiguous prefix should fail")
+  assert(err:match("ambiguous"), "error should mention ambiguous: " .. tostring(err))
+end
+test_resolve_session_ambiguous()
+
+local function test_resolve_session_not_found()
+  local cwd = fs.join(TEST_TMPDIR, "sessions_notfound")
+  local ah_dir = fs.join(cwd, ".ah")
+  fs.makedirs(ah_dir)
+
+  local resolved, err = init.resolve_session(cwd, "NOTEXIST")
+  assert(not resolved, "non-existent should fail")
+  assert(err:match("no session"), "error should mention no session: " .. tostring(err))
+end
+test_resolve_session_not_found()
 
 print("all init tests passed")
