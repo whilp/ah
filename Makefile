@@ -99,10 +99,17 @@ $(o)/embed/embed/sys/%: sys/%
 	@mkdir -p $(@D)
 	@cp $< $@
 
+$(o)/embed/embed/scenarios/%: scenarios/%
+	@mkdir -p $(@D)
+	@cp $< $@
+
 ah_sys_files := $(shell find sys -type f 2>/dev/null)
 ah_sys := $(patsubst sys/%,$(o)/embed/embed/sys/%,$(ah_sys_files))
 
-$(o)/bin/ah: $(o)/embed/main.lua $(ah_lib_lua) $(ah_dep_lua) $(ah_sys) $(cosmic)
+ah_scenario_files := $(shell find scenarios -type f 2>/dev/null)
+ah_scenarios := $(patsubst scenarios/%,$(o)/embed/embed/scenarios/%,$(ah_scenario_files))
+
+$(o)/bin/ah: $(o)/embed/main.lua $(ah_lib_lua) $(ah_dep_lua) $(ah_sys) $(ah_scenarios) $(cosmic)
 	@echo "==> embedding ah"
 	@$(cosmic) --embed $(o)/embed --output $@
 

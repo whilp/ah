@@ -139,6 +139,86 @@ local function resolve_session(cwd: string, prefix: string): string, string
   return matches[1], nil
 end
 
+-- List embedded help topics from /zip/embed/scenarios/
+local function list_help_topics(): {string}
+  local topics: {string} = {}
+  local dir = unix.opendir("/zip/embed/scenarios")
+  if not dir then return topics end
+
+  while true do
+    local name = dir:read()
+    if not name then break end
+    if name:match("%.md$") then
+      table.insert(topics, name:sub(1, -4))
+    end
+  end
+  dir:close()
+  table.sort(topics)
+  return topics
+end
+
+-- Show help topic content
+local function read_help_topic(topic: string): string
+  local content = cio.slurp("/zip/embed/scenarios/" .. topic .. ".md")
+  return content
+end
+
+-- help command: list topics or show a specific one
+local function cmd_help(topic: string)
+  if not topic or topic == "" then
+    io.write("ah — an agent harness\n\n")
+    io.write("topics:\n")
+    local topics = list_help_topics()
+    if #topics == 0 then
+      io.write("  (no topics found)\n")
+    else
+      for _, t in ipairs(topics) do
+        -- Read first non-heading, non-empty line as summary
+        local content = read_help_topic(t)
+        local summary = ""
+        if content then
+          for line in content:gmatch("[^\n]+") do
+            local trimmed = line:match("^%s*(.-)%s*$")
+            if trimmed and trimmed ~= "" and not trimmed:match("^#") then
+              -- Strip leading bullet, backtick-wrapped name, and markdown bold
+              summary = trimmed:gsub("^%- ", ""):gsub("^`ah` ", ""):gsub("%*%*(.-)%*%*", "%1")
+              break
+            end
+          end
+        end
+        if summary ~= "" then
+          io.write(string.format("  %-14s %s\n", t, summary))
+        else
+          io.write(string.format("  %s\n", t))
+        end
+      end
+    end
+    io.write("\nrun 'ah help <topic>' for details\n")
+    io.write("run 'ah tools' to list available tools\n")
+    return
+  end
+
+  local content = read_help_topic(topic)
+  if not content then
+    io.stderr:write("unknown topic: " .. topic .. "\n")
+    io.stderr:write("run 'ah help' to list topics\n")
+    return
+  end
+  io.write(content)
+end
+
+-- tools command: list available tools with descriptions
+local function cmd_tools()
+  -- Initialize custom tools so we see everything
+  tools.init_custom_tools()
+  local defs = tools.get_tool_definitions(false)
+  io.write("tools:\n")
+  for _, d in ipairs(defs) do
+    local def = d as {string:any}
+    io.write(string.format("  %-14s %s\n", def.name, def.description))
+  end
+end
+
 local function usage()
   io.stderr:write([[usage: ah [options] [command] [args...]
 
@@ -146,6 +226,8 @@ commands:
   <prompt>            send prompt to agent
   (no args)           continue from last message
   @N <prompt>         fork from message N with new prompt
+  help [topic]        show help topics or a specific topic
+  tools               list available tools
   sessions            list all sessions
   scan                list messages in current branch
   show [N]            show message(s)
@@ -548,7 +630,15 @@ local function main(args: {string}): integer, string
 
   -- Handle commands that don't need db
   local cmd = remaining[1]
-  if cmd == "sessions" then
+  if cmd == "help" then
+    cmd_help(remaining[2])
+    return 0
+
+  elseif cmd == "tools" then
+    cmd_tools()
+    return 0
+
+  elseif cmd == "sessions" then
     local sessions = list_sessions(cwd)
     local current_ulid = sessions[1] and sessions[1].ulid or ""
     cmd_sessions(cwd, current_ulid)
@@ -743,5 +833,7 @@ return {
   tool_key_param = tool_key_param,
   list_sessions = list_sessions,
   resolve_session = resolve_session,
+  list_help_topics = list_help_topics,
+  read_help_topic = read_help_topic,
   DEFAULT_SYSTEM_PROMPT = DEFAULT_SYSTEM_PROMPT,
 }

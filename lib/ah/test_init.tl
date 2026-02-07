@@ -215,4 +215,44 @@ local function test_resolve_session_not_found()
 end
 test_resolve_session_not_found()
 
+-- Help system tests
+
+local function test_list_help_topics_no_archive()
+  -- When not running from archive, /zip/embed/scenarios won't exist
+  -- Should return empty list gracefully
+  local topics = init.list_help_topics()
+  assert(type(topics) == "table", "should return table")
+  -- May be empty (no archive) or populated (running from archive)
+  -- Either way it should not error
+end
+test_list_help_topics_no_archive()
+
+local function test_read_help_topic_missing()
+  -- Reading a nonexistent topic should return nil
+  local content = init.read_help_topic("nonexistent_topic_xyz")
+  assert(content == nil, "should return nil for missing topic")
+end
+test_read_help_topic_missing()
+
+local function test_main_help()
+  -- ah help should return 0
+  local code, err = init.main({"help"})
+  assert(code == 0, "help should succeed: " .. tostring(err))
+end
+test_main_help()
+
+local function test_main_help_unknown_topic()
+  -- ah help <unknown> should still return 0 (prints error to stderr)
+  local code, err = init.main({"help", "nonexistent_xyz"})
+  assert(code == 0, "help unknown topic should return 0: " .. tostring(err))
+end
+test_main_help_unknown_topic()
+
+local function test_main_tools()
+  -- ah tools should return 0
+  local code, err = init.main({"tools"})
+  assert(code == 0, "tools should succeed: " .. tostring(err))
+end
+test_main_tools()
+
 print("all init tests passed")
