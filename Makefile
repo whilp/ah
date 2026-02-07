@@ -32,6 +32,10 @@ reporter := $(cosmic) lib/build/reporter.tl
 ah_srcs := $(wildcard lib/ah/*.tl) bin/ah.tl
 ah_lua := $(patsubst %.tl,$(o)/%.lua,$(ah_srcs))
 ah_tests := $(wildcard lib/ah/test_*.tl)
+ah_lib_srcs := $(filter-out $(ah_tests),$(wildcard lib/ah/*.tl))
+ah_lib_lua := $(patsubst lib/ah/%.tl,$(o)/embed/.lua/ah/%.lua,$(ah_lib_srcs))
+ah_dep_srcs := $(wildcard lib/*.tl)
+ah_dep_lua := $(patsubst lib/%.tl,$(o)/embed/.lua/%.lua,$(ah_dep_srcs))
 
 TL_PATH := lib/?.tl;lib/?/init.tl;/zip/.lua/?.tl;/zip/.lua/?/init.tl;/zip/.lua/types/?.d.tl;/zip/.lua/types/?/init.d.tl
 
@@ -59,6 +63,7 @@ help:
 	@echo "Targets:"
 	@echo "  test                Run all tests (incremental)"
 	@echo "  build               Build all files"
+	@echo "  ah                  Build ah executable archive"
 	@echo "  check-types         Run teal type checker on all files"
 	@echo "  clean               Remove all build artifacts"
 
@@ -72,6 +77,27 @@ $(o)/test-summary.txt: $(all_tested) $(cosmic)
 .PHONY: build
 ## Build all files
 build: $(ah_lua)
+
+# embed staging
+$(o)/embed/main.lua: $(o)/bin/ah.lua
+	@mkdir -p $(@D)
+	@cp $< $@
+
+$(o)/embed/.lua/ah/%.lua: $(o)/lib/ah/%.lua
+	@mkdir -p $(@D)
+	@cp $< $@
+
+$(o)/embed/.lua/%.lua: $(o)/lib/%.lua
+	@mkdir -p $(@D)
+	@cp $< $@
+
+$(o)/bin/ah: $(o)/embed/main.lua $(ah_lib_lua) $(ah_dep_lua) $(cosmic)
+	@echo "==> embedding ah"
+	@$(cosmic) --embed $(o)/embed --output $@
+
+.PHONY: ah
+## Build ah executable archive
+ah: $(o)/bin/ah
 
 .PHONY: check-types
 ## Run teal type checker on all files
