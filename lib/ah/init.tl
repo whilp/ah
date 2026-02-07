@@ -346,8 +346,10 @@ local function run_agent(d: db.DB, system_prompt: string, model: string, prompt:
       local prefix = is_tty and "⠋ " or ""
       local indent = "  "
 
-      -- Blank line before tool block
-      io.stderr:write("\n")
+      -- Blank line before first tool block only
+      if i == 1 then
+        io.stderr:write("\n")
+      end
 
       -- Line 1: tool name and timing
       io.stderr:write(string.format("%s%s%s (%.1fs)%s\n", DIM, prefix, tc.name, elapsed, RESET))
