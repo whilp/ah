@@ -131,7 +131,17 @@ local function get_session(self, id)
 end
 
 local function get_session_by_name(self, name)
+  -- First try exact name match
   local stmt = self._db:prepare("select * from sessions where name = ?")
+  stmt:bind_values(name)
+  for row in stmt:nrows() do
+    stmt:finalize()
+    return row
+  end
+  stmt:finalize()
+
+  -- Then try ID prefix match
+  stmt = self._db:prepare("select * from sessions where id like ? || '%'")
   stmt:bind_values(name)
   for row in stmt:nrows() do
     stmt:finalize()

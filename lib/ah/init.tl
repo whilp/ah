@@ -25,7 +25,7 @@ commands:
 
 options:
   -h, --help          show this help
-  -n, --new           start new session
+  -n, --new [+name]   start new session (optionally named)
   -s, --system PROMPT set system prompt
 ]])
 end
@@ -505,6 +505,14 @@ local function main(args: {string}): integer, string
   local session = db.get_current_session(d)
   local parent_id: string = nil
   local prompt: string = nil
+  local session_name: string = nil
+
+  -- Check for +name when starting new session
+  if new_session and cmd and cmd:sub(1, 1) == "+" then
+    session_name = cmd:sub(2)
+    table.remove(remaining, 1)
+    cmd = remaining[1]
+  end
 
   -- Check for @N fork syntax
   if cmd and cmd:sub(1, 1) == "@" then
@@ -533,7 +541,7 @@ local function main(args: {string}): integer, string
 
   -- Create or get session
   if new_session or not session then
-    session = db.create_session(d, nil, unix.getcwd(), system_prompt)
+    session = db.create_session(d, session_name, unix.getcwd(), system_prompt)
   end
 
   -- Get parent message - always continue from last message unless forking with @N
