@@ -10,6 +10,24 @@ local record Credentials
   is_api_key: boolean
 end
 
+local function parse_env_file(path: string): {string:string}
+  local content = io.slurp(path)
+  if not content then
+    return nil
+  end
+  local env: {string:string} = {}
+  for line in content:gmatch("[^\n]+") do
+    if not line:match("^%s*#") and not line:match("^%s*$") then
+      local key, value = line:match("^([%w_]+)=(.*)$")
+      if key and value then
+        value = value:gsub("^['\"]", ""):gsub("['\"]$", "")
+        env[key] = value
+      end
+    end
+  end
+  return env
+end
+
 local function load_credentials(): Credentials, string
   -- 1. Check for API key first (most reliable)
   local api_key = os.getenv("ANTHROPIC_API_KEY")
@@ -23,7 +41,13 @@ local function load_credentials(): Credentials, string
     return {access_token = token}
   end
 
-  -- 3. Read ~/.claude/.credentials.json
+  -- 3. Read .env file if present
+  local env = parse_env_file(".env")
+  if env and env.ANTHROPIC_API_KEY then
+    return {access_token = env.ANTHROPIC_API_KEY, is_api_key = true}
+  end
+
+  -- 4. Read ~/.claude/.credentials.json
   local home = os.getenv("HOME")
   if home then
     local cred_path = fs.join(home, ".claude", ".credentials.json")

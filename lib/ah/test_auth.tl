@@ -55,4 +55,32 @@ local function test_load_from_env()
 end
 test_load_from_env()
 
+local function test_load_from_env_file()
+  local cio = require("cosmic.io")
+
+  -- Save and clear env vars
+  local orig_key = os.getenv("ANTHROPIC_API_KEY")
+  local orig_oauth = os.getenv("CLAUDE_CODE_OAUTH_TOKEN")
+  if orig_key then unix.unsetenv("ANTHROPIC_API_KEY") end
+  if orig_oauth then unix.unsetenv("CLAUDE_CODE_OAUTH_TOKEN") end
+
+  -- Create .env in temp dir and cd there
+  local tmpdir = os.getenv("TEST_TMPDIR")
+  local orig_cwd = unix.getcwd()
+  unix.chdir(tmpdir)
+
+  cio.barf(".env", "ANTHROPIC_API_KEY=env-file-key-456\n", tonumber("644", 8))
+
+  local creds = auth.load_credentials()
+  assert(creds, "should load credentials from .env file")
+  assert(creds.access_token == "env-file-key-456", "token mismatch from .env")
+  assert(creds.is_api_key, "should be api key")
+
+  -- Restore
+  unix.chdir(orig_cwd)
+  if orig_key then unix.setenv("ANTHROPIC_API_KEY", orig_key) end
+  if orig_oauth then unix.setenv("CLAUDE_CODE_OAUTH_TOKEN", orig_oauth) end
+end
+test_load_from_env_file()
+
 print("all auth tests passed")
