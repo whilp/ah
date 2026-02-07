@@ -1,12 +1,8 @@
--- ah/auth.lua: OAuth/API key credential loading
-local fs = require("cosmic.fs")
+-- ah/auth.lua: API key credential loading
 local io = require("cosmic.io")
-local json = require("cosmic.json")
 
 local record Credentials
   access_token: string
-  refresh_token: string
-  expires_at: string
   is_api_key: boolean
 end
 
@@ -45,19 +41,6 @@ local function load_credentials(): Credentials, string
   local env = parse_env_file(".env")
   if env and env.ANTHROPIC_API_KEY then
     return {access_token = env.ANTHROPIC_API_KEY, is_api_key = true}
-  end
-
-  -- 4. Read ~/.claude/.credentials.json
-  local home = os.getenv("HOME")
-  if home then
-    local cred_path = fs.join(home, ".claude", ".credentials.json")
-    local content = io.slurp(cred_path)
-    if content then
-      local creds = json.decode(content) as Credentials
-      if creds and creds.access_token then
-        return creds
-      end
-    end
   end
 
   return nil, "no credentials found (set ANTHROPIC_API_KEY)"
