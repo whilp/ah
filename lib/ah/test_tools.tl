@@ -103,7 +103,7 @@ local function test_is_valid_tool()
     name = "test",
     description = "A test tool",
     input_schema = {type = "object", properties = {}, required = {}},
-    execute = function() return "ok", false end,
+    execute = function(_: {string:any}): string, boolean return "ok", false end,
   }
   assert(tools.is_valid_tool(valid), "valid tool should pass validation")
   print("✓ is_valid_tool works")
@@ -201,7 +201,7 @@ return {
 ]])
 
   local all = tools.load_custom_tools(global_dir, project_dir)
-  local foo = nil
+  local foo: tools.Tool = nil
   for _, t in ipairs(all) do
     if t.name == "foo" then foo = t end
   end

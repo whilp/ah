@@ -20,7 +20,7 @@ local function build_request(messages: {any}, opts: {string:any}): {string:any}
 end
 
 -- Parse SSE stream line by line
-local function parse_sse_line(line)
+local function parse_sse_line(line: string): string, string
   if line:match("^data: ") then
     return "data", line:sub(7)
   elseif line:match("^event: ") then
@@ -30,7 +30,7 @@ local function parse_sse_line(line)
 end
 
 -- Stream API call with callback for each event
-local function stream(messages: {any}, opts: {string:any}, callback: function({string:any}))
+local function stream(messages: {any}, opts: {string:any}, callback: function({string:any})): {string:any}, string
   local creds, err = auth.load_credentials()
   if not creds then
     return nil, err
@@ -122,12 +122,13 @@ local function stream(messages: {any}, opts: {string:any}, callback: function({s
 end
 
 -- Extract tool calls from response
-local function extract_tool_calls(response)
-  local tool_calls = {}
+local function extract_tool_calls(response: {string:any}): {{string:any}}
+  local tool_calls: {{string:any}} = {}
   if response and response.content then
-    for _, block in ipairs(response.content) do
-      if block.type == "tool_use" then
-        table.insert(tool_calls, block)
+    for _, block in ipairs(response.content as {any}) do
+      local b = block as {string:any}
+      if b.type == "tool_use" then
+        table.insert(tool_calls, b)
       end
     end
   end

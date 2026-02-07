@@ -46,16 +46,82 @@ create index if not exists idx_messages_parent on messages(parent_id);
 create index if not exists idx_content_blocks_message on content_blocks(message_id);
 ]]
 
-local function get_db_path()
+-- Type definitions
+local record Statement
+  bind: function(Statement, any...)
+  exec: function(Statement)
+  close: function(Statement)
+end
+
+local record Database
+  exec: function(Database, string, any...): boolean, string
+  prepare: function(Database, string): Statement, string
+  query: function(Database, string, any...): function(): {string:any}
+  close: function(Database)
+end
+
+local record DB
+  _db: Database
+end
+
+local record Session
+  id: string
+  name: string
+  created_at: integer
+  updated_at: integer
+  cwd: string
+  system_prompt: string
+  model: string
+  message_count: integer
+end
+
+local record Message
+  id: string
+  session_id: string
+  parent_id: string
+  role: string
+  seq: integer
+  created_at: integer
+end
+
+local record ContentBlock
+  id: string
+  message_id: string
+  block_type: string
+  seq: integer
+  content: string
+  tool_id: string
+  tool_name: string
+  tool_input: string
+  tool_output: string
+  is_error: integer
+end
+
+local record ContentBlockOpts
+  content: string
+  tool_id: string
+  tool_name: string
+  tool_input: string
+  tool_output: string
+  is_error: boolean
+end
+
+local record UpdateOpts
+  content: string
+  tool_output: string
+  is_error: boolean
+end
+
+local function get_db_path(): string
   local home = os.getenv("HOME") or ""
   local ah_dir = fs.join(home, ".ah")
   fs.makedirs(ah_dir)
   return fs.join(ah_dir, "ah.db")
 end
 
-local function open(db_path)
+local function open(db_path?: string): DB, string
   db_path = db_path or get_db_path()
-  local db, err = sqlite.open(db_path)
+  local db, err = sqlite.open(db_path) as (Database, string)
   if not db then
     return nil, "failed to open database: " .. db_path .. ": " .. (err or "")
   end
@@ -66,29 +132,29 @@ local function open(db_path)
     return nil, "failed to initialize schema: " .. (schema_err or "")
   end
 
-  return {_db = db}
+  return {_db = db} as DB, nil
 end
 
-local function close(self)
+local function close(self: DB)
   if self._db then
     self._db:close()
   end
 end
 
 -- Context operations
-local function get_context(self, key)
+local function get_context(self: DB, key: string): string
   for row in self._db:query("select value from context where key = ?", key) do
-    return row.value
+    return row.value as string
   end
   return nil
 end
 
-local function set_context(self, key, value)
+local function set_context(self: DB, key: string, value: string)
   self._db:exec("insert or replace into context (key, value) values (?, ?)", key, value)
 end
 
 -- Session operations
-local function create_session(self, name, cwd, system_prompt, model)
+local function create_session(self: DB, name?: string, cwd?: string, system_prompt?: string, model?: string): Session
   local id = ulid.generate()
   local now = os.time()
 
@@ -116,28 +182,28 @@ local function create_session(self, name, cwd, system_prompt, model)
   }
 end
 
-local function get_session(self, id)
+local function get_session(self: DB, id: string): Session
   for row in self._db:query("select * from sessions where id = ?", id) do
-    return row
+    return row as Session
   end
   return nil
 end
 
-local function get_session_by_name(self, name)
+local function get_session_by_name(self: DB, name: string): Session
   -- First try exact name match
   for row in self._db:query("select * from sessions where name = ?", name) do
-    return row
+    return row as Session
   end
 
   -- Then try ID prefix match
   for row in self._db:query("select * from sessions where id like ? || '%'", name) do
-    return row
+    return row as Session
   end
   return nil
 end
 
-local function list_sessions(self)
-  local sessions = {}
+local function list_sessions(self: DB): {Session}
+  local sessions: {Session} = {}
   local sql = [[
     select s.*,
       (select count(*) from messages m where m.session_id = s.id) as message_count
@@ -145,12 +211,12 @@ local function list_sessions(self)
     order by s.updated_at desc
   ]]
   for row in self._db:query(sql) do
-    table.insert(sessions, row)
+    table.insert(sessions, row as Session)
   end
   return sessions
 end
 
-local function delete_session(self, id)
+local function delete_session(self: DB, id: string)
   self._db:exec([[
     delete from content_blocks where message_id in
     (select id from messages where session_id = ?)
@@ -165,7 +231,7 @@ local function delete_session(self, id)
   end
 end
 
-local function get_current_session(self)
+local function get_current_session(self: DB): Session
   local id = get_context(self, "current_session")
   if id then
     return get_session(self, id)
@@ -173,26 +239,26 @@ local function get_current_session(self)
   return nil
 end
 
-local function set_current_session(self, id)
+local function set_current_session(self: DB, id: string)
   set_context(self, "current_session", id)
 end
 
 -- Message operations
-local function get_message(self, id)
+local function get_message(self: DB, id: string): Message
   for row in self._db:query("select * from messages where id = ?", id) do
-    return row
+    return row as Message
   end
   return nil
 end
 
-local function create_message(self, session_id, role, parent_id)
+local function create_message(self: DB, session_id: string, role: string, parent_id?: string): Message
   local id = ulid.generate()
   local now = os.time()
 
   local seq = 0
   if parent_id then
     for row in self._db:query("select seq from messages where id = ?", parent_id) do
-      seq = row.seq + 1
+      seq = (row.seq as integer) + 1
     end
   end
 
@@ -215,7 +281,7 @@ local function create_message(self, session_id, role, parent_id)
   }
 end
 
-local function get_current_message(self)
+local function get_current_message(self: DB): Message
   local id = get_context(self, "current_message")
   if id then
     return get_message(self, id)
@@ -223,12 +289,12 @@ local function get_current_message(self)
   return nil
 end
 
-local function set_current_message(self, id)
+local function set_current_message(self: DB, id: string)
   set_context(self, "current_message", id)
 end
 
-local function get_ancestry(self, message_id)
-  local messages = {}
+local function get_ancestry(self: DB, message_id: string): {Message}
+  local messages: {Message} = {}
   local current_id = message_id
 
   while current_id do
@@ -241,7 +307,7 @@ local function get_ancestry(self, message_id)
   return messages
 end
 
-local function get_last_message(self, session_id)
+local function get_last_message(self: DB, session_id: string): Message
   local current = get_current_message(self)
   if current and current.session_id == session_id then
     return current
@@ -251,12 +317,12 @@ local function get_last_message(self, session_id)
     select * from messages where session_id = ?
     order by seq desc, created_at desc limit 1
   ]], session_id) do
-    return row
+    return row as Message
   end
   return nil
 end
 
-local function delete_message(self, id)
+local function delete_message(self: DB, id: string)
   self._db:exec("delete from content_blocks where message_id = ?", id)
   self._db:exec("delete from messages where id = ?", id)
 
@@ -267,14 +333,14 @@ local function delete_message(self, id)
 end
 
 -- Content block operations
-local function add_content_block(self, message_id, block_type, opts)
+local function add_content_block(self: DB, message_id: string, block_type: string, opts: ContentBlockOpts): ContentBlock
   opts = opts or {}
   local id = ulid.generate()
 
   local seq = 0
   for row in self._db:query("select max(seq) as max_seq from content_blocks where message_id = ?", message_id) do
     if row.max_seq then
-      seq = row.max_seq + 1
+      seq = (row.max_seq as integer) + 1
     end
   end
 
@@ -305,20 +371,20 @@ local function add_content_block(self, message_id, block_type, opts)
   }
 end
 
-local function get_content_blocks(self, message_id)
-  local blocks = {}
+local function get_content_blocks(self: DB, message_id: string): {ContentBlock}
+  local blocks: {ContentBlock} = {}
   for row in self._db:query([[
     select * from content_blocks where message_id = ?
     order by seq asc
   ]], message_id) do
-    table.insert(blocks, row)
+    table.insert(blocks, row as ContentBlock)
   end
   return blocks
 end
 
-local function update_content_block(self, id, opts)
-  local sets = {}
-  local values = {}
+local function update_content_block(self: DB, id: string, opts: UpdateOpts)
+  local sets: {string} = {}
+  local values: {any} = {}
 
   if opts.content then
     table.insert(sets, "content = ?")
@@ -337,7 +403,7 @@ local function update_content_block(self, id, opts)
 
   table.insert(values, id)
   local sql = "update content_blocks set " .. table.concat(sets, ", ") .. " where id = ?"
-  local stmt, err = self._db:prepare(sql)
+  local stmt = self._db:prepare(sql)
   if stmt then
     stmt:bind(table.unpack(values))
     stmt:exec()
@@ -345,12 +411,12 @@ local function update_content_block(self, id, opts)
   end
 end
 
-local function get_message_by_seq(self, session_id, seq)
+local function get_message_by_seq(self: DB, session_id: string, seq: integer): Message
   for row in self._db:query([[
     select * from messages where session_id = ? and seq = ?
     order by created_at asc limit 1
   ]], session_id, seq) do
-    return row
+    return row as Message
   end
   return nil
 end
@@ -374,4 +440,10 @@ return {
   add_content_block = add_content_block,
   get_content_blocks = get_content_blocks,
   update_content_block = update_content_block,
+  -- Export types for consumers
+  DB = DB,
+  Session = Session,
+  Message = Message,
+  ContentBlock = ContentBlock,
+  ContentBlockOpts = ContentBlockOpts,
 }

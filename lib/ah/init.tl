@@ -97,17 +97,17 @@ local function tool_key_param(tool_name: string, tool_input: string): string
 end
 
 -- Send prompt and run agent loop
-local function run_agent(d: any, session: {string:any}, prompt: string, parent_id: string)
+local function run_agent(d: db.DB, session: db.Session, prompt: string, parent_id: string)
   -- Create user message
-  local user_msg = db.create_message(d, session.id as string, "user", parent_id) as {string:any}
-  db.add_content_block(d, user_msg.id as string, "text", {content = prompt})
+  local user_msg = db.create_message(d, session.id, "user", parent_id)
+  db.add_content_block(d, user_msg.id, "text", {content = prompt})
 
   -- Build messages from ancestry
-  local ancestry = db.get_ancestry(d, user_msg.id as string) as {{string:any}}
+  local ancestry = db.get_ancestry(d, user_msg.id)
   local api_messages: {any} = {}
 
   for _, msg in ipairs(ancestry) do
-    local blocks = db.get_content_blocks(d, msg.id as string) as {{string:any}}
+    local blocks = db.get_content_blocks(d, msg.id)
     local content: {any} = {}
 
     for _, block in ipairs(blocks) do
@@ -140,13 +140,13 @@ local function run_agent(d: any, session: {string:any}, prompt: string, parent_i
   -- Agent loop
   while not interrupted do
     -- Create assistant message
-    local assistant_msg = db.create_message(d, session.id as string, "assistant", user_msg.id as string) as {string:any}
+    local assistant_msg = db.create_message(d, session.id, "assistant", user_msg.id)
     local current_text = ""
 
     -- Stream response
     local response, err = api.stream(api_messages, {
-      system = session.system_prompt as string,
-      model = session.model as string,
+      system = session.system_prompt,
+      model = session.model,
       tools = tools.get_tool_definitions(),
     }, function(event: {string:any})
       if event.type == "content_block_delta" and event.delta then
@@ -177,13 +177,13 @@ local function run_agent(d: any, session: {string:any}, prompt: string, parent_i
     for _, block in ipairs(resp_content) do
       local b = block as {string:any}
       if b.type == "text" then
-        db.add_content_block(d, assistant_msg.id as string, "text", {content = b.text})
+        db.add_content_block(d, assistant_msg.id, "text", {content = b.text as string})
         table.insert(assistant_api_content, {type = "text", text = b.text})
       elseif b.type == "tool_use" then
         local input_json = json.encode(b.input or {})
-        db.add_content_block(d, assistant_msg.id as string, "tool_use", {
-          tool_id = b.id,
-          tool_name = b.name,
+        db.add_content_block(d, assistant_msg.id, "tool_use", {
+          tool_id = b.id as string,
+          tool_name = b.name as string,
           tool_input = input_json,
         })
         table.insert(assistant_api_content, {
@@ -209,7 +209,7 @@ local function run_agent(d: any, session: {string:any}, prompt: string, parent_i
     io.write("\n")
 
     -- Create a new user message for tool results (child of assistant message)
-    local tool_result_msg = db.create_message(d, session.id as string, "user", assistant_msg.id as string) as {string:any}
+    local tool_result_msg = db.create_message(d, session.id, "user", assistant_msg.id)
 
     -- Add tool results to API messages
     local tool_results_content: {any} = {}
@@ -221,8 +221,8 @@ local function run_agent(d: any, session: {string:any}, prompt: string, parent_i
       local result, is_error = tools.execute_tool(tc.name as string, (tc.input or {}) as {string:any})
 
       -- Save tool result to the new user message
-      db.add_content_block(d, tool_result_msg.id as string, "tool_result", {
-        tool_id = tc.id,
+      db.add_content_block(d, tool_result_msg.id, "tool_result", {
+        tool_id = tc.id as string,
         tool_output = result,
         is_error = is_error,
       })
@@ -257,7 +257,7 @@ local function relative_time(ts: integer): string
 end
 
 -- List sessions
-local function cmd_folder(d: any, name: string)
+local function cmd_folder(d: db.DB, name: string)
   if name then
     -- Switch to session by name
     local session = db.get_session_by_name(d, name)
@@ -285,7 +285,7 @@ local function cmd_folder(d: any, name: string)
 end
 
 -- List messages in current branch (ancestry from current message)
-local function cmd_scan(d: any, name: string)
+local function cmd_scan(d: db.DB, name: string)
   local session: {string:any}
   if name then
     session = db.get_session_by_name(d, name) as {string:any}
@@ -366,30 +366,30 @@ local function cmd_scan(d: any, name: string)
 end
 
 -- Show message content
-local function cmd_show(d: any, seq: integer)
-  local session = db.get_current_session(d) as {string:any}
+local function cmd_show(d: db.DB, seq: integer)
+  local session = db.get_current_session(d)
   if not session then
     io.stderr:write("no current session\n")
     return
   end
 
-  local m: {string:any}
+  local m: db.Message
   if seq then
-    m = db.get_message_by_seq(d, session.id as string, seq) as {string:any}
+    m = db.get_message_by_seq(d, session.id, seq)
     if not m then
       io.stderr:write("message not found: @" .. seq .. "\n")
       return
     end
   else
-    m = db.get_current_message(d) as {string:any}
+    m = db.get_current_message(d)
     if not m then
       io.stderr:write("no current message\n")
       return
     end
   end
 
-  local blocks = db.get_content_blocks(d, m.id as string) as {{string:any}}
-  io.write(string.format("--- %s @%d ---\n", m.role, m.seq as integer))
+  local blocks = db.get_content_blocks(d, m.id)
+  io.write(string.format("--- %s @%d ---\n", m.role, m.seq))
   for _, b in ipairs(blocks) do
     if b.block_type == "text" then
       io.write((b.content or "") as string)
@@ -410,7 +410,7 @@ local function cmd_show(d: any, seq: integer)
 end
 
 -- Remove messages
-local function cmd_rmm(d: any, seqs: {integer})
+local function cmd_rmm(d: db.DB, seqs: {integer})
   local session = db.get_current_session(d)
   if not session then
     io.stderr:write("no current session\n")
@@ -429,7 +429,7 @@ local function cmd_rmm(d: any, seqs: {integer})
 end
 
 -- Remove session
-local function cmd_rmf(d: any, name: string)
+local function cmd_rmf(d: db.DB, name: string)
   local session: any
   if name then
     session = db.get_session_by_name(d, name)

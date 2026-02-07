@@ -10,8 +10,6 @@ MAKEFLAGS += --output-sync
 
 o := o
 
-export PATH := $(CURDIR)/$(o)/bin:$(PATH)
-
 TMP ?= /tmp
 export TMPDIR := $(TMP)
 
@@ -21,30 +19,23 @@ cosmic_url := https://github.com/whilp/cosmic/releases/download/$(cosmic_version
 cosmic_sha := 19f8991a9254f093b83546ecdf780c073b039600f060ab93f6ce78f1ef020bd8
 cosmic := $(o)/bin/cosmic
 
-$(cosmic): | $(o)/bin/.
+$(cosmic):
+	@mkdir -p $(@D)
 	@echo "==> fetching cosmic $(cosmic_version)"
 	@curl -fsSL -o $@ $(cosmic_url)
 	@echo "$(cosmic_sha)  $@" | sha256sum -c - >/dev/null
 	@chmod +x $@
 
-# build tools
-build_tools := $(o)/bin/make-help.lua
-
-$(o)/bin/%.lua: lib/build/%.tl $(cosmic)
-	@mkdir -p $(@D)
-	@$(cosmic) --compile $< > $@
-
 reporter := $(cosmic) lib/build/reporter.tl
 
 # ah module
 ah_srcs := $(wildcard lib/ah/*.tl)
-ah_tl := $(ah_srcs) bin/ah.tl
 ah_lua := $(patsubst lib/%.tl,$(o)/lib/%.lua,$(ah_srcs)) $(o)/bin/ah.lua
 ah_tests := $(wildcard lib/ah/test_*.tl)
 
 # type declarations
 types := $(wildcard lib/types/*.d.tl lib/types/*/*.d.tl)
-TL_PATH := $(CURDIR)/lib/types/?.d.tl;$(CURDIR)/lib/types/?/init.d.tl;$(CURDIR)/$(o)/lib/?.tl;$(CURDIR)/$(o)/lib/?/init.tl;$(CURDIR)/lib/?.tl;$(CURDIR)/lib/?/init.tl
+TL_PATH := lib/?.tl;lib/?/init.tl;lib/types/?.d.tl;lib/types/?/init.d.tl;/zip/.lua/?.tl;/zip/.lua/?/init.tl;/zip/.lua/types/?.d.tl;/zip/.lua/types/?/init.d.tl
 
 # compile .tl to .lua
 $(o)/lib/%.lua: lib/%.tl $(types) $(cosmic)
@@ -56,8 +47,7 @@ $(o)/bin/%.lua: bin/%.tl $(types) $(cosmic)
 	@$(cosmic) --compile $< > $@
 
 # tests
-all_tests := $(ah_tests)
-all_tested := $(patsubst %,$(o)/%.test.ok,$(all_tests))
+all_tested := $(patsubst %,$(o)/%.test.ok,$(ah_tests))
 
 export LUA_PATH := $(CURDIR)/o/bin/?.lua;$(CURDIR)/o/lib/?.lua;$(CURDIR)/o/lib/?/init.lua;$(CURDIR)/lib/?.lua;$(CURDIR)/lib/?/init.lua;;
 
@@ -69,8 +59,14 @@ $(o)/%.tl.test.ok: $(o)/%.lua $(ah_lua) $(cosmic)
 
 # targets
 .PHONY: help
-help: $(build_tools) $(cosmic)
-	@$(cosmic) $(o)/bin/make-help.lua $(MAKEFILE_LIST)
+help:
+	@echo "Usage: make [target]"
+	@echo ""
+	@echo "Targets:"
+	@echo "  test                Run all tests (incremental)"
+	@echo "  build               Build all files"
+	@echo "  check-types         Run teal type checker on all files"
+	@echo "  clean               Remove all build artifacts"
 
 .PHONY: test
 ## Run all tests (incremental)
@@ -83,18 +79,18 @@ $(o)/test-summary.txt: $(all_tested) $(cosmic)
 ## Build all files
 build: $(ah_lua)
 
-.PHONY: teal
+.PHONY: check-types
 ## Run teal type checker on all files
-teal: $(o)/teal-summary.txt
+check-types: $(o)/teal-summary.txt
 
-all_teals := $(patsubst %,$(o)/%.teal.ok,$(ah_tl))
+all_teals := $(patsubst %,$(o)/%.teal.ok,$(ah_srcs) bin/ah.tl)
 
 $(o)/teal-summary.txt: $(all_teals) $(cosmic)
 	@$(reporter) --dir $(o) $(all_teals) | tee $@
 
 $(o)/%.tl.teal.ok: %.tl $(cosmic) $(types)
 	@mkdir -p $(@D)
-	@if TL_PATH='$(TL_PATH)' $(cosmic) --check "$<" >/dev/null 2>$@.err; then \
+	@if TL_PATH='$(TL_PATH)' $(cosmic) --check-types "$<" >/dev/null 2>$@.err; then \
 		echo "pass:" > $@; \
 	else \
 		n=$$(grep -c ': error:' $@.err 2>/dev/null || echo 0); \
@@ -108,6 +104,3 @@ $(o)/%.tl.teal.ok: %.tl $(cosmic) $(types)
 ## Remove all build artifacts
 clean:
 	@rm -rf $(o)
-
-%/.:
-	@mkdir -p $@

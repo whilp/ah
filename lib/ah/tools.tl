@@ -349,4 +349,5 @@ return {
   load_custom_tools = load_custom_tools,
   load_custom_tools_from_dir = load_custom_tools_from_dir,
   is_valid_tool = is_valid_tool,
+  Tool = Tool,
 }
