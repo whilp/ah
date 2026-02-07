@@ -33,12 +33,10 @@ ah_srcs := $(wildcard lib/ah/*.tl) bin/ah.tl
 ah_lua := $(patsubst %.tl,$(o)/%.lua,$(ah_srcs))
 ah_tests := $(wildcard lib/ah/test_*.tl)
 
-# type declarations
-types := lib/types/ulid.d.tl
-TL_PATH := lib/?.tl;lib/?/init.tl;lib/types/?.d.tl;/zip/.lua/?.tl;/zip/.lua/?/init.tl;/zip/.lua/types/?.d.tl;/zip/.lua/types/?/init.d.tl
+TL_PATH := lib/?.tl;lib/?/init.tl;/zip/.lua/?.tl;/zip/.lua/?/init.tl;/zip/.lua/types/?.d.tl;/zip/.lua/types/?/init.d.tl
 
 # compile .tl to .lua
-$(o)/%.lua: %.tl $(types) $(cosmic)
+$(o)/%.lua: %.tl $(cosmic)
 	@mkdir -p $(@D)
 	@$(cosmic) --compile $< > $@
 
@@ -84,7 +82,7 @@ all_teals := $(patsubst %,$(o)/%.teal.ok,$(ah_srcs))
 $(o)/teal-summary.txt: $(all_teals) $(cosmic)
 	@$(reporter) --dir $(o) $(all_teals) | tee $@
 
-$(o)/%.tl.teal.ok: %.tl $(cosmic) $(types)
+$(o)/%.tl.teal.ok: %.tl $(cosmic)
 	@mkdir -p $(@D)
 	@if TL_PATH='$(TL_PATH)' $(cosmic) --check-types "$<" >/dev/null 2>$@.err; then \
 		echo "pass:" > $@; \
