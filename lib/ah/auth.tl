@@ -10,13 +10,19 @@ local record Credentials
 end
 
 local function load_credentials(): Credentials, string
-  -- 1. Check env var (Claude Code OAuth token)
+  -- 1. Check for API key first (most reliable)
+  local api_key = os.getenv("ANTHROPIC_API_KEY")
+  if api_key then
+    return {access_token = api_key, is_api_key = true}
+  end
+
+  -- 2. Check env var (Claude Code OAuth token)
   local token = os.getenv("CLAUDE_CODE_OAUTH_TOKEN")
   if token then
     return {access_token = token}
   end
 
-  -- 2. Read ~/.claude/.credentials.json
+  -- 3. Read ~/.claude/.credentials.json
   local home = os.getenv("HOME")
   if home then
     local cred_path = path.join(home, ".claude", ".credentials.json")
@@ -29,13 +35,7 @@ local function load_credentials(): Credentials, string
     end
   end
 
-  -- 3. Fall back to API key
-  local api_key = os.getenv("ANTHROPIC_API_KEY")
-  if api_key then
-    return {access_token = api_key, is_api_key = true}
-  end
-
-  return nil, "no credentials found (run: claude setup-token or set ANTHROPIC_API_KEY)"
+  return nil, "no credentials found (set ANTHROPIC_API_KEY)"
 end
 
 local function get_auth_headers(creds: Credentials): {string:string}
