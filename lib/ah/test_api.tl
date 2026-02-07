@@ -58,4 +58,37 @@ local function test_extract_tool_calls_mixed()
 end
 test_extract_tool_calls_mixed()
 
+local function test_build_request_default_model()
+  local req = api.build_request({}, {})
+  assert(req.model == api.DEFAULT_MODEL, "should use default model")
+  assert(req.model == "claude-sonnet-4-20250514", "default model should be sonnet")
+end
+test_build_request_default_model()
+
+local function test_build_request_custom_model()
+  local req = api.build_request({}, {model = "claude-haiku-3-5-20241022"})
+  assert(req.model == "claude-haiku-3-5-20241022", "should use custom model")
+end
+test_build_request_custom_model()
+
+local function test_build_request_nil_model()
+  local req = api.build_request({}, {model = nil})
+  assert(req.model == api.DEFAULT_MODEL, "nil model should use default")
+end
+test_build_request_nil_model()
+
+local function test_build_request_with_system()
+  local req = api.build_request({}, {system = "You are a helpful assistant"})
+  assert(req.system == "You are a helpful assistant", "should include system prompt")
+end
+test_build_request_with_system()
+
+local function test_build_request_with_tools()
+  local tools_list = {{name = "read", description = "Read a file"}}
+  local req = api.build_request({}, {tools = tools_list})
+  assert(req.tools ~= nil, "should include tools")
+  assert(#(req.tools as {any}) == 1, "should have 1 tool")
+end
+test_build_request_with_tools()
+
 print("all api tests passed")

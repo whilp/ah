@@ -1,5 +1,6 @@
 -- ah/init.tl: agent loop and CLI interface
 local cosmo = require("cosmo")
+local path = require("cosmo.path")
 local unix = require("cosmo.unix")
 local getopt = require("cosmo.getopt")
 
@@ -9,6 +10,52 @@ local tools = require("ah.tools")
 
 -- Global for signal handling
 global interrupted: boolean = false
+
+local DEFAULT_SYSTEM_PROMPT = "You are a helpful assistant."
+
+-- Get global ~/.ah directory
+local function get_global_dir(): string
+  local home = os.getenv("HOME") or ""
+  return path.join(home, ".ah")
+end
+
+-- Load CLAUDE.md from current directory
+local function load_claude_md(cwd: string): string
+  cwd = cwd or unix.getcwd()
+  local content = cosmo.Slurp(path.join(cwd, "CLAUDE.md"))
+  if content then
+    return "\n\n# Project Context\n\n" .. content
+  end
+  return ""
+end
+
+-- Load system prompt with precedence:
+-- 1. session_system (via -s flag) if set
+-- 2. .ah/SYSTEM.md (project) if exists
+-- 3. ~/.ah/SYSTEM.md (global) if exists
+-- 4. DEFAULT_SYSTEM_PROMPT
+-- CLAUDE.md is always appended
+local function load_system_prompt(session_system: string, cwd: string, global_dir: string): string
+  cwd = cwd or unix.getcwd()
+  global_dir = global_dir or get_global_dir()
+  local claude_md = load_claude_md(cwd)
+
+  if session_system then
+    return session_system .. claude_md
+  end
+
+  local project_system = cosmo.Slurp(path.join(cwd, ".ah", "SYSTEM.md"))
+  if project_system then
+    return project_system .. claude_md
+  end
+
+  local global_system = cosmo.Slurp(path.join(global_dir, "SYSTEM.md"))
+  if global_system then
+    return global_system .. claude_md
+  end
+
+  return DEFAULT_SYSTEM_PROMPT .. claude_md
+end
 
 local function usage()
   io.stderr:write([[usage: ah [options] [command] [args...]
@@ -27,6 +74,7 @@ options:
   -h, --help          show this help
   -n, --new [+name]   start new session (optionally named)
   -s, --system PROMPT set system prompt
+  -m, --model MODEL   set model (e.g., claude-sonnet-4-20250514)
 ]])
 end
 
@@ -98,6 +146,7 @@ local function run_agent(d: any, session: {string:any}, prompt: string, parent_i
     -- Stream response
     local response, err = api.stream(api_messages, {
       system = session.system_prompt as string,
+      model = session.model as string,
       tools = tools.get_tool_definitions(),
     }, function(event: {string:any})
       if event.type == "content_block_delta" and event.delta then
@@ -404,14 +453,16 @@ end
 local function main(args: {string}): integer, string
   local new_session = false
   local system_prompt: string = nil
+  local model: string = nil
 
   local longopts = {
     {"help", "none"},
     {"new", "none"},
     {"system", "required"},
+    {"model", "required"},
   }
 
-  local parser = getopt.new(args, "hns:", longopts)
+  local parser = getopt.new(args, "hns:m:", longopts)
 
   while true do
     local opt, optarg = parser:next()
@@ -424,6 +475,8 @@ local function main(args: {string}): integer, string
       new_session = true
     elseif opt == "s" or opt == "system" then
       system_prompt = optarg
+    elseif opt == "m" or opt == "model" then
+      model = optarg
     elseif opt == "?" then
       usage()
       return 1
@@ -527,7 +580,8 @@ local function main(args: {string}): integer, string
 
   -- Create or get session
   if new_session or not session then
-    session = db.create_session(d, session_name, unix.getcwd(), system_prompt)
+    local effective_system = load_system_prompt(system_prompt, nil, nil)
+    session = db.create_session(d, session_name, unix.getcwd(), effective_system, model)
   end
 
   -- Get parent message - always continue from last message unless forking with @N
@@ -550,6 +604,9 @@ local function main(args: {string}): integer, string
     return 0
   end
 
+  -- Initialize custom tools
+  tools.init_custom_tools()
+
   -- Run agent
   run_agent(d, session, prompt, parent_id)
 
@@ -567,4 +624,8 @@ end
 
 return {
   main = main,
+  load_system_prompt = load_system_prompt,
+  load_claude_md = load_claude_md,
+  get_global_dir = get_global_dir,
+  DEFAULT_SYSTEM_PROMPT = DEFAULT_SYSTEM_PROMPT,
 }

@@ -137,4 +137,6 @@ end
 return {
   stream = stream,
   extract_tool_calls = extract_tool_calls,
+  build_request = build_request,
+  DEFAULT_MODEL = DEFAULT_MODEL,
 }

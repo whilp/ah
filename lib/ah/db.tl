@@ -12,7 +12,8 @@ create table if not exists sessions (
   created_at integer not null,
   updated_at integer not null,
   cwd text,
-  system_prompt text
+  system_prompt text,
+  model text
 );
 
 create table if not exists messages (
@@ -96,14 +97,14 @@ local function set_context(self, key, value)
 end
 
 -- Session operations
-local function create_session(self, name, cwd, system_prompt)
+local function create_session(self, name, cwd, system_prompt, model)
   local id = ulid.generate()
   local now = os.time()
   local stmt = self._db:prepare([[
-    insert into sessions (id, name, created_at, updated_at, cwd, system_prompt)
-    values (?, ?, ?, ?, ?, ?)
+    insert into sessions (id, name, created_at, updated_at, cwd, system_prompt, model)
+    values (?, ?, ?, ?, ?, ?, ?)
   ]])
-  stmt:bind_values(id, name, now, now, cwd, system_prompt)
+  stmt:bind_values(id, name, now, now, cwd, system_prompt, model)
   stmt:step()
   stmt:finalize()
 
@@ -116,6 +117,7 @@ local function create_session(self, name, cwd, system_prompt)
     updated_at = now,
     cwd = cwd,
     system_prompt = system_prompt,
+    model = model,
   }
 end
 

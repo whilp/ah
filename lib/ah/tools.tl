@@ -11,6 +11,9 @@ local record Tool
   execute: function(input: {string:any}): string, boolean
 end
 
+-- Custom tools loaded at runtime
+local custom_tools: {Tool} = {}
+
 -- Read file tool
 local read_tool: Tool = {
   name = "read",
@@ -202,10 +205,115 @@ local bash_tool: Tool = {
   end,
 }
 
-local all_tools: {Tool} = {read_tool, write_tool, edit_tool, bash_tool}
+local builtin_tools: {Tool} = {read_tool, write_tool, edit_tool, bash_tool}
+
+-- Validate that a loaded module is a valid tool
+local function is_valid_tool(t: any): boolean
+  if type(t) ~= "table" then return false end
+  local tool = t as {string:any}
+  if type(tool.name) ~= "string" then return false end
+  if type(tool.description) ~= "string" then return false end
+  if type(tool.input_schema) ~= "table" then return false end
+  if type(tool.execute) ~= "function" then return false end
+  return true
+end
+
+-- Load custom tools from a directory
+local function load_custom_tools_from_dir(dir: string): {Tool}
+  local loaded: {Tool} = {}
+
+  local dh = unix.opendir(dir)
+  if not dh then return loaded end
+
+  while true do
+    local name = dh:read()
+    if not name then break end
+
+    if name:match("%.lua$") then
+      local tool_path = path.join(dir, name)
+      local chunk, load_err = loadfile(tool_path)
+      if chunk then
+        local ok, result = pcall(chunk)
+        if ok and is_valid_tool(result) then
+          table.insert(loaded, result as Tool)
+        elseif not ok then
+          io.stderr:write(string.format("warning: failed to execute %s: %s\n", tool_path, tostring(result)))
+        else
+          io.stderr:write(string.format("warning: invalid tool format in %s\n", tool_path))
+        end
+      else
+        io.stderr:write(string.format("warning: failed to load %s: %s\n", tool_path, tostring(load_err)))
+      end
+    end
+  end
+
+  dh:close()
+  return loaded
+end
+
+-- Merge tools from global and project directories (project overrides global by name)
+local function load_custom_tools(global_dir: string, project_dir: string): {Tool}
+  local by_name: {string:Tool} = {}
+
+  -- Load global tools first
+  if global_dir then
+    local global_tools = load_custom_tools_from_dir(global_dir)
+    for _, tool in ipairs(global_tools) do
+      by_name[tool.name] = tool
+    end
+  end
+
+  -- Load project tools (override global by name)
+  if project_dir then
+    local project_tools = load_custom_tools_from_dir(project_dir)
+    for _, tool in ipairs(project_tools) do
+      by_name[tool.name] = tool
+    end
+  end
+
+  -- Convert to array
+  local result: {Tool} = {}
+  for _, tool in pairs(by_name) do
+    table.insert(result, tool)
+  end
+  return result
+end
+
+-- Initialize custom tools from standard locations
+local function init_custom_tools()
+  local home = os.getenv("HOME") or ""
+  local global_tools_dir = path.join(home, ".ah", "tools")
+  local project_tools_dir = path.join(unix.getcwd(), ".ah", "tools")
+
+  custom_tools = load_custom_tools(global_tools_dir, project_tools_dir)
+end
+
+-- Get all tools (builtin + custom)
+local function get_all_tools(): {Tool}
+  local all: {Tool} = {}
+  for _, tool in ipairs(builtin_tools) do
+    table.insert(all, tool)
+  end
+  for _, tool in ipairs(custom_tools) do
+    -- Custom tools can override builtin tools by name
+    local found = false
+    for i, builtin in ipairs(all) do
+      if builtin.name == tool.name then
+        all[i] = tool
+        found = true
+        break
+      end
+    end
+    if not found then
+      table.insert(all, tool)
+    end
+  end
+  return all
+end
 
 local function get_tool(name: string): Tool
-  for _, tool in ipairs(all_tools) do
+  local all = get_all_tools()
+  for _, tool in ipairs(all) do
     if tool.name == name then
       return tool
     end
@@ -215,7 +323,8 @@ end
 
 local function get_tool_definitions(): {{string:any}}
   local defs: {{string:any}} = {}
-  for _, tool in ipairs(all_tools) do
+  local all = get_all_tools()
+  for _, tool in ipairs(all) do
     table.insert(defs, {
       name = tool.name,
       description = tool.description,
@@ -236,4 +345,8 @@ end
 return {
   get_tool_definitions = get_tool_definitions,
   execute_tool = execute_tool,
+  init_custom_tools = init_custom_tools,
+  load_custom_tools = load_custom_tools,
+  load_custom_tools_from_dir = load_custom_tools_from_dir,
+  is_valid_tool = is_valid_tool,
 }
