@@ -1,0 +1,63 @@
+#!/usr/bin/env cosmic
+-- test_tools.tl: tests for agent tools
+local tools = require("ah.tools")
+
+local function test_read_tool()
+  local result, is_error = tools.execute_tool("read", {path = "/etc/hostname"})
+  assert(not is_error, "read should succeed: " .. result)
+  assert(result:match("1\t"), "should have line numbers")
+  print("✓ read tool works")
+end
+
+local function test_read_nonexistent()
+  local result, is_error = tools.execute_tool("read", {path = "/nonexistent/file"})
+  assert(is_error, "should fail for nonexistent file")
+  assert(result:match("error"), "should return error message")
+  print("✓ read tool handles missing files")
+end
+
+local function test_write_tool()
+  local test_file = os.getenv("TEST_TMPDIR") .. "/test_write.txt"
+  local result, is_error = tools.execute_tool("write", {path = test_file, content = "hello world"})
+  assert(not is_error, "write should succeed: " .. result)
+  assert(result:match("wrote.*bytes"), "should report bytes written")
+  print("✓ write tool works")
+end
+
+local function test_edit_tool()
+  local test_file = os.getenv("TEST_TMPDIR") .. "/test_edit.txt"
+  tools.execute_tool("write", {path = test_file, content = "hello world"})
+  local result, is_error = tools.execute_tool("edit", {
+    path = test_file,
+    old_string = "hello",
+    new_string = "goodbye"
+  })
+  assert(not is_error, "edit should succeed: " .. result)
+  
+  local content, _ = tools.execute_tool("read", {path = test_file})
+  assert(content:match("goodbye world"), "content should be changed")
+  print("✓ edit tool works")
+end
+
+local function test_bash_tool()
+  local result, is_error = tools.execute_tool("bash", {command = "echo hello"})
+  assert(not is_error, "bash should succeed")
+  assert(result:match("hello"), "should capture stdout")
+  print("✓ bash tool works")
+end
+
+local function test_bash_exit_code()
+  local result, is_error = tools.execute_tool("bash", {command = "exit 1"})
+  assert(is_error, "should report error for non-zero exit")
+  assert(result:match("exit code: 1"), "should report exit code")
+  print("✓ bash tool handles exit codes")
+end
+
+test_read_tool()
+test_read_nonexistent()
+test_write_tool()
+test_edit_tool()
+test_bash_tool()
+test_bash_exit_code()
+
+print("\nAll tools tests passed!")
