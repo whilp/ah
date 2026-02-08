@@ -38,9 +38,6 @@ local function now(): number
   return s + ns / 1e9
 end
 
-local DEFAULT_SYSTEM_PROMPT = [[You are a coding assistant. Tools: read, write, edit, bash.
-read: examine files. edit: precise text replacement. write: create new files. bash: run commands.]]
-
 -- Load CLAUDE.md with embedded base prepended
 local function load_claude_md(cwd: string): string
   cwd = cwd or fs.getcwd()
@@ -79,7 +76,7 @@ local function load_system_prompt(cwd: string): string
     return sys_system .. claude_md
   end
 
-  return DEFAULT_SYSTEM_PROMPT .. claude_md
+  return claude_md
 end
 
 -- List session files from .ah/*.db with valid ULID names
@@ -888,5 +885,4 @@ return {
   tool_key_param = tool_key_param,
   list_sessions = list_sessions,
   resolve_session = resolve_session,
-  DEFAULT_SYSTEM_PROMPT = DEFAULT_SYSTEM_PROMPT,
 }
