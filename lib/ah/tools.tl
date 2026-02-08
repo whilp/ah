@@ -42,30 +42,6 @@ local function is_binary(content: string): boolean
   return non_printable > sample_size * 0.1
 end
 
--- Tool name mapping for Claude Code compatibility (OAuth mode)
-local CLAUDE_CODE_TOOLS: {string:string} = {
-  read = "Read",
-  write = "Write",
-  edit = "Edit",
-  bash = "Bash",
-}
-
--- Reverse mapping for inbound tool calls
-local CLAUDE_CODE_TOOLS_REVERSE: {string:string} = {
-  Read = "read",
-  Write = "write",
-  Edit = "edit",
-  Bash = "bash",
-}
-
-local function to_claude_code_name(name: string): string
-  return CLAUDE_CODE_TOOLS[name] or name
-end
-
-local function from_claude_code_name(name: string): string
-  return CLAUDE_CODE_TOOLS_REVERSE[name] or name
-end
-
 local record Tool
   name: string
   description: string
@@ -594,16 +570,12 @@ local function get_tool(name: string): Tool
   return nil
 end
 
-local function get_tool_definitions(is_oauth: boolean): {{string:any}}
+local function get_tool_definitions(): {{string:any}}
   local defs: {{string:any}} = {}
   local all = get_all_tools()
   for _, tool in ipairs(all) do
-    local name = tool.name
-    if is_oauth then
-      name = to_claude_code_name(name)
-    end
     table.insert(defs, {
-      name = name,
+      name = tool.name,
       description = tool.description,
       input_schema = tool.input_schema,
     })
@@ -628,7 +600,5 @@ return {
   load_cli_tools = load_cli_tools,
   load_cli_tools_from_dir = load_cli_tools_from_dir,
   is_valid_tool = is_valid_tool,
-  to_claude_code_name = to_claude_code_name,
-  from_claude_code_name = from_claude_code_name,
   Tool = Tool,
 }

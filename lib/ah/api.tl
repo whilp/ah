@@ -3,7 +3,30 @@ local json = require("cosmic.json")
 local fetch = require("cosmic.fetch")
 local unix = require("cosmo.unix")
 local auth = require("ah.auth")
-local tools_mod = require("ah.tools")
+
+-- Tool name mapping for Claude Code compatibility (OAuth mode)
+local CLAUDE_CODE_TOOLS: {string:string} = {
+  read = "Read",
+  write = "Write",
+  edit = "Edit",
+  bash = "Bash",
+}
+
+-- Reverse mapping for inbound tool calls
+local CLAUDE_CODE_TOOLS_REVERSE: {string:string} = {
+  Read = "read",
+  Write = "write",
+  Edit = "edit",
+  Bash = "bash",
+}
+
+local function to_claude_code_name(name: string): string
+  return CLAUDE_CODE_TOOLS[name] or name
+end
+
+local function from_claude_code_name(name: string): string
+  return CLAUDE_CODE_TOOLS_REVERSE[name] or name
+end
 
 -- Get monotonic time in milliseconds
 local function now_ms(): integer
@@ -142,7 +165,20 @@ local function build_request(messages: {any}, opts: {string:any}, is_oauth: bool
 
   -- Only include tools if provided (allows testing without tools)
   if opts.tools and #(opts.tools as {any}) > 0 then
-    req.tools = opts.tools
+    if is_oauth then
+      -- Remap tool names to Claude Code format for OAuth
+      local remapped: {{string:any}} = {}
+      for _, tool in ipairs(opts.tools as {{string:any}}) do
+        table.insert(remapped, {
+          name = to_claude_code_name(tool.name as string),
+          description = tool.description,
+          input_schema = tool.input_schema,
+        })
+      end
+      req.tools = remapped
+    else
+      req.tools = opts.tools
+    end
   end
   return req
 end
@@ -308,7 +344,7 @@ local function stream(messages: {any}, opts: {string:any}, callback: function({s
     for _, block in ipairs(response.content as {any}) do
       local b = block as {string:any}
       if b.type == "tool_use" and b.name then
-        b.name = tools_mod.from_claude_code_name(b.name as string)
+        b.name = from_claude_code_name(b.name as string)
       end
     end
   end
@@ -347,6 +383,8 @@ return {
   is_retryable_error = is_retryable_error,
   extract_retry_delay = extract_retry_delay,
   resolve_model = resolve_model,
+  to_claude_code_name = to_claude_code_name,
+  from_claude_code_name = from_claude_code_name,
   DEFAULT_MODEL = DEFAULT_MODEL,
   MODELS = MODELS,
   MODEL_ALIASES = MODEL_ALIASES,
