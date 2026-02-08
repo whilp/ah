@@ -493,8 +493,19 @@ local function make_cli_handler(): events.EventCallback
       io.stderr:write("\nerror: " .. (event.error or "unknown") .. "\n")
 
     elseif t == "api_call_end" then
-      -- Text output complete for this turn; check if tool calls follow
-      -- (tool_call_start will handle the newline separator)
+      -- Show cache stats when prompt caching is active
+      local cache_read = event.cache_read_input_tokens or 0
+      local cache_create = event.cache_creation_input_tokens or 0
+      if cache_read > 0 or cache_create > 0 then
+        local parts: {string} = {}
+        if cache_read > 0 then
+          table.insert(parts, string.format("read:%d", cache_read))
+        end
+        if cache_create > 0 then
+          table.insert(parts, string.format("write:%d", cache_create))
+        end
+        io.stderr:write(string.format("%scache [%s]%s\n", DIM, table.concat(parts, " "), RESET))
+      end
 
     elseif t == "compaction_triggered" then
       io.stderr:write(string.format("\n%scompacting conversation (%d/%d tokens)...%s\n", DIM, event.input_tokens, event.context_limit, RESET))

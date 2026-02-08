@@ -40,15 +40,26 @@ test_api_call_start()
 
 -- Test api_call_end constructor
 local function test_api_call_end()
-  local e = events.api_call_end("msg123", 100, 50, 1500, "claude-sonnet")
+  local e = events.api_call_end("msg123", 100, 50, 1500, "claude-sonnet", 0, 0)
   assert(e.event_type == "api_call_end", "event_type should be api_call_end")
   assert(e.message_id == "msg123", "message_id mismatch")
   assert(e.input_tokens == 100, "input_tokens mismatch")
   assert(e.output_tokens == 50, "output_tokens mismatch")
   assert(e.api_latency_ms == 1500, "api_latency_ms mismatch")
   assert(e.model == "claude-sonnet", "model mismatch")
+  assert(e.cache_creation_input_tokens == 0, "cache_creation should be 0")
+  assert(e.cache_read_input_tokens == 0, "cache_read should be 0")
 end
 test_api_call_end()
+
+-- Test api_call_end with cache tokens
+local function test_api_call_end_cache()
+  local e = events.api_call_end("msg456", 5000, 200, 800, "claude-sonnet", 3000, 1500)
+  assert(e.cache_creation_input_tokens == 3000, "cache_creation_input_tokens mismatch")
+  assert(e.cache_read_input_tokens == 1500, "cache_read_input_tokens mismatch")
+  assert(e.input_tokens == 5000, "input_tokens should still be set")
+end
+test_api_call_end_cache()
 
 -- Test tool_call_start constructor
 local function test_tool_call_start()
