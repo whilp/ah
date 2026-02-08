@@ -429,6 +429,34 @@ local function test_read_text_not_image()
 end
 test_read_text_not_image()
 
+local function test_read_binary_file()
+  -- Create a file with null bytes (binary indicator)
+  local bin_path = fs.join(TEST_TMPDIR, "test.bin")
+  cio.barf(bin_path, "MZ\0\0PE\0\0binary content\0\0more")
+
+  local result, is_error = tools.execute_tool("read", {path = bin_path})
+  assert(is_error, "should report error for binary file")
+  assert(result:match("binary file"), "should indicate binary: " .. result)
+  print("✓ read tool detects binary files")
+end
+test_read_binary_file()
+
+local function test_read_binary_by_control_chars()
+  -- Create a file with many control characters (binary indicator)
+  local bin_path = fs.join(TEST_TMPDIR, "test_ctrl.bin")
+  local content = ""
+  for i = 1, 100 do
+    content = content .. string.char(1) .. string.char(2) .. string.char(3)
+  end
+  cio.barf(bin_path, content)
+
+  local result, is_error = tools.execute_tool("read", {path = bin_path})
+  assert(is_error, "should report error for binary file with control chars")
+  assert(result:match("binary file"), "should indicate binary: " .. result)
+  print("✓ read tool detects binary by control character ratio")
+end
+test_read_binary_by_control_chars()
+
 -- Tool name normalization tests (for OAuth mode)
 local function test_to_claude_code_name()
   assert(tools.to_claude_code_name("read") == "Read", "read -> Read")

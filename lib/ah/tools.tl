@@ -14,6 +14,34 @@ local IMAGE_TYPES: {string:string} = {
   webp = "image/webp",
 }
 
+-- Check if content appears to be binary (contains null bytes or high ratio of non-printable chars)
+local function is_binary(content: string): boolean
+  -- Check first 8KB for null bytes or excessive non-printable characters
+  local sample_size = math.min(#content, 8192)
+  local sample = content:sub(1, sample_size)
+
+  -- Null byte is a strong indicator of binary
+  if sample:find("\0") then
+    return true
+  end
+
+  -- Count non-printable, non-whitespace characters
+  local non_printable = 0
+  for i = 1, #sample do
+    local b = sample:byte(i)
+    -- Allow printable ASCII (32-126), tab (9), newline (10), carriage return (13)
+    if not ((b >= 32 and b <= 126) or b == 9 or b == 10 or b == 13) then
+      -- Also allow valid UTF-8 continuation bytes (128-255)
+      if b < 128 then
+        non_printable = non_printable + 1
+      end
+    end
+  end
+
+  -- If more than 10% is non-printable ASCII control chars, likely binary
+  return non_printable > sample_size * 0.1
+end
+
 -- Tool name mapping for Claude Code compatibility (OAuth mode)
 local CLAUDE_CODE_TOOLS: {string:string} = {
   read = "Read",
@@ -101,6 +129,11 @@ local read_tool: Tool = {
     local content = cio.slurp(file_path)
     if not content then
       return "error: failed to read file: " .. file_path, true
+    end
+
+    -- Check for binary content
+    if is_binary(content) then
+      return string.format("error: %s appears to be a binary file (%d bytes)", file_path, #content), true
     end
 
     local offset = (input.offset as integer) or 1
