@@ -616,6 +616,7 @@ return {
   begin_transaction = begin_transaction,
   commit = commit,
   rollback = rollback,
+  get_message = get_message,
   create_message = create_message,
   get_current_message = get_current_message,
   set_current_message = set_current_message,

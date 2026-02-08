@@ -150,6 +150,7 @@ commands:
   scan                list messages in current branch
   tree                show full conversation tree
   branches            list all branch tips
+  diff @A @B          compare two branches
   checkout @N         switch to message N
   branch rm @N        delete branch from message N
   show [N]            show message(s)
@@ -458,6 +459,94 @@ local function cmd_branch_rm(d: db.DB, seq: integer)
   end
   local count = db.delete_branch(d, msg.id)
   io.write(string.format("deleted %d message(s) from @%d\n", count, seq))
+end
+
+-- Diff two branch tips: show messages unique to each branch after their common fork point.
+-- Accepts two message IDs directly (for programmatic use and disambiguation).
+local function cmd_diff(d: db.DB, id_a: string, id_b: string)
+  local msg_a = db.get_message(d, id_a)
+  if not msg_a then
+    io.stderr:write("message not found: " .. id_a .. "\n")
+    return
+  end
+  local msg_b = db.get_message(d, id_b)
+  if not msg_b then
+    io.stderr:write("message not found: " .. id_b .. "\n")
+    return
+  end
+
+  -- Build ancestry chains
+  local ancestry_a = db.get_ancestry(d, msg_a.id)
+  local ancestry_b = db.get_ancestry(d, msg_b.id)
+
+  -- Build id set for branch A's ancestry
+  local ids_a: {string:boolean} = {}
+  for _, m in ipairs(ancestry_a) do
+    ids_a[m.id] = true
+  end
+
+  -- Find the deepest common ancestor (last shared message in ancestry order)
+  local fork_seq = -1
+  for _, m in ipairs(ancestry_b) do
+    if ids_a[m.id] then
+      fork_seq = m.seq
+    end
+  end
+
+  -- Collect messages unique to each branch (not in the other's ancestry)
+  local ids_b: {string:boolean} = {}
+  for _, m in ipairs(ancestry_b) do
+    ids_b[m.id] = true
+  end
+
+  local only_a: {db.Message} = {}
+  for _, m in ipairs(ancestry_a) do
+    if not ids_b[m.id] then
+      table.insert(only_a, m)
+    end
+  end
+
+  local only_b: {db.Message} = {}
+  for _, m in ipairs(ancestry_b) do
+    if not ids_a[m.id] then
+      table.insert(only_b, m)
+    end
+  end
+
+  if #only_a == 0 and #only_b == 0 then
+    io.write("no differences (same branch)\n")
+    return
+  end
+
+  io.write(string.format("fork point: @%d\n\n", fork_seq))
+
+  -- Render a branch section
+  local function render_branch(label: string, messages: {db.Message})
+    if #messages == 0 then
+      io.write(string.format("--- %s: (empty) ---\n", label))
+      return
+    end
+    io.write(string.format("--- %s (%d messages) ---\n", label, #messages))
+    for _, m in ipairs(messages) do
+      local role_char = m.role == "user" and "U" or "A"
+      local blocks = db.get_content_blocks(d, m.id)
+      local preview = msg_preview(d, m, 70)
+      io.write(string.format("  @%-3d %s: %s\n", m.seq, role_char, preview))
+
+      -- Show tool calls
+      for _, b in ipairs(blocks) do
+        if b.block_type == "tool_use" then
+          local key = loop.tool_key_param(b.tool_name as string, b.tool_input as string, b.details as string)
+          if #key > 60 then key = key:sub(1, 57) .. "..." end
+          io.write(string.format("         → %s %s\n", b.tool_name, key))
+        end
+      end
+    end
+  end
+
+  render_branch(string.format("@%d", msg_a.seq), only_a)
+  io.write("\n")
+  render_branch(string.format("@%d", msg_b.seq), only_b)
 end
 
 -- CLI display handler: renders structured events to stderr/stdout for terminal use.
@@ -798,6 +887,60 @@ local function main(args: {string}): integer, string
     db.close(d)
     return 0
 
+  elseif cmd == "diff" then
+    local a_str = remaining[2]
+    local b_str = remaining[3]
+    if not a_str or not b_str then
+      io.stderr:write("usage: ah diff @A @B\n")
+      queue.close(qdb)
+      db.close(d)
+      return 1
+    end
+    local a_val = a_str:match("^@?(%d+)$")
+    local b_val = b_str:match("^@?(%d+)$")
+    if not a_val or not b_val then
+      io.stderr:write("invalid message numbers: " .. a_str .. " " .. b_str .. "\n")
+      queue.close(qdb)
+      db.close(d)
+      return 1
+    end
+    -- Resolve seq numbers to message IDs. When seqs are the same (forked
+    -- branches share seq numbers), find distinct messages with that seq
+    -- among the leaf messages' ancestries.
+    local seq_a = tonumber(a_val) as integer
+    local seq_b = tonumber(b_val) as integer
+    local leaves = db.get_leaf_messages(d)
+    local function resolve_seq_to_id(seq: integer, exclude_id: string): string
+      -- Try each leaf's ancestry for a message with the given seq
+      for _, leaf in ipairs(leaves) do
+        local ancestry = db.get_ancestry(d, leaf.id)
+        for _, m in ipairs(ancestry) do
+          if m.seq == seq and m.id ~= exclude_id then
+            return m.id
+          end
+        end
+      end
+      return nil
+    end
+    local id_a = resolve_seq_to_id(seq_a, nil)
+    if not id_a then
+      io.stderr:write("message not found: @" .. seq_a .. "\n")
+      queue.close(qdb)
+      db.close(d)
+      return 1
+    end
+    local id_b = resolve_seq_to_id(seq_b, seq_a == seq_b and id_a or nil)
+    if not id_b then
+      io.stderr:write("message not found: @" .. seq_b .. "\n")
+      queue.close(qdb)
+      db.close(d)
+      return 1
+    end
+    cmd_diff(d, id_a, id_b)
+    queue.close(qdb)
+    db.close(d)
+    return 0
+
   elseif cmd == "checkout" then
     local seq_str = remaining[2]
     if not seq_str then
@@ -989,4 +1132,5 @@ return {
   cmd_branches = cmd_branches,
   cmd_checkout = cmd_checkout,
   cmd_branch_rm = cmd_branch_rm,
+  cmd_diff = cmd_diff,
 }
