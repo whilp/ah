@@ -201,4 +201,54 @@ local function test_resolve_model()
 end
 test_resolve_model()
 
+-- Tests for tool name normalization (OAuth mode)
+local function test_to_claude_code_name()
+  assert(api.to_claude_code_name("read") == "Read", "read -> Read")
+  assert(api.to_claude_code_name("write") == "Write", "write -> Write")
+  assert(api.to_claude_code_name("edit") == "Edit", "edit -> Edit")
+  assert(api.to_claude_code_name("bash") == "Bash", "bash -> Bash")
+  assert(api.to_claude_code_name("custom") == "custom", "unknown names unchanged")
+end
+test_to_claude_code_name()
+
+local function test_from_claude_code_name()
+  assert(api.from_claude_code_name("Read") == "read", "Read -> read")
+  assert(api.from_claude_code_name("Write") == "write", "Write -> write")
+  assert(api.from_claude_code_name("Edit") == "edit", "Edit -> edit")
+  assert(api.from_claude_code_name("Bash") == "bash", "Bash -> bash")
+  assert(api.from_claude_code_name("Custom") == "Custom", "unknown names unchanged")
+end
+test_from_claude_code_name()
+
+local function test_build_request_oauth_tool_names()
+  -- OAuth mode should remap tool names in the request
+  local tools_list = {
+    {name = "read", description = "Read a file", input_schema = {type = "object"}},
+    {name = "bash", description = "Run command", input_schema = {type = "object"}},
+    {name = "custom", description = "Custom tool", input_schema = {type = "object"}},
+  }
+  local req = api.build_request({}, {tools = tools_list}, true)
+  assert(req.tools ~= nil, "should include tools")
+  local req_tools = req.tools as {{string:any}}
+  assert(#req_tools == 3, "should have 3 tools")
+
+  -- Built-in tools should be remapped
+  assert(req_tools[1].name == "Read", "read should become Read in OAuth mode")
+  assert(req_tools[2].name == "Bash", "bash should become Bash in OAuth mode")
+  -- Custom tools should pass through unchanged
+  assert(req_tools[3].name == "custom", "custom tools should be unchanged")
+end
+test_build_request_oauth_tool_names()
+
+local function test_build_request_non_oauth_tool_names()
+  -- Non-OAuth mode should keep tool names unchanged
+  local tools_list = {
+    {name = "read", description = "Read a file", input_schema = {type = "object"}},
+  }
+  local req = api.build_request({}, {tools = tools_list}, false)
+  local req_tools = req.tools as {{string:any}}
+  assert(req_tools[1].name == "read", "read should stay read in non-OAuth mode")
+end
+test_build_request_non_oauth_tool_names()
+
 print("all api tests passed")
