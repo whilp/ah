@@ -14,6 +14,7 @@ local api = require("ah.api")
 local tools = require("ah.tools")
 local auth = require("ah.auth")
 local commands = require("ah.commands")
+local skills = require("ah.skills")
 local ulid = require("ulid")
 
 -- Session record for listing
@@ -861,15 +862,32 @@ local function main(args: {string}): integer, string
     end
   end
 
+  -- Load skills
+  local loaded_skills = skills.load_skills()
+
+  -- Expand /skill: invocations first
+  local skill_expanded, was_skill = skills.expand_skill(prompt, loaded_skills)
+  if was_skill then
+    prompt = skill_expanded
+  end
+
   -- Expand commands (prompts starting with /)
-  local loaded_commands = commands.load_commands()
-  local expanded, was_command = commands.expand_command(prompt, loaded_commands)
-  if was_command then
-    prompt = expanded
+  if not was_skill then
+    local loaded_commands = commands.load_commands()
+    local expanded, was_command = commands.expand_command(prompt, loaded_commands)
+    if was_command then
+      prompt = expanded
+    end
   end
 
   -- Load system prompt
   local effective_system = load_system_prompt(cwd)
+
+  -- Append skills to system prompt
+  local skills_prompt = skills.format_skills_for_prompt(loaded_skills)
+  if skills_prompt ~= "" then
+    effective_system = effective_system .. "\n\n" .. skills_prompt
+  end
 
   -- Initialize custom tools
   tools.init_custom_tools()
