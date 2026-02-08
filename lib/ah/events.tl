@@ -8,6 +8,7 @@ local json = require("cosmic.json")
 --   text_delta (streaming text output)
 --   error, retry
 --   state_change (session state transitions: idle/processing/closed)
+--   steering_received, followup_received (queue messages)
 
 local record EventData
   -- Common fields
@@ -50,6 +51,10 @@ local record EventData
   -- state_change
   from_state: string
   to_state: string
+
+  -- steering/followup
+  content: string
+  message_count: integer
 end
 
 local type EventCallback = function(event: EventData)
@@ -142,6 +147,20 @@ local function state_change(from_state: string, to_state: string): EventData
   return e
 end
 
+local function steering_received(content: string, message_count: integer): EventData
+  local e = make_event("steering_received")
+  e.content = content
+  e.message_count = message_count
+  return e
+end
+
+local function followup_received(content: string, message_count: integer): EventData
+  local e = make_event("followup_received")
+  e.content = content
+  e.message_count = message_count
+  return e
+end
+
 -- Serialize an event to JSON (for persistence or JSON logging)
 local function to_json(event: EventData): string
   local t: {string:any} = {}
@@ -171,6 +190,8 @@ return {
   error_event = error_event,
   retry_event = retry_event,
   state_change = state_change,
+  steering_received = steering_received,
+  followup_received = followup_received,
 
   -- Serialization
   to_json = to_json,

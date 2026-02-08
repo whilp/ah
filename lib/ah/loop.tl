@@ -6,6 +6,7 @@ local api = require("ah.api")
 local tools = require("ah.tools")
 local auth = require("ah.auth")
 local events = require("ah.events")
+local queue = require("ah.queue")
 
 local ToolDetails = tools.ToolDetails
 
@@ -83,10 +84,11 @@ local function transition_state(d: db.DB, on_event: events.EventCallback, to_sta
 end
 
 -- Send prompt and run agent loop
+-- qdb: optional queue database for inter-process coordination (steering/followup)
 -- on_event: optional callback for structured lifecycle events.
 -- When provided, the loop emits events instead of writing directly to stderr/stdout.
 -- When nil, the loop still functions but produces no output.
-local function run_agent(d: db.DB, system_prompt: string, model: string, prompt: string, parent_id: string, on_event: events.EventCallback)
+local function run_agent(d: db.DB, qdb: queue.QueueDB, system_prompt: string, model: string, prompt: string, parent_id: string, on_event: events.EventCallback)
   -- Load credentials to determine if OAuth mode
   local creds, creds_err = auth.load_credentials()
   if not creds then
@@ -169,6 +171,31 @@ local function run_agent(d: db.DB, system_prompt: string, model: string, prompt:
 
   -- Agent loop
   while not interrupted do
+    -- Update heartbeat and drain steering queue before API call
+    if qdb then
+      queue.update_heartbeat(qdb)
+
+      local steering_msgs = queue.drain_steering(qdb)
+      for _, steer_msg in ipairs(steering_msgs) do
+        emit(on_event, events.steering_received(steer_msg.content, #steering_msgs))
+
+        -- Create steering user message and add to conversation
+        db.begin_transaction(d)
+        local steer_user_msg = db.create_message(d, "user", user_msg.id)
+        db.add_content_block(d, steer_user_msg.id, "text", {content = "[STEERING] " .. steer_msg.content})
+        db.commit(d)
+
+        -- Add to API messages
+        table.insert(api_messages, {
+          role = "user",
+          content = {{type = "text", text = "[STEERING] " .. steer_msg.content}},
+        })
+
+        -- Update parent for next iteration
+        user_msg = steer_user_msg
+      end
+    end
+
     -- Emit api_call_start
     emit(on_event, events.api_call_start())
 
@@ -324,8 +351,36 @@ local function run_agent(d: db.DB, system_prompt: string, model: string, prompt:
     -- Check for tool calls
     local tool_calls = api.extract_tool_calls(response) as {any}
     if #tool_calls == 0 then
+      -- No tool calls - check for followup messages before exiting
+      if qdb then
+        local followup_msgs = queue.drain_followup(qdb)
+        if #followup_msgs > 0 then
+          -- Process followup messages by injecting them as new user messages
+          for _, followup_msg in ipairs(followup_msgs) do
+            emit(on_event, events.followup_received(followup_msg.content, #followup_msgs))
+
+            -- Create followup user message
+            db.begin_transaction(d)
+            local followup_user_msg = db.create_message(d, "user", assistant_msg.id)
+            db.add_content_block(d, followup_user_msg.id, "text", {content = followup_msg.content})
+            db.commit(d)
+
+            -- Add to API messages
+            table.insert(api_messages, {
+              role = "user",
+              content = {{type = "text", text = followup_msg.content}},
+            })
+
+            -- Update user_msg for next iteration
+            user_msg = followup_user_msg
+          end
+          -- Continue the loop with followup messages
+          goto continue_loop
+        end
+      end
+
       final_stop_reason = resp.stop_reason as string or "end_turn"
-      break  -- Done, no tool calls
+      break  -- Done, no tool calls and no followup
     end
 
     -- Execute tool calls and collect results before writing to DB
@@ -465,6 +520,8 @@ local function run_agent(d: db.DB, system_prompt: string, model: string, prompt:
     end
 
     final_stop_reason = "tool_use"
+
+    ::continue_loop::
   end
 
   if interrupted then
