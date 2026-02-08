@@ -2,8 +2,13 @@
 local fs = require("cosmic.fs")
 local cio = require("cosmic.io")
 local child = require("cosmic.child")
+local unix = require("cosmo.unix")
 local cosmo = require("cosmo")
 local json = require("cosmic.json")
+
+-- Track running process handles for abort cleanup
+-- Maps pid -> process handle for active bash commands
+local running_processes: {integer: any} = {}
 
 -- Image extension to media type mapping
 local IMAGE_TYPES: {string:string} = {
@@ -290,8 +295,19 @@ local bash_tool: Tool = {
       return "error: failed to spawn: " .. tostring(err), true, nil
     end
 
+    -- Track the running process for abort cleanup
+    local pid = (handle as {string:any}).pid as integer
+    if pid then
+      running_processes[pid] = handle
+    end
+
     -- Read output: h:read() returns (ok, stdout, exit_code_as_string)
     local ok, stdout, exit_str = handle:read()
+
+    -- Untrack the process after completion
+    if pid then
+      running_processes[pid] = nil
+    end
 
     local stdout_str = (stdout as string) or ""
     local exit_code = tonumber(exit_str) as integer or 0
@@ -661,6 +677,67 @@ local function validate_input(schema: {string:any}, input: {string:any}): string
   return nil
 end
 
+-- Abort all running tool processes with disciplined cleanup:
+-- 1. Send SIGTERM to all running processes
+-- 2. Wait up to 2 seconds for graceful exit
+-- 3. Send SIGKILL to any survivors
+local function abort_running_tools()
+  local pids: {integer} = {}
+  for pid, _ in pairs(running_processes) do
+    table.insert(pids, pid)
+  end
+
+  if #pids == 0 then
+    return
+  end
+
+  -- Phase 1: SIGTERM all running processes
+  for _, pid in ipairs(pids) do
+    pcall(function() unix.kill(pid, unix.SIGTERM) end)
+  end
+
+  -- Phase 2: Wait up to 2 seconds for graceful exit
+  local deadline_s, deadline_ns = unix.clock_gettime(unix.CLOCK_MONOTONIC)
+  deadline_s = deadline_s + 2
+
+  while true do
+    -- Check if all processes have exited
+    local still_running = false
+    for _, pid in ipairs(pids) do
+      if running_processes[pid] then
+        local wpid, _ = child.wait(pid, child.WNOHANG)
+        if wpid and wpid > 0 then
+          running_processes[pid] = nil
+        else
+          still_running = true
+        end
+      end
+    end
+
+    if not still_running then
+      break
+    end
+
+    -- Check deadline
+    local now_s, now_ns = unix.clock_gettime(unix.CLOCK_MONOTONIC)
+    if now_s > deadline_s or (now_s == deadline_s and now_ns >= deadline_ns) then
+      break
+    end
+
+    -- Brief sleep before rechecking (50ms)
+    unix.nanosleep(0, 50000000)
+  end
+
+  -- Phase 3: SIGKILL any survivors
+  for _, pid in ipairs(pids) do
+    if running_processes[pid] then
+      pcall(function() unix.kill(pid, unix.SIGKILL) end)
+      pcall(function() child.wait(pid, 0) end)
+      running_processes[pid] = nil
+    end
+  end
+end
+
 local function execute_tool(name: string, input: {string:any}): string, boolean, ToolDetails
   local tool = get_tool(name)
   if not tool then
@@ -679,6 +756,7 @@ end
 return {
   get_tool_definitions = get_tool_definitions,
   execute_tool = execute_tool,
+  abort_running_tools = abort_running_tools,
   validate_input = validate_input,
   init_custom_tools = init_custom_tools,
   load_custom_tools = load_custom_tools,

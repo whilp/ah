@@ -157,4 +157,25 @@ local function test_event_callback()
 end
 test_event_callback()
 
+-- Test state_change constructor
+local function test_state_change()
+  local e = events.state_change("idle", "processing")
+  assert(e.event_type == "state_change", "event_type should be state_change")
+  assert(e.from_state == "idle", "from_state should be idle")
+  assert(e.to_state == "processing", "to_state should be processing")
+  assert(e.timestamp, "should have timestamp")
+end
+test_state_change()
+
+-- Test state_change serialization
+local function test_state_change_json()
+  local e = events.state_change("processing", "idle")
+  local json_str = events.to_json(e)
+  local parsed = json.decode(json_str) as {string:any}
+  assert(parsed.event_type == "state_change", "event_type should survive round-trip")
+  assert(parsed.from_state == "processing", "from_state should survive round-trip")
+  assert(parsed.to_state == "idle", "to_state should survive round-trip")
+end
+test_state_change_json()
+
 print("all events tests passed")

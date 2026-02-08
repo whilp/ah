@@ -7,6 +7,7 @@ local json = require("cosmic.json")
 --   tool_call_start, tool_call_end
 --   text_delta (streaming text output)
 --   error, retry
+--   state_change (session state transitions: idle/processing/closed)
 
 local record EventData
   -- Common fields
@@ -45,6 +46,10 @@ local record EventData
   attempt: integer
   delay_ms: integer
   status: integer
+
+  -- state_change
+  from_state: string
+  to_state: string
 end
 
 local type EventCallback = function(event: EventData)
@@ -130,6 +135,13 @@ local function retry_event(attempt: integer, delay_ms: integer, status: integer,
   return e
 end
 
+local function state_change(from_state: string, to_state: string): EventData
+  local e = make_event("state_change")
+  e.from_state = from_state
+  e.to_state = to_state
+  return e
+end
+
 -- Serialize an event to JSON (for persistence or JSON logging)
 local function to_json(event: EventData): string
   local t: {string:any} = {}
@@ -158,6 +170,7 @@ return {
   text_delta = text_delta,
   error_event = error_event,
   retry_event = retry_event,
+  state_change = state_change,
 
   -- Serialization
   to_json = to_json,

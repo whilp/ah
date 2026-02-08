@@ -72,6 +72,16 @@ local function emit(on_event: events.EventCallback, event: events.EventData)
   end
 end
 
+-- Transition session state and emit event
+local function transition_state(d: db.DB, on_event: events.EventCallback, to_state: string)
+  local from_state = db.get_session_state(d)
+  if from_state ~= to_state then
+    db.set_session_state(d, to_state)
+    emit(on_event, events.state_change(from_state, to_state))
+    db.log_event(d, "state_change", nil, events.to_json(events.state_change(from_state, to_state)))
+  end
+end
+
 -- Send prompt and run agent loop
 -- on_event: optional callback for structured lifecycle events.
 -- When provided, the loop emits events instead of writing directly to stderr/stdout.
@@ -84,6 +94,9 @@ local function run_agent(d: db.DB, system_prompt: string, model: string, prompt:
     return
   end
   local is_oauth = creds.is_oauth or false
+
+  -- Transition to processing state
+  transition_state(d, on_event, "processing")
 
   -- Emit agent_start event
   emit(on_event, events.agent_start(model, prompt, parent_id))
@@ -149,12 +162,17 @@ local function run_agent(d: db.DB, system_prompt: string, model: string, prompt:
   -- Track final stop reason for agent_end event
   local final_stop_reason = "unknown"
 
+  -- Closure for api.stream to check interruption mid-stream
+  local function is_interrupted(): boolean
+    return interrupted
+  end
+
   -- Agent loop
   while not interrupted do
     -- Emit api_call_start
     emit(on_event, events.api_call_start())
 
-    -- Stream response (don't create message yet - wait until we have content)
+    -- Stream response with mid-stream interruption support
     local response, err = api.stream(api_messages, {
       system = system_prompt,
       model = model,
@@ -166,7 +184,7 @@ local function run_agent(d: db.DB, system_prompt: string, model: string, prompt:
           emit(on_event, events.text_delta(delta.text as string))
         end
       end
-    end)
+    end, is_interrupted)
 
     if err then
       emit(on_event, events.error_event(err))
@@ -180,8 +198,40 @@ local function run_agent(d: db.DB, system_prompt: string, model: string, prompt:
       break
     end
 
-    -- Collect response content blocks before writing to DB
+    -- Check if stream was interrupted - persist partial response and exit
     local resp = response as {string:any}
+    if interrupted or resp.stop_reason == "interrupted" then
+      -- Persist partial assistant response if we have any content
+      local resp_content = resp.content as {any}
+      if resp_content and #resp_content > 0 then
+        local assistant_blocks: {{string:any}} = {}
+        for _, block in ipairs(resp_content) do
+          local b = block as {string:any}
+          if b.type == "text" and b.text then
+            table.insert(assistant_blocks, {block_type = "text", content = b.text as string})
+          end
+        end
+        if #assistant_blocks > 0 then
+          local usage = (resp.usage or {}) as {string:any}
+          db.begin_transaction(d)
+          local partial_msg = db.create_message(d, "assistant", user_msg.id, {
+            input_tokens = usage.input_tokens as integer,
+            output_tokens = usage.output_tokens as integer,
+            stop_reason = "interrupted",
+            model = resp.model as string,
+            api_latency_ms = resp.api_latency_ms as integer,
+          })
+          for _, blk in ipairs(assistant_blocks) do
+            db.add_content_block(d, partial_msg.id, "text", {content = blk.content as string})
+          end
+          db.commit(d)
+        end
+      end
+      final_stop_reason = "interrupted"
+      break
+    end
+
+    -- Collect response content blocks before writing to DB
     local resp_content = resp.content as {any}
     local assistant_api_content: {any} = {}
     local assistant_blocks: {{string:any}} = {}
@@ -285,6 +335,14 @@ local function run_agent(d: db.DB, system_prompt: string, model: string, prompt:
     local tool_count = #tool_calls
 
     for i, tool_call in ipairs(tool_calls) do
+      -- Check for interruption between tool calls
+      if interrupted then
+        -- Abort any running tool processes
+        tools.abort_running_tools()
+        final_stop_reason = "interrupted"
+        break
+      end
+
       local tc = tool_call as {string:any}
       local input_json = json.encode(tc.input or {})
 
@@ -297,6 +355,37 @@ local function run_agent(d: db.DB, system_prompt: string, model: string, prompt:
       local start = now()
       local result, is_error, details = tools.execute_tool(tc.name as string, (tc.input or {}) as {string:any})
       local elapsed = now() - start
+
+      -- If interrupted during tool execution, abort remaining tools
+      if interrupted then
+        tools.abort_running_tools()
+        -- Still record this tool's result (it completed or was killed)
+        local elapsed_ms = math.floor(elapsed * 1000) as integer
+        emit(on_event, events.tool_call_end(tc.name as string, result, is_error, elapsed_ms, key, i, tool_count))
+        db.log_event(d, "tool_call_end", assistant_msg.id, events.to_json(events.tool_call_end(tc.name as string, "", is_error, elapsed_ms, key, i, tool_count)))
+
+        -- Encode details for interrupted tool result
+        local int_details_json: string = nil
+        if details then
+          int_details_json = json.encode(details as {string:any})
+        end
+
+        table.insert(tool_result_blocks, {
+          tool_id = tc.id as string,
+          tool_output = result,
+          is_error = is_error,
+          duration_ms = elapsed_ms,
+          details = int_details_json,
+        })
+        table.insert(tool_results_content, {
+          type = "tool_result",
+          tool_use_id = tc.id,
+          content = result,
+          is_error = is_error,
+        })
+        final_stop_reason = "interrupted"
+        break
+      end
 
       -- First tool includes think time in its timing
       if i == 1 then
@@ -347,31 +436,45 @@ local function run_agent(d: db.DB, system_prompt: string, model: string, prompt:
       })
     end
 
-    -- Atomically write tool result message + all content blocks
-    db.begin_transaction(d)
-    local tool_result_msg = db.create_message(d, "user", assistant_msg.id)
-    for _, blk in ipairs(tool_result_blocks) do
-      db.add_content_block(d, tool_result_msg.id, "tool_result", {
-        tool_id = blk.tool_id as string,
-        tool_output = blk.tool_output as string,
-        is_error = blk.is_error as boolean,
-        duration_ms = blk.duration_ms as integer,
-        details = blk.details as string,
-      })
+    -- Write tool results if we have any (even partial results from interruption)
+    if #tool_result_blocks > 0 then
+      -- Atomically write tool result message + all content blocks
+      db.begin_transaction(d)
+      local tool_result_msg = db.create_message(d, "user", assistant_msg.id)
+      for _, blk in ipairs(tool_result_blocks) do
+        db.add_content_block(d, tool_result_msg.id, "tool_result", {
+          tool_id = blk.tool_id as string,
+          tool_output = blk.tool_output as string,
+          is_error = blk.is_error as boolean,
+          duration_ms = blk.duration_ms as integer,
+          details = blk.details as string,
+        })
+      end
+      db.commit(d)
+
+      -- Add the tool results as a user message to API messages
+      table.insert(api_messages, {role = "user", content = tool_results_content})
+
+      -- Update user_msg for next iteration parent
+      user_msg = tool_result_msg
     end
-    db.commit(d)
 
-    -- Add the tool results as a user message to API messages
-    table.insert(api_messages, {role = "user", content = tool_results_content})
+    -- Exit if interrupted during tool execution
+    if interrupted then
+      break
+    end
 
-    -- Update user_msg for next iteration parent
-    user_msg = tool_result_msg
     final_stop_reason = "tool_use"
   end
 
   if interrupted then
+    -- Final cleanup: abort any straggler processes
+    tools.abort_running_tools()
     final_stop_reason = "interrupted"
   end
+
+  -- Transition to idle (or closed if interrupted)
+  transition_state(d, on_event, "idle")
 
   -- Emit agent_end
   emit(on_event, events.agent_end(final_stop_reason))
