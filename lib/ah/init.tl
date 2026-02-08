@@ -168,8 +168,13 @@ options:
   -n, --new           start a new session
   -S, --session ULID  use specific session (prefix match)
   --db PATH           use custom database path (default: .ah/<ulid>.db)
-  -m, --model MODEL   set model (e.g., claude-sonnet-4-20250514)
+  -m, --model MODEL   set model (default: sonnet)
+
+models:
 ]])
+  for alias, full in pairs(api.MODEL_ALIASES) do
+    io.stderr:write(string.format("  %-8s %s\n", alias, full))
+  end
 end
 
 -- Extract key parameter from tool input for display
@@ -897,8 +902,11 @@ local function main(args: {string}): integer, string
     interrupted = true
   end)
 
+  -- Resolve model alias
+  local effective_model = api.resolve_model(model)
+
   -- Run agent
-  run_agent(d, effective_system, model, prompt, parent_id)
+  run_agent(d, effective_system, effective_model, prompt, parent_id)
 
   db.close(d)
   return 0
