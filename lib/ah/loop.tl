@@ -1,18 +1,14 @@
--- ah/loop.tl: agent loop (tool dispatch, display)
+-- ah/loop.tl: agent loop (tool dispatch, event emission)
 local json = require("cosmic.json")
 local unix = require("cosmo.unix")
 local db = require("ah.db")
 local api = require("ah.api")
 local tools = require("ah.tools")
 local auth = require("ah.auth")
+local events = require("ah.events")
 
 -- Reference the global interrupted flag (set by application layer)
 global interrupted: boolean
-
--- ANSI styling (only when stderr is a tty)
-local is_tty = unix.isatty(2)
-local DIM = is_tty and "\27[2m" or ""
-local RESET = is_tty and "\27[0m" or ""
 
 -- Get monotonic time in seconds
 local function now(): number
@@ -42,26 +38,34 @@ local function tool_key_param(tool_name: string, tool_input: string): string
   return ""
 end
 
+-- Emit an event through the callback, silently ignoring if no callback
+local function emit(on_event: events.EventCallback, event: events.EventData)
+  if on_event then
+    on_event(event)
+  end
+end
+
 -- Send prompt and run agent loop
-local function run_agent(d: db.DB, system_prompt: string, model: string, prompt: string, parent_id: string)
+-- on_event: optional callback for structured lifecycle events.
+-- When provided, the loop emits events instead of writing directly to stderr/stdout.
+-- When nil, the loop still functions but produces no output.
+local function run_agent(d: db.DB, system_prompt: string, model: string, prompt: string, parent_id: string, on_event: events.EventCallback)
   -- Load credentials to determine if OAuth mode
   local creds, creds_err = auth.load_credentials()
   if not creds then
-    io.stderr:write("error: " .. creds_err .. "\n")
+    emit(on_event, events.error_event("credentials: " .. creds_err))
     return
   end
   local is_oauth = creds.is_oauth or false
+
+  -- Emit agent_start event
+  emit(on_event, events.agent_start(model, prompt, parent_id))
 
   -- Create user message (atomic: message + content block)
   db.begin_transaction(d)
   local user_msg = db.create_message(d, "user", parent_id)
   db.add_content_block(d, user_msg.id, "text", {content = prompt})
   db.commit(d)
-
-  -- In non-interactive mode, echo the prompt for clarity
-  if not is_tty then
-    io.stderr:write(">>> " .. prompt .. "\n")
-  end
 
   -- Build messages from ancestry (skip incomplete messages from crashes)
   local ancestry = db.get_ancestry(d, user_msg.id)
@@ -72,7 +76,7 @@ local function run_agent(d: db.DB, system_prompt: string, model: string, prompt:
 
     -- Skip messages with no content blocks (incomplete from crash)
     if #blocks == 0 then
-      io.stderr:write(string.format("warning: skipping incomplete message %s (no content blocks)\n", msg.id))
+      emit(on_event, events.error_event(string.format("skipping incomplete message %s (no content blocks)", msg.id)))
       goto continue
     end
 
@@ -115,9 +119,13 @@ local function run_agent(d: db.DB, system_prompt: string, model: string, prompt:
     ::continue::
   end
 
+  -- Track final stop reason for agent_end event
+  local final_stop_reason = "unknown"
+
   -- Agent loop
   while not interrupted do
-    local current_text = ""
+    -- Emit api_call_start
+    emit(on_event, events.api_call_start())
 
     -- Stream response (don't create message yet - wait until we have content)
     local response, err = api.stream(api_messages, {
@@ -128,21 +136,21 @@ local function run_agent(d: db.DB, system_prompt: string, model: string, prompt:
       if event.type == "content_block_delta" and event.delta then
         local delta = event.delta as {string:any}
         if delta.type == "text_delta" and delta.text then
-          io.write(delta.text as string)
-          io.flush()
-          current_text = current_text .. (delta.text as string)
+          emit(on_event, events.text_delta(delta.text as string))
         end
       end
     end)
 
     if err then
-      io.stderr:write("\nerror: " .. err .. "\n")
-      return
+      emit(on_event, events.error_event(err))
+      final_stop_reason = "error"
+      break
     end
 
     if not response then
-      io.stderr:write("\nerror: no response\n")
-      return
+      emit(on_event, events.error_event("no response"))
+      final_stop_reason = "error"
+      break
     end
 
     -- Collect response content blocks before writing to DB
@@ -204,10 +212,34 @@ local function run_agent(d: db.DB, system_prompt: string, model: string, prompt:
       for _, retry in ipairs(retries) do
         local retry_json = json.encode(retry)
         db.log_event(d, "retry", assistant_msg.id, retry_json)
+        emit(on_event, events.retry_event(
+          (retry.attempt or 0) as integer,
+          (retry.delay_ms or 0) as integer,
+          (retry.status or 0) as integer,
+          (retry.error or "") as string
+        ))
       end
     end
 
     db.commit(d)
+
+    -- Emit api_call_end with message metadata
+    emit(on_event, events.api_call_end(
+      assistant_msg.id,
+      usage.input_tokens as integer,
+      usage.output_tokens as integer,
+      resp.api_latency_ms as integer,
+      resp.model as string
+    ))
+
+    -- Log api_call_end event to DB
+    db.log_event(d, "api_call_end", assistant_msg.id, events.to_json(events.api_call_end(
+      assistant_msg.id,
+      usage.input_tokens as integer,
+      usage.output_tokens as integer,
+      resp.api_latency_ms as integer,
+      resp.model as string
+    )))
 
     -- Add assistant message to API messages
     table.insert(api_messages, {role = "assistant", content = assistant_api_content})
@@ -215,24 +247,23 @@ local function run_agent(d: db.DB, system_prompt: string, model: string, prompt:
     -- Check for tool calls
     local tool_calls = api.extract_tool_calls(response) as {any}
     if #tool_calls == 0 then
-      io.write("\n")
+      final_stop_reason = resp.stop_reason as string or "end_turn"
       break  -- Done, no tool calls
     end
 
     -- Execute tool calls and collect results before writing to DB
-    -- Only add newline if there was response text
-    if current_text ~= "" then
-      io.write("\n")
-    end
-
     local tool_results_content: {any} = {}
     local tool_result_blocks: {{string:any}} = {}
     local think_time = (resp.think_time or 0) as number
+    local tool_count = #tool_calls
 
     for i, tool_call in ipairs(tool_calls) do
       local tc = tool_call as {string:any}
       local input_json = json.encode(tc.input or {})
       local key = tool_key_param(tc.name as string, input_json)
+
+      -- Emit tool_call_start
+      emit(on_event, events.tool_call_start(tc.name as string, input_json, key, i, tool_count))
 
       local start = now()
       local result, is_error = tools.execute_tool(tc.name as string, (tc.input or {}) as {string:any})
@@ -243,45 +274,13 @@ local function run_agent(d: db.DB, system_prompt: string, model: string, prompt:
         elapsed = elapsed + think_time
       end
 
-      -- Show tool result block
-      local prefix = is_tty and "⠋ " or ""
-      local indent = "  "
+      local elapsed_ms = math.floor(elapsed * 1000) as integer
 
-      -- Blank line before first tool block only
-      if i == 1 then
-        io.stderr:write("\n")
-      end
+      -- Emit tool_call_end
+      emit(on_event, events.tool_call_end(tc.name as string, result, is_error, elapsed_ms, key, i, tool_count))
 
-      -- Line 1: tool name and timing
-      io.stderr:write(string.format("%s%s%s (%.1fs)%s\n", DIM, prefix, tc.name, elapsed, RESET))
-
-      -- Line 2: command (for bash) or key param
-      if key ~= "" then
-        local cmd_prefix = tc.name == "bash" and "$ " or ""
-        io.stderr:write(string.format("%s%s%s%s%s\n", DIM, indent, cmd_prefix, key, RESET))
-      end
-
-      -- Show truncated output (first 3 lines, then count)
-      if result and result ~= "" and result ~= "(no output)" then
-        local lines: {string} = {}
-        for line in result:gmatch("[^\n]+") do
-          table.insert(lines, line)
-        end
-        local max_lines = 3
-        for j = 1, math.min(max_lines, #lines) do
-          local line = lines[j]
-          if #line > 80 then
-            line = line:sub(1, 77) .. "..."
-          end
-          io.stderr:write(string.format("%s%s%s%s\n", DIM, indent, line, RESET))
-        end
-        if #lines > max_lines then
-          io.stderr:write(string.format("%s%s... (%d more lines)%s\n", DIM, indent, #lines - max_lines, RESET))
-        end
-      end
-
-      -- Blank line after tool block
-      io.stderr:write("\n")
+      -- Log tool_call_end event to DB
+      db.log_event(d, "tool_call_end", assistant_msg.id, events.to_json(events.tool_call_end(tc.name as string, "", is_error, elapsed_ms, key, i, tool_count)))
 
       -- Check if result is structured (image content)
       local api_content: any = result
@@ -292,12 +291,12 @@ local function run_agent(d: db.DB, system_prompt: string, model: string, prompt:
         end
       end
 
-      -- Collect for later atomic write (elapsed is in seconds, convert to ms)
+      -- Collect for later atomic write
       table.insert(tool_result_blocks, {
         tool_id = tc.id as string,
         tool_output = result,
         is_error = is_error,
-        duration_ms = math.floor(elapsed * 1000) as integer,
+        duration_ms = elapsed_ms,
       })
 
       -- Add to API messages content
@@ -327,7 +326,18 @@ local function run_agent(d: db.DB, system_prompt: string, model: string, prompt:
 
     -- Update user_msg for next iteration parent
     user_msg = tool_result_msg
+    final_stop_reason = "tool_use"
   end
+
+  if interrupted then
+    final_stop_reason = "interrupted"
+  end
+
+  -- Emit agent_end
+  emit(on_event, events.agent_end(final_stop_reason))
+
+  -- Log agent_end event to DB
+  db.log_event(d, "agent_end", nil, events.to_json(events.agent_end(final_stop_reason)))
 end
 
 return {
