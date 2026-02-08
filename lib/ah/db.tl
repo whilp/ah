@@ -478,6 +478,16 @@ local function cleanup_orphans(self: DB): integer
   return #orphans
 end
 
+-- Session state management: idle, processing, closed
+-- States are stored in the context table under key "session_state"
+local function get_session_state(self: DB): string
+  return get_context(self, "session_state") or "idle"
+end
+
+local function set_session_state(self: DB, state: string)
+  set_context(self, "session_state", state)
+end
+
 local function get_first_user_prompt(self: DB): string
   for row in self._db:query([[
     select content from content_blocks
@@ -513,6 +523,8 @@ return {
   cleanup_orphans = cleanup_orphans,
   log_event = log_event,
   get_events = get_events,
+  get_session_state = get_session_state,
+  set_session_state = set_session_state,
   -- Export types for consumers
   DB = DB,
   Message = Message,

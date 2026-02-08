@@ -409,4 +409,47 @@ local function test_content_block_details()
 end
 test_content_block_details()
 
+-- Test session state management
+local function test_session_state()
+  local db_path = fs.join(TEST_TMPDIR, "state_test.db")
+  local d = db.open(db_path)
+
+  -- Default state should be idle
+  local state = db.get_session_state(d)
+  assert(state == "idle", "default state should be idle, got: " .. state)
+
+  -- Set to processing
+  db.set_session_state(d, "processing")
+  state = db.get_session_state(d)
+  assert(state == "processing", "state should be processing, got: " .. state)
+
+  -- Set to idle
+  db.set_session_state(d, "idle")
+  state = db.get_session_state(d)
+  assert(state == "idle", "state should be idle, got: " .. state)
+
+  -- Set to closed
+  db.set_session_state(d, "closed")
+  state = db.get_session_state(d)
+  assert(state == "closed", "state should be closed, got: " .. state)
+
+  db.close(d)
+end
+test_session_state()
+
+-- Test session state persists across reopen
+local function test_session_state_persistence()
+  local db_path = fs.join(TEST_TMPDIR, "state_persist.db")
+  local d = db.open(db_path)
+  db.set_session_state(d, "processing")
+  db.close(d)
+
+  -- Reopen and check state
+  d = db.open(db_path)
+  local state = db.get_session_state(d)
+  assert(state == "processing", "state should persist across reopen, got: " .. state)
+  db.close(d)
+end
+test_session_state_persistence()
+
 print("all db tests passed")

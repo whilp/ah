@@ -194,7 +194,8 @@ local function parse_sse_line(line: string): string, string
 end
 
 -- Stream API call with callback for each event
-local function stream(messages: {any}, opts: {string:any}, callback: function({string:any})): {string:any}, string
+-- is_interrupted: optional callback that returns true when the caller wants to abort mid-stream
+local function stream(messages: {any}, opts: {string:any}, callback: function({string:any}), is_interrupted: function(): boolean): {string:any}, string
   local creds, err = auth.load_credentials()
   if not creds then
     return nil, err
@@ -282,8 +283,15 @@ local function stream(messages: {any}, opts: {string:any}, callback: function({s
   local current_block: {string:any} = nil
   local block_index: integer = nil
   local content_blocks: {integer:{string:any}} = {}
+  local was_interrupted = false
 
   for line in reader:lines() do
+    -- Check for interruption between SSE events
+    if is_interrupted and is_interrupted() then
+      was_interrupted = true
+      break
+    end
+
     local kind, data = parse_sse_line(line)
     if kind == "data" and data ~= "[DONE]" then
       local event = json.decode(data) as {string:any}
@@ -338,6 +346,24 @@ local function stream(messages: {any}, opts: {string:any}, callback: function({s
   end
 
   reader:close()
+
+  -- On interruption, finalize partial response with accumulated content
+  if was_interrupted and response then
+    -- Finalize any in-progress block
+    if current_block and block_index ~= nil then
+      if current_block.partial_json then
+        -- Try to parse partial tool input; drop it if invalid
+        local parsed_input = json.decode(current_block.partial_json as string)
+        if parsed_input then
+          current_block.input = parsed_input
+        end
+        current_block.partial_json = nil
+      end
+      content_blocks[block_index + 1] = current_block
+    end
+    response.content = content_blocks
+    response.stop_reason = "interrupted"
+  end
 
   -- For OAuth, convert tool names back from Claude Code format
   if creds.is_oauth and response and response.content then

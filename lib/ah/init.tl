@@ -663,9 +663,12 @@ local function main(args: {string}): integer, string
   -- Initialize custom tools
   tools.init_custom_tools()
 
-  -- Install SIGINT handler for graceful Ctrl+C
+  -- Install SIGINT handler for graceful Ctrl+C with abort cascade:
+  -- 1. Set interrupted flag (checked by loop between iterations and mid-stream)
+  -- 2. Immediately abort any running tool processes (SIGTERM -> SIGKILL)
   unix.sigaction(unix.SIGINT, function()
     interrupted = true
+    tools.abort_running_tools()
   end)
 
   -- Resolve model alias
@@ -675,6 +678,8 @@ local function main(args: {string}): integer, string
   local on_event = make_cli_handler()
   loop.run_agent(d, effective_system, effective_model, prompt, parent_id, on_event)
 
+  -- Mark session as closed before exit
+  db.set_session_state(d, "closed")
   db.close(d)
   return 0
 end
