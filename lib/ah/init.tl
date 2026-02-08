@@ -14,7 +14,6 @@ local api = require("ah.api")
 local tools = require("ah.tools")
 local auth = require("ah.auth")
 local ulid = require("ulid")
-local spinner = require("ah.spinner")
 
 -- Session record for listing
 local record Session
@@ -388,12 +387,9 @@ local function run_agent(d: db.DB, system_prompt: string, model: string, prompt:
       local input_json = json.encode(tc.input or {})
       local key = tool_key_param(tc.name as string, input_json)
 
-      -- Start spinner with tool name
-      local spin = spinner.start(tc.name as string)
       local start = now()
       local result, is_error = tools.execute_tool(tc.name as string, (tc.input or {}) as {string:any})
       local elapsed = now() - start
-      spinner.stop(spin)
 
       -- First tool includes think time in its timing
       if i == 1 then
