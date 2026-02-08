@@ -173,7 +173,7 @@ options:
 models:
 ]])
   for alias, full in pairs(api.MODEL_ALIASES) do
-    io.stderr:write(string.format("  %-8s %s\n", alias, full))
+    io.stderr:write(string.format("  %-18s  %s\n", alias, full))
   end
 end
 
