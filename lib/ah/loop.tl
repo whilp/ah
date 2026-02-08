@@ -7,6 +7,8 @@ local tools = require("ah.tools")
 local auth = require("ah.auth")
 local events = require("ah.events")
 
+local ToolDetails = tools.ToolDetails
+
 -- Reference the global interrupted flag (set by application layer)
 global interrupted: boolean
 
@@ -16,8 +18,33 @@ local function now(): number
   return s + ns / 1e9
 end
 
--- Extract key parameter from tool input for display
-local function tool_key_param(tool_name: string, tool_input: string): string
+-- Extract key parameter from tool details or input for display
+local function tool_key_param(tool_name: string, tool_input: string, details_json: string): string
+  -- Try details first (structured data from tool execution)
+  if details_json then
+    local details = json.decode(details_json) as {string:any}
+    if details then
+      if details.path then
+        if tool_name == "edit" then
+          -- For edit, include line change info from details
+          local suffix = ""
+          if details.old_lines and details.new_lines then
+            suffix = string.format(" (%d → %d lines)", details.old_lines as integer, details.new_lines as integer)
+          end
+          return (details.path as string) .. suffix
+        end
+        return details.path as string
+      elseif details.command then
+        local cmd = details.command as string
+        if #cmd > 80 then
+          return cmd:sub(1, 77) .. "..."
+        end
+        return cmd
+      end
+    end
+  end
+
+  -- Fall back to parsing tool_input JSON
   if not tool_input then return "" end
   local input = json.decode(tool_input) as {string:any}
   if not input then return "" end
@@ -260,13 +287,15 @@ local function run_agent(d: db.DB, system_prompt: string, model: string, prompt:
     for i, tool_call in ipairs(tool_calls) do
       local tc = tool_call as {string:any}
       local input_json = json.encode(tc.input or {})
-      local key = tool_key_param(tc.name as string, input_json)
+
+      -- Compute preliminary key from input for tool_call_start event
+      local key = tool_key_param(tc.name as string, input_json, nil)
 
       -- Emit tool_call_start
       emit(on_event, events.tool_call_start(tc.name as string, input_json, key, i, tool_count))
 
       local start = now()
-      local result, is_error = tools.execute_tool(tc.name as string, (tc.input or {}) as {string:any})
+      local result, is_error, details = tools.execute_tool(tc.name as string, (tc.input or {}) as {string:any})
       local elapsed = now() - start
 
       -- First tool includes think time in its timing
@@ -275,6 +304,15 @@ local function run_agent(d: db.DB, system_prompt: string, model: string, prompt:
       end
 
       local elapsed_ms = math.floor(elapsed * 1000) as integer
+
+      -- Encode details for display and persistence
+      local details_json: string = nil
+      if details then
+        details_json = json.encode(details as {string:any})
+      end
+
+      -- Recompute key with details for richer display in tool_call_end
+      key = tool_key_param(tc.name as string, input_json, details_json)
 
       -- Emit tool_call_end
       emit(on_event, events.tool_call_end(tc.name as string, result, is_error, elapsed_ms, key, i, tool_count))
@@ -297,6 +335,7 @@ local function run_agent(d: db.DB, system_prompt: string, model: string, prompt:
         tool_output = result,
         is_error = is_error,
         duration_ms = elapsed_ms,
+        details = details_json,
       })
 
       -- Add to API messages content
@@ -317,6 +356,7 @@ local function run_agent(d: db.DB, system_prompt: string, model: string, prompt:
         tool_output = blk.tool_output as string,
         is_error = blk.is_error as boolean,
         duration_ms = blk.duration_ms as integer,
+        details = blk.details as string,
       })
     end
     db.commit(d)

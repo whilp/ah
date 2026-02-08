@@ -217,7 +217,7 @@ local function cmd_scan(d: db.DB)
         end
         preview = text
       elseif b.block_type == "tool_use" then
-        local key = loop.tool_key_param(b.tool_name as string, b.tool_input as string)
+        local key = loop.tool_key_param(b.tool_name as string, b.tool_input as string, b.details as string)
         if #key > 40 then key = key:sub(1, 40) .. "..." end
         local suffix = key ~= "" and " " .. key or ""
         table.insert(tool_calls, string.format("→ %s%s", b.tool_name, suffix))
@@ -260,7 +260,7 @@ local function cmd_show(d: db.DB, seq: integer)
       io.write((b.content or "") as string)
       io.write("\n")
     elseif b.block_type == "tool_use" then
-      local key = loop.tool_key_param(b.tool_name as string, b.tool_input as string)
+      local key = loop.tool_key_param(b.tool_name as string, b.tool_input as string, b.details as string)
       io.write(string.format("→ %s %s\n", b.tool_name, key))
     elseif b.block_type == "tool_result" then
       local output = ((b.tool_output or "") as string)

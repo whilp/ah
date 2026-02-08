@@ -42,11 +42,23 @@ local function is_binary(content: string): boolean
   return non_printable > sample_size * 0.1
 end
 
+local record ToolDetails
+  path: string
+  line_count: integer
+  bytes: integer
+  old_lines: integer
+  new_lines: integer
+  command: string
+  exit_code: integer
+  duration_ms: integer
+  media_type: string
+end
+
 local record Tool
   name: string
   description: string
   input_schema: {string:any}
-  execute: function(input: {string:any}): string, boolean
+  execute: function(input: {string:any}): string, boolean, ToolDetails
 end
 
 -- Custom tools loaded at runtime
@@ -66,10 +78,10 @@ local read_tool: Tool = {
     },
     required = {"path"},
   },
-  execute = function(input: {string:any}): string, boolean
+  execute = function(input: {string:any}): string, boolean, ToolDetails
     local file_path = input.path as string
     if not file_path then
-      return "error: path is required", true
+      return "error: path is required", true, nil
     end
 
     -- Check for image extension
@@ -83,7 +95,7 @@ local read_tool: Tool = {
       -- Read image file and return structured content
       local content = cio.slurp(file_path)
       if not content then
-        return "error: failed to read file: " .. file_path, true
+        return "error: failed to read file: " .. file_path, true, nil
       end
 
       local base64_data = cosmo.EncodeBase64(content)
@@ -98,22 +110,28 @@ local read_tool: Tool = {
           },
         }},
       }
-      return json.encode(image_block), false
+      return json.encode(image_block), false, {path = file_path, bytes = #content, media_type = media_type} as ToolDetails
     end
 
     -- Text file handling
     local content = cio.slurp(file_path)
     if not content then
-      return "error: failed to read file: " .. file_path, true
+      return "error: failed to read file: " .. file_path, true, nil
     end
 
     -- Check for binary content
     if is_binary(content) then
-      return string.format("error: %s appears to be a binary file (%d bytes)", file_path, #content), true
+      return string.format("error: %s appears to be a binary file (%d bytes)", file_path, #content), true, nil
     end
 
     local offset = (input.offset as integer) or 1
     local limit = (input.limit as integer) or 0
+
+    -- Count total lines
+    local total_lines = 0
+    for _ in content:gmatch("[^\n]*") do
+      total_lines = total_lines + 1
+    end
 
     if offset > 1 or limit > 0 then
       local lines: {string} = {}
@@ -127,7 +145,7 @@ local read_tool: Tool = {
           table.insert(lines, string.format("%d\t%s", line_num, line))
         end
       end
-      return table.concat(lines, "\n"), false
+      return table.concat(lines, "\n"), false, {path = file_path, line_count = total_lines} as ToolDetails
     end
 
     -- Add line numbers
@@ -137,7 +155,7 @@ local read_tool: Tool = {
       line_num = line_num + 1
       table.insert(lines, string.format("%d\t%s", line_num, line))
     end
-    return table.concat(lines, "\n"), false
+    return table.concat(lines, "\n"), false, {path = file_path, line_count = total_lines} as ToolDetails
   end,
 }
 
@@ -153,15 +171,15 @@ local write_tool: Tool = {
     },
     required = {"path", "content"},
   },
-  execute = function(input: {string:any}): string, boolean
+  execute = function(input: {string:any}): string, boolean, ToolDetails
     local file_path = input.path as string
     local content = input.content as string
 
     if not file_path then
-      return "error: path is required", true
+      return "error: path is required", true, nil
     end
     if not content then
-      return "error: content is required", true
+      return "error: content is required", true, nil
     end
 
     -- Create parent directories if needed
@@ -172,10 +190,11 @@ local write_tool: Tool = {
 
     local ok = cio.barf(file_path, content, tonumber("644", 8))
     if not ok then
-      return "error: failed to write file: " .. file_path, true
+      return "error: failed to write file: " .. file_path, true, nil
     end
 
-    return "wrote " .. tostring(#content) .. " bytes to " .. file_path, false
+    return "wrote " .. tostring(#content) .. " bytes to " .. file_path, false,
+      {path = file_path, bytes = #content} as ToolDetails
   end,
 }
 
@@ -192,34 +211,40 @@ local edit_tool: Tool = {
     },
     required = {"path", "old_string", "new_string"},
   },
-  execute = function(input: {string:any}): string, boolean
+  execute = function(input: {string:any}): string, boolean, ToolDetails
     local file_path = input.path as string
     local old_string = input.old_string as string
     local new_string = input.new_string as string
 
     if not file_path then
-      return "error: path is required", true
+      return "error: path is required", true, nil
     end
     if not old_string then
-      return "error: old_string is required", true
+      return "error: old_string is required", true, nil
     end
     if new_string == nil then
-      return "error: new_string is required", true
+      return "error: new_string is required", true, nil
     end
 
     local content = cio.slurp(file_path)
     if not content then
-      return "error: failed to read file: " .. file_path, true
+      return "error: failed to read file: " .. file_path, true, nil
     end
 
     -- Check uniqueness
     local _, count = content:gsub(old_string:gsub("[%(%)%.%%%+%-%*%?%[%]%^%$]", "%%%1"), "")
     if count == 0 then
-      return "error: old_string not found in file", true
+      return "error: old_string not found in file", true, nil
     end
     if count > 1 then
-      return "error: old_string is not unique (found " .. count .. " times)", true
+      return "error: old_string is not unique (found " .. count .. " times)", true, nil
     end
+
+    -- Count lines in old and new strings
+    local old_lines = 1
+    for _ in old_string:gmatch("\n") do old_lines = old_lines + 1 end
+    local new_lines = 1
+    for _ in new_string:gmatch("\n") do new_lines = new_lines + 1 end
 
     -- Perform replacement (escape % in replacement string)
     local escaped_new = new_string:gsub("%%", "%%%%")
@@ -227,10 +252,11 @@ local edit_tool: Tool = {
 
     local ok = cio.barf(file_path, new_content, tonumber("644", 8))
     if not ok then
-      return "error: failed to write file: " .. file_path, true
+      return "error: failed to write file: " .. file_path, true, nil
     end
 
-    return "edited " .. file_path, false
+    return "edited " .. file_path, false,
+      {path = file_path, old_lines = old_lines, new_lines = new_lines} as ToolDetails
   end,
 }
 
@@ -246,10 +272,10 @@ local bash_tool: Tool = {
     },
     required = {"command"},
   },
-  execute = function(input: {string:any}): string, boolean
+  execute = function(input: {string:any}): string, boolean, ToolDetails
     local command = input.command as string
     if not command then
-      return "error: command is required", true
+      return "error: command is required", true, nil
     end
 
     -- Timeout in milliseconds, default 120000 (2 minutes)
@@ -261,7 +287,7 @@ local bash_tool: Tool = {
 
     local handle, err = child.spawn({"sh", "-c", wrapped})
     if not handle then
-      return "error: failed to spawn: " .. tostring(err), true
+      return "error: failed to spawn: " .. tostring(err), true, nil
     end
 
     -- Read output: h:read() returns (ok, stdout, exit_code_as_string)
@@ -287,7 +313,8 @@ local bash_tool: Tool = {
       result = "(no output)"
     end
 
-    return result, exit_code ~= 0
+    return result, exit_code ~= 0,
+      {command = command, exit_code = exit_code} as ToolDetails
   end,
 }
 
@@ -403,7 +430,7 @@ local function load_cli_tools_from_dir(dir: string): {Tool}
           args = {type = "string", description = "Command-line arguments"},
         },
       },
-      execute = function(input: {string:any}): string, boolean
+      execute = function(input: {string:any}): string, boolean, ToolDetails
         local args_str = (input.args as string) or ""
 
         -- Parse args string into array (simple space-split, respects quotes)
@@ -414,7 +441,7 @@ local function load_cli_tools_from_dir(dir: string): {Tool}
 
         local handle, err = child.spawn(cmd)
         if not handle then
-          return "error: failed to spawn: " .. tostring(err), true
+          return "error: failed to spawn: " .. tostring(err), true, nil
         end
 
         local _, stdout, exit_str = handle:read()
@@ -434,7 +461,8 @@ local function load_cli_tools_from_dir(dir: string): {Tool}
           result = "(no output)"
         end
 
-        return result, exit_code ~= 0
+        return result, exit_code ~= 0,
+          {command = tool_name .. " " .. args_str, exit_code = exit_code} as ToolDetails
       end,
     }
 
@@ -633,16 +661,16 @@ local function validate_input(schema: {string:any}, input: {string:any}): string
   return nil
 end
 
-local function execute_tool(name: string, input: {string:any}): string, boolean
+local function execute_tool(name: string, input: {string:any}): string, boolean, ToolDetails
   local tool = get_tool(name)
   if not tool then
-    return "error: unknown tool: " .. name, true
+    return "error: unknown tool: " .. name, true, nil
   end
 
   -- Validate input against schema before execution
   local validation_err = validate_input(tool.input_schema, input or {})
   if validation_err then
-    return validation_err, true
+    return validation_err, true, nil
   end
 
   return tool.execute(input)
@@ -659,4 +687,5 @@ return {
   load_cli_tools_from_dir = load_cli_tools_from_dir,
   is_valid_tool = is_valid_tool,
   Tool = Tool,
+  ToolDetails = ToolDetails,
 }

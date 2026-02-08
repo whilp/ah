@@ -7,36 +7,47 @@ local tools = require("ah.tools")
 local TEST_TMPDIR = os.getenv("TEST_TMPDIR") or "/tmp"
 
 local function test_read_tool()
-  local result, is_error = tools.execute_tool("read", {path = "/etc/hostname"})
+  local result, is_error, details = tools.execute_tool("read", {path = "/etc/hostname"})
   assert(not is_error, "read should succeed: " .. result)
   assert(result:match("1\t"), "should have line numbers")
+  assert(details, "read should return details")
+  assert(details.path == "/etc/hostname", "details should have path")
+  assert(details.line_count and details.line_count > 0, "details should have line_count")
   print("✓ read tool works")
 end
 
 local function test_read_nonexistent()
-  local result, is_error = tools.execute_tool("read", {path = "/nonexistent/file"})
+  local result, is_error, details = tools.execute_tool("read", {path = "/nonexistent/file"})
   assert(is_error, "should fail for nonexistent file")
   assert(result:match("error"), "should return error message")
+  assert(details == nil, "error should not return details")
   print("✓ read tool handles missing files")
 end
 
 local function test_write_tool()
   local test_file = os.getenv("TEST_TMPDIR") .. "/test_write.txt"
-  local result, is_error = tools.execute_tool("write", {path = test_file, content = "hello world"})
+  local result, is_error, details = tools.execute_tool("write", {path = test_file, content = "hello world"})
   assert(not is_error, "write should succeed: " .. result)
   assert(result:match("wrote.*bytes"), "should report bytes written")
+  assert(details, "write should return details")
+  assert(details.path == test_file, "details should have path")
+  assert(details.bytes == 11, "details should have bytes: " .. tostring(details.bytes))
   print("✓ write tool works")
 end
 
 local function test_edit_tool()
   local test_file = os.getenv("TEST_TMPDIR") .. "/test_edit.txt"
   tools.execute_tool("write", {path = test_file, content = "hello world"})
-  local result, is_error = tools.execute_tool("edit", {
+  local result, is_error, details = tools.execute_tool("edit", {
     path = test_file,
     old_string = "hello",
     new_string = "goodbye"
   })
   assert(not is_error, "edit should succeed: " .. result)
+  assert(details, "edit should return details")
+  assert(details.path == test_file, "details should have path")
+  assert(details.old_lines == 1, "details should have old_lines: " .. tostring(details.old_lines))
+  assert(details.new_lines == 1, "details should have new_lines: " .. tostring(details.new_lines))
 
   local content, _ = tools.execute_tool("read", {path = test_file})
   assert(content:match("goodbye world"), "content should be changed")
@@ -59,16 +70,21 @@ local function test_edit_tool_percent_in_replacement()
 end
 
 local function test_bash_tool()
-  local result, is_error = tools.execute_tool("bash", {command = "echo hello"})
+  local result, is_error, details = tools.execute_tool("bash", {command = "echo hello"})
   assert(not is_error, "bash should succeed")
   assert(result:match("hello"), "should capture stdout")
+  assert(details, "bash should return details")
+  assert(details.command == "echo hello", "details should have command")
+  assert(details.exit_code == 0, "details should have exit_code 0: " .. tostring(details.exit_code))
   print("✓ bash tool works")
 end
 
 local function test_bash_exit_code()
-  local result, is_error = tools.execute_tool("bash", {command = "exit 1"})
+  local result, is_error, details = tools.execute_tool("bash", {command = "exit 1"})
   assert(is_error, "should report error for non-zero exit")
   assert(result:match("exit code: 1"), "should report exit code")
+  assert(details, "bash error should still return details")
+  assert(details.exit_code == 1, "details should have exit_code 1: " .. tostring(details.exit_code))
   print("✓ bash tool handles exit codes")
 end
 
@@ -585,5 +601,66 @@ local function test_execute_tool_type_validation()
   print("✓ execute_tool catches type mismatches")
 end
 test_execute_tool_type_validation()
+
+-- Split return value (details) tests
+local function test_read_details_multiline()
+  local test_file = fs.join(TEST_TMPDIR, "test_multiline.txt")
+  cio.barf(test_file, "line1\nline2\nline3\n")
+
+  local result, is_error, details = tools.execute_tool("read", {path = test_file})
+  assert(not is_error, "read should succeed")
+  assert(details, "should return details")
+  assert(details.path == test_file, "details path should match")
+  assert(details.line_count == 4, "should count lines (including trailing): " .. tostring(details.line_count))
+  print("✓ read details include line_count")
+end
+test_read_details_multiline()
+
+local function test_edit_details_multiline()
+  local test_file = fs.join(TEST_TMPDIR, "test_edit_multi.txt")
+  cio.barf(test_file, "line1\nline2\nline3\n")
+
+  local result, is_error, details = tools.execute_tool("edit", {
+    path = test_file,
+    old_string = "line2",
+    new_string = "replaced_a\nreplaced_b\nreplaced_c"
+  })
+  assert(not is_error, "edit should succeed")
+  assert(details, "should return details")
+  assert(details.old_lines == 1, "old_lines should be 1")
+  assert(details.new_lines == 3, "new_lines should be 3: " .. tostring(details.new_lines))
+  print("✓ edit details track line count changes")
+end
+test_edit_details_multiline()
+
+local function test_read_image_details()
+  local png_path = fs.join(TEST_TMPDIR, "test_details.png")
+  cio.barf(png_path, "fake png data for details test")
+
+  local result, is_error, details = tools.execute_tool("read", {path = png_path})
+  assert(not is_error, "should read image")
+  assert(details, "image read should return details")
+  assert(details.path == png_path, "details path should match")
+  assert(details.bytes == 30, "details should have bytes: " .. tostring(details.bytes))
+  assert(details.media_type == "image/png", "details should have media_type")
+  print("✓ read image returns details with media_type and bytes")
+end
+test_read_image_details()
+
+local function test_validation_error_no_details()
+  local result, is_error, details = tools.execute_tool("read", {})
+  assert(is_error, "should be error")
+  assert(details == nil, "validation errors should not return details")
+  print("✓ validation errors return nil details")
+end
+test_validation_error_no_details()
+
+local function test_unknown_tool_no_details()
+  local result, is_error, details = tools.execute_tool("nonexistent", {})
+  assert(is_error, "should be error")
+  assert(details == nil, "unknown tool should not return details")
+  print("✓ unknown tool returns nil details")
+end
+test_unknown_tool_no_details()
 
 print("\nAll tools tests passed!")

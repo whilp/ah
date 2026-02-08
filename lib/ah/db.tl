@@ -28,7 +28,8 @@ create table if not exists content_blocks (
   tool_input text,
   tool_output text,
   is_error integer default 0,
-  duration_ms integer
+  duration_ms integer,
+  details text
 );
 
 create table if not exists context (
@@ -95,6 +96,7 @@ local record ContentBlock
   tool_output: string
   is_error: integer
   duration_ms: integer
+  details: string
 end
 
 local record ContentBlockOpts
@@ -105,6 +107,7 @@ local record ContentBlockOpts
   tool_output: string
   is_error: boolean
   duration_ms: integer
+  details: string
 end
 
 local record UpdateOpts
@@ -334,13 +337,14 @@ local function add_content_block(self: DB, message_id: string, block_type: strin
     opts.tool_input,
     opts.tool_output,
     opts.is_error and 1 or 0,
-    opts.duration_ms
+    opts.duration_ms,
+    opts.details
   }
 
   self._db:exec_list([[
-    insert into content_blocks (id, message_id, block_type, seq, content, tool_id, tool_name, tool_input, tool_output, is_error, duration_ms)
-    values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  ]], values, 11)
+    insert into content_blocks (id, message_id, block_type, seq, content, tool_id, tool_name, tool_input, tool_output, is_error, duration_ms, details)
+    values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  ]], values, 12)
 
   return {
     id = id,
@@ -354,6 +358,7 @@ local function add_content_block(self: DB, message_id: string, block_type: strin
     tool_output = opts.tool_output,
     is_error = opts.is_error and 1 or 0,
     duration_ms = opts.duration_ms,
+    details = opts.details,
   }
 end
 

@@ -377,4 +377,36 @@ local function test_events()
 end
 test_events()
 
+-- Test content block details (split tool return values)
+local function test_content_block_details()
+  local db_path = fs.join(TEST_TMPDIR, "details.db")
+  local d = db.open(db_path)
+
+  local msg = db.create_message(d, "user")
+
+  -- Add tool result without details
+  local block1 = db.add_content_block(d, msg.id, "tool_result", {
+    tool_id = "t1",
+    tool_output = "output",
+  })
+  assert(block1.details == nil, "block without details should be nil")
+
+  -- Add tool result with details
+  local details_json = '{"path":"/tmp/test.txt","line_count":42}'
+  local block2 = db.add_content_block(d, msg.id, "tool_result", {
+    tool_id = "t2",
+    tool_output = "file contents",
+    details = details_json,
+  })
+  assert(block2.details == details_json, "details mismatch on insert")
+
+  -- Verify via query
+  local blocks = db.get_content_blocks(d, msg.id)
+  assert(blocks[1].details == nil, "first block details should be nil")
+  assert(blocks[2].details == details_json, "second block details should match: " .. tostring(blocks[2].details))
+
+  db.close(d)
+end
+test_content_block_details()
+
 print("all db tests passed")
