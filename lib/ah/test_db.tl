@@ -291,4 +291,90 @@ local function test_empty_content_serialization()
 end
 test_empty_content_serialization()
 
+-- Test message metadata (tokens, model, latency)
+local function test_message_metadata()
+  local db_path = fs.join(TEST_TMPDIR, "metadata.db")
+  local d = db.open(db_path)
+
+  -- Create message without metadata
+  local msg1 = db.create_message(d, "user")
+  assert(msg1.input_tokens == nil, "user message should have nil input_tokens")
+  assert(msg1.model == nil, "user message should have nil model")
+
+  -- Create message with metadata
+  local msg2 = db.create_message(d, "assistant", msg1.id, {
+    input_tokens = 100,
+    output_tokens = 50,
+    stop_reason = "end_turn",
+    model = "claude-sonnet",
+    api_latency_ms = 1500,
+  })
+  assert(msg2.input_tokens == 100, "input_tokens mismatch")
+  assert(msg2.output_tokens == 50, "output_tokens mismatch")
+  assert(msg2.stop_reason == "end_turn", "stop_reason mismatch")
+  assert(msg2.model == "claude-sonnet", "model mismatch")
+  assert(msg2.api_latency_ms == 1500, "api_latency_ms mismatch")
+
+  db.close(d)
+end
+test_message_metadata()
+
+-- Test content block duration
+local function test_content_block_duration()
+  local db_path = fs.join(TEST_TMPDIR, "duration.db")
+  local d = db.open(db_path)
+
+  local msg = db.create_message(d, "user")
+
+  -- Add block without duration
+  local block1 = db.add_content_block(d, msg.id, "text", {content = "hello"})
+  assert(block1.duration_ms == nil, "text block should have nil duration")
+
+  -- Add tool result with duration
+  local block2 = db.add_content_block(d, msg.id, "tool_result", {
+    tool_id = "t1",
+    tool_output = "output",
+    duration_ms = 250,
+  })
+  assert(block2.duration_ms == 250, "duration_ms mismatch")
+
+  -- Verify via query
+  local blocks = db.get_content_blocks(d, msg.id)
+  assert(blocks[1].duration_ms == nil, "first block duration should be nil")
+  assert(blocks[2].duration_ms == 250, "second block duration should be 250")
+
+  db.close(d)
+end
+test_content_block_duration()
+
+-- Test event logging
+local function test_events()
+  local db_path = fs.join(TEST_TMPDIR, "events.db")
+  local d = db.open(db_path)
+
+  -- Log event without message
+  local evt1 = db.log_event(d, "startup")
+  assert(evt1.id, "event should have id")
+  assert(evt1.event_type == "startup", "event_type mismatch")
+  assert(evt1.message_id == nil, "message_id should be nil")
+  assert(evt1.created_at, "should have created_at")
+
+  -- Log event with message and details
+  local msg = db.create_message(d, "user")
+  local evt2 = db.log_event(d, "retry", msg.id, '{"attempt":1,"delay_ms":1000}')
+  assert(evt2.message_id == msg.id, "message_id mismatch")
+  assert(evt2.details == '{"attempt":1,"delay_ms":1000}', "details mismatch")
+
+  -- Query events
+  local all_events = db.get_events(d)
+  assert(#all_events == 2, "should have 2 events")
+
+  local retry_events = db.get_events(d, "retry")
+  assert(#retry_events == 1, "should have 1 retry event")
+  assert(retry_events[1].event_type == "retry", "filtered event type mismatch")
+
+  db.close(d)
+end
+test_events()
+
 print("all db tests passed")

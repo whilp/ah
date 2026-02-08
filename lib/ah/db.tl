@@ -1,8 +1,52 @@
 -- ah/db.lua: SQLite storage for conversation tree
 local fs = require("cosmic.fs")
 local sqlite = require("cosmic.sqlite")
+local sqlite3 = require("cosmo.lsqlite3")
 local unix = require("cosmo.unix")
 local ulid = require("ulid")
+
+-- Helper types for raw sqlite3 access
+local record RawStmt
+  bind: function(RawStmt, integer, any)
+  step: function(RawStmt): integer
+  finalize: function(RawStmt)
+end
+
+local record RawDb
+  prepare: function(RawDb, string): RawStmt
+  errmsg: function(RawDb): string
+end
+
+local record DbWrapper
+  exec: function
+end
+
+-- Helper to execute SQL with proper nil handling
+-- The cosmic.sqlite varargs API drops trailing nils, so we use raw lsqlite3
+-- We access the raw db via debug.getupvalue since cosmic.sqlite doesn't expose it
+local function exec_with_nils(db: DbWrapper, sql: string, values: {any}, count: integer): boolean, string
+  -- Get raw_db from the exec function's upvalues (exec is the first method in the wrapper)
+  local exec_fn = db.exec
+  local _, raw_db_any = debug.getupvalue(exec_fn, 1)
+  if not raw_db_any then
+    return false, "cannot access raw database"
+  end
+  local raw_db = raw_db_any as RawDb
+
+  local stmt = raw_db:prepare(sql)
+  if not stmt then
+    return false, raw_db:errmsg()
+  end
+  for i = 1, count do
+    stmt:bind(i, values[i])
+  end
+  local rc = stmt:step()
+  stmt:finalize()
+  if rc ~= sqlite3.DONE and rc ~= sqlite3.ROW then
+    return false, raw_db:errmsg()
+  end
+  return true, nil
+end
 
 local SCHEMA = [[
 create table if not exists messages (
@@ -10,7 +54,12 @@ create table if not exists messages (
   parent_id text references messages(id),
   role text not null,
   seq integer not null,
-  created_at integer not null
+  created_at integer not null,
+  input_tokens integer,
+  output_tokens integer,
+  stop_reason text,
+  model text,
+  api_latency_ms integer
 );
 
 create table if not exists content_blocks (
@@ -23,7 +72,8 @@ create table if not exists content_blocks (
   tool_name text,
   tool_input text,
   tool_output text,
-  is_error integer default 0
+  is_error integer default 0,
+  duration_ms integer
 );
 
 create table if not exists context (
@@ -31,8 +81,18 @@ create table if not exists context (
   value text not null
 );
 
+create table if not exists events (
+  id text primary key,
+  message_id text references messages(id),
+  event_type text not null,
+  created_at integer not null,
+  details text
+);
+
 create index if not exists idx_messages_parent on messages(parent_id);
 create index if not exists idx_content_blocks_message on content_blocks(message_id);
+create index if not exists idx_events_message on events(message_id);
+create index if not exists idx_events_type on events(event_type);
 ]]
 
 -- Type definitions
@@ -59,6 +119,11 @@ local record Message
   role: string
   seq: integer
   created_at: integer
+  input_tokens: integer
+  output_tokens: integer
+  stop_reason: string
+  model: string
+  api_latency_ms: integer
 end
 
 local record ContentBlock
@@ -72,6 +137,7 @@ local record ContentBlock
   tool_input: string
   tool_output: string
   is_error: integer
+  duration_ms: integer
 end
 
 local record ContentBlockOpts
@@ -81,12 +147,29 @@ local record ContentBlockOpts
   tool_input: string
   tool_output: string
   is_error: boolean
+  duration_ms: integer
 end
 
 local record UpdateOpts
   content: string
   tool_output: string
   is_error: boolean
+end
+
+local record MessageOpts
+  input_tokens: integer
+  output_tokens: integer
+  stop_reason: string
+  model: string
+  api_latency_ms: integer
+end
+
+local record Event
+  id: string
+  message_id: string
+  event_type: string
+  created_at: integer
+  details: string
 end
 
 local function get_db_path(): string
@@ -186,9 +269,10 @@ local function get_message(self: DB, id: string): Message
   return nil
 end
 
-local function create_message(self: DB, role: string, parent_id?: string): Message
+local function create_message(self: DB, role: string, parent_id?: string, opts?: MessageOpts): Message
   local id = ulid.generate()
   local now = os.time()
+  opts = opts or {}
 
   local seq = 0
   if parent_id then
@@ -197,11 +281,14 @@ local function create_message(self: DB, role: string, parent_id?: string): Messa
     end
   end
 
+  -- Use exec_with_nils to properly handle nil values in the insert
+  local values: {any} = {id, parent_id, role, seq, now, opts.input_tokens, opts.output_tokens, opts.stop_reason, opts.model, opts.api_latency_ms}
+
   with_signals_blocked(function()
-    self._db:exec([[
-      insert into messages (id, parent_id, role, seq, created_at)
-      values (?, ?, ?, ?, ?)
-    ]], id, parent_id, role, seq, now)
+    exec_with_nils(self._db as DbWrapper, [[
+      insert into messages (id, parent_id, role, seq, created_at, input_tokens, output_tokens, stop_reason, model, api_latency_ms)
+      values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ]], values, 10)
 
     self._db:exec("insert or replace into context (key, value) values (?, ?)", "current_message", id)
   end)
@@ -212,6 +299,11 @@ local function create_message(self: DB, role: string, parent_id?: string): Messa
     role = role,
     seq = seq,
     created_at = now,
+    input_tokens = opts.input_tokens,
+    output_tokens = opts.output_tokens,
+    stop_reason = opts.stop_reason,
+    model = opts.model,
+    api_latency_ms = opts.api_latency_ms,
   }
 end
 
@@ -283,19 +375,23 @@ local function add_content_block(self: DB, message_id: string, block_type: strin
     end
   end
 
+  -- Use exec_with_nils to properly handle nil values in the insert
+  local values: {any} = {
+    id, message_id, block_type, seq,
+    opts.content,
+    opts.tool_id,
+    opts.tool_name,
+    opts.tool_input,
+    opts.tool_output,
+    opts.is_error and 1 or 0,
+    opts.duration_ms
+  }
+
   with_signals_blocked(function()
-    self._db:exec([[
-      insert into content_blocks (id, message_id, block_type, seq, content, tool_id, tool_name, tool_input, tool_output, is_error)
-      values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ]],
-      id, message_id, block_type, seq,
-      opts.content,
-      opts.tool_id,
-      opts.tool_name,
-      opts.tool_input,
-      opts.tool_output,
-      opts.is_error and 1 or 0
-    )
+    exec_with_nils(self._db as DbWrapper, [[
+      insert into content_blocks (id, message_id, block_type, seq, content, tool_id, tool_name, tool_input, tool_output, is_error, duration_ms)
+      values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ]], values, 11)
   end)
 
   return {
@@ -309,6 +405,7 @@ local function add_content_block(self: DB, message_id: string, block_type: strin
     tool_input = opts.tool_input,
     tool_output = opts.tool_output,
     is_error = opts.is_error and 1 or 0,
+    duration_ms = opts.duration_ms,
   }
 end
 
@@ -352,6 +449,50 @@ local function update_content_block(self: DB, id: string, opts: UpdateOpts)
       stmt:close()
     end
   end)
+end
+
+-- Event logging
+local function log_event(self: DB, event_type: string, message_id?: string, details?: string): Event
+  local id = ulid.generate()
+  local now = os.time()
+
+  -- Use exec_with_nils to properly handle nil values in the insert
+  local values: {any} = {id, message_id, event_type, now, details}
+
+  with_signals_blocked(function()
+    exec_with_nils(self._db as DbWrapper, [[
+      insert into events (id, message_id, event_type, created_at, details)
+      values (?, ?, ?, ?, ?)
+    ]], values, 5)
+  end)
+
+  return {
+    id = id,
+    message_id = message_id,
+    event_type = event_type,
+    created_at = now,
+    details = details,
+  }
+end
+
+local function get_events(self: DB, event_type?: string): {Event}
+  local events: {Event} = {}
+  local sql = "select * from events"
+  if event_type then
+    sql = sql .. " where event_type = ?"
+  end
+  sql = sql .. " order by created_at asc"
+
+  if event_type then
+    for row in self._db:query(sql, event_type) do
+      table.insert(events, row as Event)
+    end
+  else
+    for row in self._db:query(sql) do
+      table.insert(events, row as Event)
+    end
+  end
+  return events
 end
 
 local function get_message_by_seq(self: DB, seq: integer): Message
@@ -427,9 +568,13 @@ return {
   get_message_count = get_message_count,
   get_first_user_prompt = get_first_user_prompt,
   cleanup_orphans = cleanup_orphans,
+  log_event = log_event,
+  get_events = get_events,
   -- Export types for consumers
   DB = DB,
   Message = Message,
   ContentBlock = ContentBlock,
   ContentBlockOpts = ContentBlockOpts,
+  MessageOpts = MessageOpts,
+  Event = Event,
 }

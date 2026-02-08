@@ -1,8 +1,15 @@
 -- ah/api.lua: Claude Messages API with streaming
 local json = require("cosmic.json")
 local fetch = require("cosmic.fetch")
+local unix = require("cosmo.unix")
 local auth = require("ah.auth")
 local tools_mod = require("ah.tools")
+
+-- Get monotonic time in milliseconds
+local function now_ms(): integer
+  local s, ns = unix.clock_gettime(unix.CLOCK_MONOTONIC)
+  return math.floor(s * 1000 + ns / 1e6) as integer
+end
 
 local API_URL = "https://api.anthropic.com/v1/messages"
 local DEFAULT_MODEL = "claude-sonnet-4-20250514"
@@ -145,9 +152,14 @@ local function stream(messages: {any}, opts: {string:any}, callback: function({s
   opts = opts or {}
   opts.stream = true
 
+  local model = (opts.model or DEFAULT_MODEL) as string
   local req = build_request(messages, opts, creds.is_oauth or false)
   local auth_headers = auth.get_auth_headers(creds)
   local body = json.encode(req)
+
+  -- Track timing and retries
+  local start_ms = now_ms()
+  local retries: {{string:any}} = {}
 
   -- Retry loop for transient errors
   local result: fetch.Result = nil
@@ -166,6 +178,7 @@ local function stream(messages: {any}, opts: {string:any}, callback: function({s
       -- Network errors are retryable
       if attempt < MAX_RETRIES then
         local delay_ms = BASE_DELAY_MS * (2 ^ attempt)
+        table.insert(retries, {attempt = attempt, error = last_error, delay_ms = delay_ms})
         sleep_ms(delay_ms as integer)
       end
     elseif result.status == 200 then
@@ -185,6 +198,7 @@ local function stream(messages: {any}, opts: {string:any}, callback: function({s
         if delay_ms > MAX_RETRY_DELAY_MS then
           return nil, last_error
         end
+        table.insert(retries, {attempt = attempt, status = status, error = last_error, delay_ms = delay_ms})
         sleep_ms(delay_ms)
       else
         return nil, last_error
@@ -267,6 +281,15 @@ local function stream(messages: {any}, opts: {string:any}, callback: function({s
       if b.type == "tool_use" and b.name then
         b.name = tools_mod.from_claude_code_name(b.name as string)
       end
+    end
+  end
+
+  -- Add timing and metadata
+  if response then
+    response.api_latency_ms = now_ms() - start_ms
+    response.model = model
+    if #retries > 0 then
+      response.retries = retries
     end
   end
 

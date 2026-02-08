@@ -327,9 +327,19 @@ local function run_agent(d: db.DB, system_prompt: string, model: string, prompt:
       end
     end
 
+    -- Extract usage and metadata from response
+    local usage = (resp.usage or {}) as {string:any}
+    local msg_opts: db.MessageOpts = {
+      input_tokens = usage.input_tokens as integer,
+      output_tokens = usage.output_tokens as integer,
+      stop_reason = resp.stop_reason as string,
+      model = resp.model as string,
+      api_latency_ms = resp.api_latency_ms as integer,
+    }
+
     -- Atomically write assistant message + all content blocks
     db.begin_transaction(d)
-    local assistant_msg = db.create_message(d, "assistant", user_msg.id)
+    local assistant_msg = db.create_message(d, "assistant", user_msg.id, msg_opts)
     for _, blk in ipairs(assistant_blocks) do
       if blk.block_type == "text" then
         db.add_content_block(d, assistant_msg.id, "text", {content = blk.content as string})
@@ -341,6 +351,16 @@ local function run_agent(d: db.DB, system_prompt: string, model: string, prompt:
         })
       end
     end
+
+    -- Log retry events if any occurred
+    local retries = resp.retries as {{string:any}}
+    if retries then
+      for _, retry in ipairs(retries) do
+        local retry_json = json.encode(retry)
+        db.log_event(d, "retry", assistant_msg.id, retry_json)
+      end
+    end
+
     db.commit(d)
 
     -- Add assistant message to API messages
@@ -429,11 +449,12 @@ local function run_agent(d: db.DB, system_prompt: string, model: string, prompt:
         end
       end
 
-      -- Collect for later atomic write
+      -- Collect for later atomic write (elapsed is in seconds, convert to ms)
       table.insert(tool_result_blocks, {
         tool_id = tc.id as string,
         tool_output = result,
         is_error = is_error,
+        duration_ms = math.floor(elapsed * 1000) as integer,
       })
 
       -- Add to API messages content
@@ -453,6 +474,7 @@ local function run_agent(d: db.DB, system_prompt: string, model: string, prompt:
         tool_id = blk.tool_id as string,
         tool_output = blk.tool_output as string,
         is_error = blk.is_error as boolean,
+        duration_ms = blk.duration_ms as integer,
       })
     end
     db.commit(d)
