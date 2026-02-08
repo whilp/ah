@@ -13,6 +13,7 @@ local db = require("ah.db")
 local api = require("ah.api")
 local tools = require("ah.tools")
 local auth = require("ah.auth")
+local commands = require("ah.commands")
 local ulid = require("ulid")
 
 -- Session record for listing
@@ -861,6 +862,13 @@ local function main(args: {string}): integer, string
       db.close(d)
       return 0
     end
+  end
+
+  -- Expand commands (prompts starting with /)
+  local loaded_commands = commands.load_commands()
+  local expanded, was_command = commands.expand_command(prompt, loaded_commands)
+  if was_command then
+    prompt = expanded
   end
 
   -- Load system prompt
