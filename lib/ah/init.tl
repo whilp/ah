@@ -14,6 +14,7 @@ local tools = require("ah.tools")
 local commands = require("ah.commands")
 local skills = require("ah.skills")
 local loop = require("ah.loop")
+local events = require("ah.events")
 local ulid = require("ulid")
 
 -- Session record for listing
@@ -307,6 +308,93 @@ local function cmd_rmm(d: db.DB, seqs: {integer})
   end
 end
 
+-- CLI display handler: renders structured events to stderr/stdout for terminal use.
+-- This is the application-layer implementation of the event callback.
+-- Other handlers (JSON logging, web UI, etc.) can be substituted.
+local function make_cli_handler(): events.EventCallback
+  local is_tty = unix.isatty(2)
+  local DIM = is_tty and "\27[2m" or ""
+  local RESET = is_tty and "\27[0m" or ""
+  local has_text = false
+
+  return function(event: events.EventData)
+    local t = event.event_type
+
+    if t == "agent_start" then
+      -- In non-interactive mode, echo the prompt for clarity
+      if not is_tty and event.prompt then
+        io.stderr:write(">>> " .. event.prompt .. "\n")
+      end
+
+    elseif t == "text_delta" then
+      io.write(event.text)
+      io.flush()
+      has_text = true
+
+    elseif t == "agent_end" then
+      -- Trailing newline after text output
+      if has_text then
+        io.write("\n")
+      end
+
+    elseif t == "error" then
+      io.stderr:write("\nerror: " .. (event.error or "unknown") .. "\n")
+
+    elseif t == "api_call_end" then
+      -- Text output complete for this turn; check if tool calls follow
+      -- (tool_call_start will handle the newline separator)
+
+    elseif t == "tool_call_start" then
+      -- Separator between text and first tool block
+      if event.tool_index == 1 then
+        if has_text then
+          io.write("\n")
+          has_text = false
+        end
+        io.stderr:write("\n")
+      end
+
+    elseif t == "tool_call_end" then
+      local prefix = is_tty and "⠋ " or ""
+      local indent = "  "
+      local elapsed = (event.duration_ms or 0) / 1000
+
+      -- Line 1: tool name and timing
+      io.stderr:write(string.format("%s%s%s (%.1fs)%s\n", DIM, prefix, event.tool_name, elapsed, RESET))
+
+      -- Line 2: command (for bash) or key param
+      local key = event.tool_key or ""
+      if key ~= "" then
+        local cmd_prefix = event.tool_name == "bash" and "$ " or ""
+        io.stderr:write(string.format("%s%s%s%s%s\n", DIM, indent, cmd_prefix, key, RESET))
+      end
+
+      -- Show truncated output (first 3 lines, then count)
+      local result = event.tool_output or ""
+      if result ~= "" and result ~= "(no output)" then
+        local lines: {string} = {}
+        for line in result:gmatch("[^\n]+") do
+          table.insert(lines, line)
+        end
+        local max_lines = 3
+        for j = 1, math.min(max_lines, #lines) do
+          local line = lines[j]
+          if #line > 80 then
+            line = line:sub(1, 77) .. "..."
+          end
+          io.stderr:write(string.format("%s%s%s%s\n", DIM, indent, line, RESET))
+        end
+        if #lines > max_lines then
+          io.stderr:write(string.format("%s%s... (%d more lines)%s\n", DIM, indent, #lines - max_lines, RESET))
+        end
+      end
+
+      -- Blank line after tool block
+      io.stderr:write("\n")
+    end
+  end
+end
+
 local function main(args: {string}): integer, string
   -- Enable core dumps for crash debugging
   -- RLIMIT_CORE = 4 on Linux, RLIM_INFINITY = -1
@@ -583,8 +671,9 @@ local function main(args: {string}): integer, string
   -- Resolve model alias
   local effective_model = api.resolve_model(model)
 
-  -- Run agent
-  loop.run_agent(d, effective_system, effective_model, prompt, parent_id)
+  -- Run agent with CLI event handler
+  local on_event = make_cli_handler()
+  loop.run_agent(d, effective_system, effective_model, prompt, parent_id, on_event)
 
   db.close(d)
   return 0
@@ -594,6 +683,7 @@ return {
   main = main,
   load_system_prompt = load_system_prompt,
   load_claude_md = load_claude_md,
+  make_cli_handler = make_cli_handler,
   tool_key_param = loop.tool_key_param,
   list_sessions = list_sessions,
   resolve_session = resolve_session,
