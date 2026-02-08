@@ -148,6 +148,10 @@ commands:
   @N <prompt>         fork from message N with new prompt
   sessions            list all sessions
   scan                list messages in current branch
+  tree                show full conversation tree
+  branches            list all branch tips
+  checkout @N         switch to message N
+  branch rm @N        delete branch from message N
   show [N]            show message(s)
   rmm N...            remove messages
   embed <dir>         embed files into /zip/embed/
@@ -309,6 +313,151 @@ local function cmd_rmm(d: db.DB, seqs: {integer})
       io.stderr:write("message not found: @" .. seq .. "\n")
     end
   end
+end
+
+-- Helper: get message preview text for display
+local function msg_preview(d: db.DB, m: db.Message, max_len: integer): string
+  max_len = max_len or 50
+  local blocks = db.get_content_blocks(d, m.id)
+  for _, b in ipairs(blocks) do
+    if b.block_type == "text" and b.content and (b.content as string):match("%S") then
+      local text = (b.content as string):gsub("\n", " "):sub(1, max_len)
+      if #(b.content as string) > max_len then
+        text = text .. "..."
+      end
+      return text
+    end
+  end
+  -- For tool-result-only messages, show tool info
+  for _, b in ipairs(blocks) do
+    if b.block_type == "tool_use" then
+      return "[" .. (b.tool_name or "tool") .. "]"
+    elseif b.block_type == "tool_result" then
+      return "[tool result]"
+    end
+  end
+  return ""
+end
+
+-- Show full conversation tree with all branches
+local function cmd_tree(d: db.DB)
+  local roots = db.get_root_messages(d)
+  if #roots == 0 then
+    io.stderr:write("no messages\n")
+    return
+  end
+
+  local current = db.get_current_message(d)
+  local current_id = current and current.id or nil
+
+  -- Build ancestry set for current message to highlight the active branch
+  local current_ancestry: {string:boolean} = {}
+  if current then
+    local ancestors = db.get_ancestry(d, current.id)
+    for _, a in ipairs(ancestors) do
+      current_ancestry[a.id] = true
+    end
+  end
+
+  -- Recursive tree printer
+  local function print_node(m: db.Message, prefix: string, is_last: boolean, is_root: boolean)
+    local role_char = m.role == "user" and "U" or "A"
+    local is_current = (m.id == current_id)
+    local in_branch = current_ancestry[m.id] or false
+
+    -- Build connector
+    local connector = ""
+    if is_root then
+      connector = ""
+    elseif is_last then
+      connector = prefix .. "└─ "
+    else
+      connector = prefix .. "├─ "
+    end
+
+    -- Marker: > for current, * for active branch, space otherwise
+    local marker = is_current and ">" or (in_branch and "*" or " ")
+    local preview = msg_preview(d, m, 50)
+
+    io.write(string.format("%s%s%3d %s: %s\n", connector, marker, m.seq, role_char, preview))
+
+    -- Recurse into children
+    local children = db.get_children(d, m.id)
+    local child_prefix = ""
+    if is_root then
+      child_prefix = prefix
+    elseif is_last then
+      child_prefix = prefix .. "   "
+    else
+      child_prefix = prefix .. "│  "
+    end
+
+    for i, child in ipairs(children) do
+      print_node(child, child_prefix, i == #children, false)
+    end
+  end
+
+  for i, root in ipairs(roots) do
+    print_node(root, "", i == #roots, true)
+  end
+end
+
+-- List all branch tips (leaf messages)
+local function cmd_branches(d: db.DB)
+  local leaves = db.get_leaf_messages(d)
+  if #leaves == 0 then
+    io.stderr:write("no branches\n")
+    return
+  end
+
+  local current = db.get_current_message(d)
+  local current_id = current and current.id or nil
+
+  -- For each leaf, find the ancestry to determine if current branch tip contains it
+  local current_leaf_id: string = nil
+  if current then
+    -- Check if current message itself is a leaf
+    local current_children = db.get_children(d, current.id)
+    if #current_children == 0 then
+      current_leaf_id = current.id
+    end
+  end
+
+  for _, leaf in ipairs(leaves) do
+    local marker = (leaf.id == current_leaf_id) and ">" or " "
+    local depth = db.get_depth(d, leaf.id)
+    local role_char = leaf.role == "user" and "U" or "A"
+    local preview = msg_preview(d, leaf, 40)
+
+    io.write(string.format("%s @%-3d %s  depth:%d  %s\n",
+      marker, leaf.seq, role_char, depth, preview))
+  end
+end
+
+-- Switch current message to a specific message (checkout a branch)
+local function cmd_checkout(d: db.DB, seq: integer)
+  local msg = db.get_message_by_seq(d, seq)
+  if not msg then
+    io.stderr:write("message not found: @" .. seq .. "\n")
+    return
+  end
+  db.set_current_message(d, msg.id)
+  local preview = msg_preview(d, msg, 50)
+  io.write(string.format("switched to @%d %s: %s\n", msg.seq, msg.role, preview))
+end
+
+-- Delete a branch starting from a message
+-- Uses branch-aware resolution: resolve @N in context of current branch
+local function cmd_branch_rm(d: db.DB, seq: integer)
+  local current = db.get_current_message(d)
+  local branch_tip_id = current and current.id or nil
+  local msg = db.get_message_by_seq_in_branch(d, seq, branch_tip_id)
+  if not msg then
+    io.stderr:write("message not found: @" .. seq .. "\n")
+    return
+  end
+  local count = db.delete_branch(d, msg.id)
+  io.write(string.format("deleted %d message(s) from @%d\n", count, seq))
 end
 
 -- CLI display handler: renders structured events to stderr/stdout for terminal use.
@@ -619,6 +768,64 @@ local function main(args: {string}): integer, string
     queue.close(qdb)
     db.close(d)
     return 0
+
+  elseif cmd == "tree" then
+    cmd_tree(d)
+    queue.close(qdb)
+    db.close(d)
+    return 0
+
+  elseif cmd == "branches" then
+    cmd_branches(d)
+    queue.close(qdb)
+    db.close(d)
+    return 0
+
+  elseif cmd == "checkout" then
+    local seq_str = remaining[2]
+    if not seq_str then
+      io.stderr:write("usage: ah checkout @N\n")
+      queue.close(qdb)
+      db.close(d)
+      return 1
+    end
+    -- Allow "checkout @3" or "checkout 3"
+    local seq_val = seq_str:match("^@?(%d+)$")
+    if not seq_val then
+      io.stderr:write("invalid message number: " .. seq_str .. "\n")
+      queue.close(qdb)
+      db.close(d)
+      return 1
+    end
+    cmd_checkout(d, tonumber(seq_val) as integer)
+    queue.close(qdb)
+    db.close(d)
+    return 0
+
+  elseif cmd == "branch" then
+    local subcmd = remaining[2]
+    if subcmd == "rm" then
+      local seq_str = remaining[3]
+      if not seq_str then
+        io.stderr:write("usage: ah branch rm @N\n")
+        queue.close(qdb)
+        db.close(d)
+        return 1
+      end
+      local seq_val = seq_str:match("^@?(%d+)$")
+      if not seq_val then
+        io.stderr:write("invalid message number: " .. seq_str .. "\n")
+        queue.close(qdb)
+        db.close(d)
+        return 1
+      end
+      cmd_branch_rm(d, tonumber(seq_val) as integer)
+    else
+      io.stderr:write("usage: ah branch rm @N\n")
+    end
+    queue.close(qdb)
+    db.close(d)
+    return 0
   end
 
   -- Handle prompt or continue
@@ -634,7 +841,10 @@ local function main(args: {string}): integer, string
       return 1, "invalid message number: " .. cmd
     end
 
-    local msg = db.get_message_by_seq(d, seq)
+    -- Use branch-aware seq resolution: prefer messages in current branch
+    local current = db.get_current_message(d)
+    local branch_tip_id = current and current.id or nil
+    local msg = db.get_message_by_seq_in_branch(d, seq, branch_tip_id)
     if not msg then
       queue.close(qdb)
       db.close(d)
@@ -757,4 +967,9 @@ return {
   tool_key_param = loop.tool_key_param,
   list_sessions = list_sessions,
   resolve_session = resolve_session,
+  -- Branch UX commands (exported for testing)
+  cmd_tree = cmd_tree,
+  cmd_branches = cmd_branches,
+  cmd_checkout = cmd_checkout,
+  cmd_branch_rm = cmd_branch_rm,
 }
