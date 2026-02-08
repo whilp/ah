@@ -457,4 +457,133 @@ local function test_read_binary_by_control_chars()
 end
 test_read_binary_by_control_chars()
 
+-- Input validation tests
+local function test_validate_input_valid()
+  local schema: {string:any} = {
+    type = "object",
+    properties = {
+      path = {type = "string"},
+      count = {type = "integer"},
+    },
+    required = {"path"},
+  }
+  local err = tools.validate_input(schema, {path = "/tmp/foo", count = 10})
+  assert(err == nil, "valid input should pass: " .. tostring(err))
+  print("✓ validate_input accepts valid input")
+end
+test_validate_input_valid()
+
+local function test_validate_input_missing_required()
+  local schema: {string:any} = {
+    type = "object",
+    properties = {
+      path = {type = "string"},
+      content = {type = "string"},
+    },
+    required = {"path", "content"},
+  }
+  local err = tools.validate_input(schema, {path = "/tmp/foo"})
+  assert(err ~= nil, "should fail for missing required property")
+  assert(err:match("missing required property: content"), "should name the missing property: " .. err)
+  print("✓ validate_input catches missing required properties")
+end
+test_validate_input_missing_required()
+
+local function test_validate_input_wrong_type()
+  local schema: {string:any} = {
+    type = "object",
+    properties = {
+      path = {type = "string"},
+      timeout = {type = "integer"},
+    },
+    required = {"path"},
+  }
+  local err = tools.validate_input(schema, {path = 123})
+  assert(err ~= nil, "should fail for wrong type")
+  assert(err:match("property 'path': expected string, got number"), "should describe type mismatch: " .. err)
+  print("✓ validate_input catches wrong property types")
+end
+test_validate_input_wrong_type()
+
+local function test_validate_input_multiple_errors()
+  local schema: {string:any} = {
+    type = "object",
+    properties = {
+      path = {type = "string"},
+      content = {type = "string"},
+    },
+    required = {"path", "content"},
+  }
+  local err = tools.validate_input(schema, {})
+  assert(err ~= nil, "should fail for multiple missing properties")
+  assert(err:match("missing required property: path"), "should report path missing: " .. err)
+  assert(err:match("missing required property: content"), "should report content missing: " .. err)
+  print("✓ validate_input reports multiple errors")
+end
+test_validate_input_multiple_errors()
+
+local function test_validate_input_optional_missing()
+  local schema: {string:any} = {
+    type = "object",
+    properties = {
+      path = {type = "string"},
+      offset = {type = "integer"},
+    },
+    required = {"path"},
+  }
+  local err = tools.validate_input(schema, {path = "/tmp/foo"})
+  assert(err == nil, "optional properties can be missing: " .. tostring(err))
+  print("✓ validate_input allows missing optional properties")
+end
+test_validate_input_optional_missing()
+
+local function test_validate_input_no_required()
+  local schema: {string:any} = {
+    type = "object",
+    properties = {
+      args = {type = "string"},
+    },
+  }
+  local err = tools.validate_input(schema, {})
+  assert(err == nil, "schema with no required should pass: " .. tostring(err))
+  print("✓ validate_input handles schema with no required array")
+end
+test_validate_input_no_required()
+
+local function test_validate_input_boolean_type()
+  local schema: {string:any} = {
+    type = "object",
+    properties = {
+      flag = {type = "boolean"},
+    },
+    required = {"flag"},
+  }
+  local err = tools.validate_input(schema, {flag = true})
+  assert(err == nil, "boolean should validate: " .. tostring(err))
+  local err2 = tools.validate_input(schema, {flag = "true"})
+  assert(err2 ~= nil, "string should not pass as boolean")
+  assert(err2:match("expected boolean, got string"), "should describe boolean mismatch: " .. err2)
+  print("✓ validate_input handles boolean types")
+end
+test_validate_input_boolean_type()
+
+local function test_execute_tool_validation_error()
+  -- execute_tool should return validation error before calling the tool
+  local result, is_error = tools.execute_tool("read", {})
+  assert(is_error, "should be an error")
+  assert(result:match("validation error"), "should be a validation error: " .. result)
+  assert(result:match("missing required property: path"), "should mention missing path: " .. result)
+  print("✓ execute_tool returns validation errors")
+end
+test_execute_tool_validation_error()
+
+local function test_execute_tool_type_validation()
+  local result, is_error = tools.execute_tool("bash", {command = 42})
+  assert(is_error, "should be an error")
+  assert(result:match("validation error"), "should be a validation error: " .. result)
+  assert(result:match("expected string, got number"), "should describe type mismatch: " .. result)
+  print("✓ execute_tool catches type mismatches")
+end
+test_execute_tool_type_validation()
+
 print("\nAll tools tests passed!")

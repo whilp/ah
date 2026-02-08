@@ -583,17 +583,75 @@ local function get_tool_definitions(): {{string:any}}
   return defs
 end
 
+-- Validate tool input against its JSON schema.
+-- Returns nil on success, or an error string describing all validation failures.
+local function validate_input(schema: {string:any}, input: {string:any}): string
+  local errors: {string} = {}
+
+  -- Check required properties
+  local required = schema.required as {string}
+  if required then
+    for _, prop in ipairs(required) do
+      if input[prop] == nil then
+        table.insert(errors, "missing required property: " .. prop)
+      end
+    end
+  end
+
+  -- Check property types
+  local properties = schema.properties as {string:{string:any}}
+  if properties then
+    for prop, prop_schema in pairs(properties) do
+      local value = input[prop]
+      if value ~= nil then
+        local expected_type = prop_schema.type as string
+        if expected_type then
+          local actual_type = type(value)
+          local ok = false
+          if expected_type == "string" then
+            ok = actual_type == "string"
+          elseif expected_type == "integer" or expected_type == "number" then
+            ok = actual_type == "number"
+          elseif expected_type == "boolean" then
+            ok = actual_type == "boolean"
+          elseif expected_type == "array" then
+            ok = actual_type == "table"
+          elseif expected_type == "object" then
+            ok = actual_type == "table"
+          end
+          if not ok then
+            table.insert(errors, string.format("property '%s': expected %s, got %s", prop, expected_type, actual_type))
+          end
+        end
+      end
+    end
+  end
+
+  if #errors > 0 then
+    return "validation error: " .. table.concat(errors, "; ")
+  end
+  return nil
+end
+
 local function execute_tool(name: string, input: {string:any}): string, boolean
   local tool = get_tool(name)
   if not tool then
     return "error: unknown tool: " .. name, true
   end
+
+  -- Validate input against schema before execution
+  local validation_err = validate_input(tool.input_schema, input or {})
+  if validation_err then
+    return validation_err, true
+  end
+
   return tool.execute(input)
 end
 
 return {
   get_tool_definitions = get_tool_definitions,
   execute_tool = execute_tool,
+  validate_input = validate_input,
   init_custom_tools = init_custom_tools,
   load_custom_tools = load_custom_tools,
   load_custom_tools_from_dir = load_custom_tools_from_dir,
