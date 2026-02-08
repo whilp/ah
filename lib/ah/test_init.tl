@@ -8,12 +8,12 @@ local db = require("ah.db")
 local TEST_TMPDIR = os.getenv("TEST_TMPDIR") or "/tmp"
 
 local function test_load_system_prompt_default()
-  -- No files exist, should use default
+  -- No files exist, should return empty string (system prompt comes from embedded .md)
   local empty_dir = fs.join(TEST_TMPDIR, "empty")
   fs.makedirs(empty_dir)
 
   local prompt = init.load_system_prompt(empty_dir)
-  assert(prompt == init.DEFAULT_SYSTEM_PROMPT, "should use default prompt when no files exist")
+  assert(prompt == "", "should return empty when no system.md or CLAUDE.md exist")
 end
 test_load_system_prompt_default()
 
