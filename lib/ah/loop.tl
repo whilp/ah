@@ -7,6 +7,7 @@ local tools = require("ah.tools")
 local auth = require("ah.auth")
 local events = require("ah.events")
 local queue = require("ah.queue")
+local truncate = require("ah.truncate")
 
 local ToolDetails = tools.ToolDetails
 
@@ -136,9 +137,11 @@ local function run_agent(d: db.DB, qdb: queue.QueueDB, system_prompt: string, mo
           input = input,
         })
       elseif block.block_type == "tool_result" then
-        -- Check if result is structured (image content)
+        -- Truncate stored output for API (full output preserved in DB)
         local tool_output = block.tool_output as string
-        local api_content: any = tool_output
+        local truncation = truncate.truncate_output(tool_output or "", block.tool_name as string or "")
+        local api_content: any = truncation.content
+        -- Check if result is structured (image content)
         if tool_output and tool_output:sub(1, 14) == '{"__image__":' then
           local parsed = json.decode(tool_output) as {string:any}
           if parsed and parsed.__image__ and parsed.content then
@@ -458,14 +461,18 @@ local function run_agent(d: db.DB, qdb: queue.QueueDB, system_prompt: string, mo
       -- Recompute key with details for richer display in tool_call_end
       key = tool_key_param(tc.name as string, input_json, details_json)
 
-      -- Emit tool_call_end
+      -- Emit tool_call_end with full (non-truncated) output
       emit(on_event, events.tool_call_end(tc.name as string, result, is_error, elapsed_ms, key, i, tool_count))
 
-      -- Log tool_call_end event to DB
+      -- Log tool_call_end event to DB (without output to avoid bloat)
       db.log_event(d, "tool_call_end", assistant_msg.id, events.to_json(events.tool_call_end(tc.name as string, "", is_error, elapsed_ms, key, i, tool_count)))
 
-      -- Check if result is structured (image content)
-      local api_content: any = result
+      -- Truncate output for the API (full output preserved in DB and events)
+      local truncation = truncate.truncate_output(result, tc.name as string)
+      local api_result = truncation.content
+
+      -- Check if result is structured (image content) — skip truncation for images
+      local api_content: any = api_result
       if result:sub(1, 14) == '{"__image__":' then
         local parsed = json.decode(result) as {string:any}
         if parsed and parsed.__image__ and parsed.content then
@@ -473,7 +480,7 @@ local function run_agent(d: db.DB, qdb: queue.QueueDB, system_prompt: string, mo
         end
       end
 
-      -- Collect for later atomic write
+      -- Collect for later atomic write (store full output in DB)
       table.insert(tool_result_blocks, {
         tool_id = tc.id as string,
         tool_output = result,
@@ -482,7 +489,7 @@ local function run_agent(d: db.DB, qdb: queue.QueueDB, system_prompt: string, mo
         details = details_json,
       })
 
-      -- Add to API messages content
+      -- Add to API messages content (truncated output)
       table.insert(tool_results_content, {
         type = "tool_result",
         tool_use_id = tc.id,
