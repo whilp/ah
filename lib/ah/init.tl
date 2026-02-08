@@ -16,6 +16,7 @@ local skills = require("ah.skills")
 local loop = require("ah.loop")
 local events = require("ah.events")
 local ulid = require("ulid")
+local queue = require("ah.queue")
 
 -- Session record for listing
 local record Session
@@ -158,6 +159,8 @@ options:
   -S, --session ULID  use specific session (prefix match)
   --db PATH           use custom database path (default: .ah/<ulid>.db)
   -m, --model MODEL   set model (default: sonnet)
+  --steer MSG         send steering message to running session
+  --followup MSG      queue followup message for after session completes
 
 models:
 ]])
@@ -405,6 +408,8 @@ local function main(args: {string}): integer, string
   local output_path: string = nil
   local new_session: boolean = false
   local session_prefix: string = nil
+  local steer_msg: string = nil
+  local followup_msg: string = nil
   local cwd = fs.getcwd()
 
   local longopts = {
@@ -414,6 +419,8 @@ local function main(args: {string}): integer, string
     {name = "db", has_arg = "required"},
     {name = "model", has_arg = "required", short = "m"},
     {name = "output", has_arg = "required", short = "o"},
+    {name = "steer", has_arg = "required"},
+    {name = "followup", has_arg = "required"},
   }
 
   local parser = getopt.new(args, "hnS:m:o:", longopts)
@@ -435,6 +442,10 @@ local function main(args: {string}): integer, string
       model = optarg
     elseif opt == "o" or opt == "output" then
       output_path = optarg
+    elseif opt == "steer" then
+      steer_msg = optarg
+    elseif opt == "followup" then
+      followup_msg = optarg
     elseif opt == "?" then
       usage()
       return 1
@@ -540,6 +551,29 @@ local function main(args: {string}): integer, string
     db_path = fs.join(ah_dir, session_ulid .. ".db")
   end
 
+  -- Queue path is derived from session (same directory as db)
+  local queue_path = db_path:gsub("%.db$", ".queue.db")
+
+  -- Handle --steer and --followup options (queue and exit)
+  if steer_msg or followup_msg then
+    local qdb, qerr = queue.open(queue_path)
+    if not qdb then
+      return 1, qerr
+    end
+
+    if steer_msg then
+      queue.add_steer(qdb, steer_msg)
+      io.stderr:write("queued steering message\n")
+    end
+    if followup_msg then
+      queue.add_followup(qdb, followup_msg)
+      io.stderr:write("queued followup message\n")
+    end
+
+    queue.close(qdb)
+    return 0
+  end
+
   local d, err = db.open(db_path)
   if not d then
     return 1, err
@@ -551,9 +585,17 @@ local function main(args: {string}): integer, string
     io.stderr:write(string.format("cleaned up %d orphan message(s) from previous crash\n", orphans_cleaned))
   end
 
-  -- Handle commands
+  -- Open queue database (will be used for lock management and steering/followup)
+  local qdb, qerr = queue.open(queue_path)
+  if not qdb then
+    db.close(d)
+    return 1, qerr
+  end
+
+  -- Handle commands (no lock needed for read-only commands)
   if cmd == "scan" then
     cmd_scan(d)
+    queue.close(qdb)
     db.close(d)
     return 0
 
@@ -564,6 +606,7 @@ local function main(args: {string}): integer, string
       seq = tonumber(seq_str) as integer
     end
     cmd_show(d, seq)
+    queue.close(qdb)
     db.close(d)
     return 0
 
@@ -573,6 +616,7 @@ local function main(args: {string}): integer, string
       table.insert(seqs, tonumber(remaining[i]) as integer)
     end
     cmd_rmm(d, seqs)
+    queue.close(qdb)
     db.close(d)
     return 0
   end
@@ -585,12 +629,14 @@ local function main(args: {string}): integer, string
   if cmd and cmd:sub(1, 1) == "@" then
     local seq = tonumber(cmd:sub(2)) as integer
     if not seq then
+      queue.close(qdb)
       db.close(d)
       return 1, "invalid message number: " .. cmd
     end
 
     local msg = db.get_message_by_seq(d, seq)
     if not msg then
+      queue.close(qdb)
       db.close(d)
       return 1, "message not found: " .. cmd
     end
@@ -620,6 +666,7 @@ local function main(args: {string}): integer, string
     if not ok or not input then
       -- Interrupted or EOF
       io.stderr:write("\n")
+      queue.close(qdb)
       db.close(d)
       return 0
     end
@@ -628,6 +675,7 @@ local function main(args: {string}): integer, string
     prompt = prompt:gsub("%s+$", "")
     if prompt == "" then
       usage()
+      queue.close(qdb)
       db.close(d)
       return 0
     end
@@ -663,12 +711,25 @@ local function main(args: {string}): integer, string
   -- Initialize custom tools
   tools.init_custom_tools()
 
+  -- Try to acquire session lock
+  local lock_acquired, lock_err = queue.try_acquire_lock(qdb)
+  if not lock_acquired then
+    -- Session is locked by another process - queue as followup
+    queue.add_followup(qdb, prompt)
+    io.stderr:write("session locked, queued as followup: " .. (lock_err or "") .. "\n")
+    queue.close(qdb)
+    db.close(d)
+    return 0
+  end
+
   -- Install SIGINT handler for graceful Ctrl+C with abort cascade:
   -- 1. Set interrupted flag (checked by loop between iterations and mid-stream)
   -- 2. Immediately abort any running tool processes (SIGTERM -> SIGKILL)
+  -- 3. Release session lock
   unix.sigaction(unix.SIGINT, function()
     interrupted = true
     tools.abort_running_tools()
+    queue.release_lock(qdb)
   end)
 
   -- Resolve model alias
@@ -676,10 +737,14 @@ local function main(args: {string}): integer, string
 
   -- Run agent with CLI event handler
   local on_event = make_cli_handler()
-  loop.run_agent(d, effective_system, effective_model, prompt, parent_id, on_event)
+  loop.run_agent(d, qdb, effective_system, effective_model, prompt, parent_id, on_event)
 
   -- Mark session as closed before exit
   db.set_session_state(d, "closed")
+
+  -- Release lock and clean up
+  queue.release_lock(qdb)
+  queue.close(qdb)
   db.close(d)
   return 0
 end
