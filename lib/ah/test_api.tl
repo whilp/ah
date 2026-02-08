@@ -164,18 +164,26 @@ end
 test_is_retryable_error()
 
 local function test_extract_retry_delay()
-  -- From Retry-After header (seconds)
+  -- From Retry-After header (seconds) - should return exact ms, no padding
   local headers = {["retry-after"] = "5"}
   local delay = api.extract_retry_delay("", headers)
-  assert(delay and delay >= 5000, "should parse Retry-After seconds, got: " .. tostring(delay))
+  assert(delay == 5000, "should parse Retry-After to 5000ms, got: " .. tostring(delay))
 
   -- From error message pattern "retry in Xs"
   delay = api.extract_retry_delay("Please retry in 10s", {})
-  assert(delay and delay >= 10000, "should parse 'retry in Xs' pattern, got: " .. tostring(delay))
+  assert(delay == 10000, "should parse 'retry in Xs' to 10000ms, got: " .. tostring(delay))
+
+  -- From error message pattern "retry in Xms"
+  delay = api.extract_retry_delay("Please retry in 500ms", {})
+  assert(delay == 500, "should parse 'retry in Xms' to 500ms, got: " .. tostring(delay))
 
   -- From error message pattern "reset after Xs"
   delay = api.extract_retry_delay("Your quota will reset after 30s", {})
-  assert(delay and delay >= 30000, "should parse 'reset after Xs' pattern, got: " .. tostring(delay))
+  assert(delay == 30000, "should parse 'reset after Xs' to 30000ms, got: " .. tostring(delay))
+
+  -- No delay found
+  delay = api.extract_retry_delay("some other error", {})
+  assert(delay == nil, "should return nil when no delay found, got: " .. tostring(delay))
 end
 test_extract_retry_delay()
 

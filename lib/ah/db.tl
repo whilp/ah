@@ -263,13 +263,24 @@ end
 
 local function get_ancestry(self: DB, message_id: string): {Message}
   local messages: {Message} = {}
-  local current_id = message_id
 
-  while current_id do
-    local msg = get_message(self, current_id)
-    if not msg then break end
-    table.insert(messages, 1, msg)
-    current_id = msg.parent_id
+  -- Use recursive CTE to fetch entire ancestry chain in a single query
+  for row in self._db:query([[
+    with recursive ancestry(id, parent_id, role, seq, created_at,
+      input_tokens, output_tokens, stop_reason, model, api_latency_ms, depth) as (
+      select id, parent_id, role, seq, created_at,
+        input_tokens, output_tokens, stop_reason, model, api_latency_ms, 0
+      from messages where id = ?
+      union all
+      select m.id, m.parent_id, m.role, m.seq, m.created_at,
+        m.input_tokens, m.output_tokens, m.stop_reason, m.model, m.api_latency_ms, a.depth + 1
+      from messages m join ancestry a on m.id = a.parent_id
+    )
+    select id, parent_id, role, seq, created_at,
+      input_tokens, output_tokens, stop_reason, model, api_latency_ms
+    from ancestry order by depth desc
+  ]], message_id) do
+    table.insert(messages, row as Message)
   end
 
   return messages

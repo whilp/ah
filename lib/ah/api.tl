@@ -44,7 +44,7 @@ local function extract_retry_delay(error_text: string, headers: {string:string})
   if retry_after then
     local seconds = tonumber(retry_after)
     if seconds and seconds > 0 then
-      return math.floor(seconds * 1000 + 1000) as integer
+      return math.floor(seconds * 1000) as integer
     end
   end
 
@@ -53,7 +53,7 @@ local function extract_retry_delay(error_text: string, headers: {string:string})
   if reset_after then
     local seconds = tonumber(reset_after)
     if seconds and seconds > 0 then
-      return math.floor(seconds * 1000 + 1000) as integer
+      return math.floor(seconds * 1000) as integer
     end
   end
 
@@ -63,30 +63,27 @@ local function extract_retry_delay(error_text: string, headers: {string:string})
   -- "retry in Xs" or "retry in Xms"
   local retry_seconds = text:match("retry in (%d+)s")
   if retry_seconds then
-    return math.floor(tonumber(retry_seconds) * 1000 + 1000) as integer
+    return math.floor(tonumber(retry_seconds) * 1000) as integer
   end
   local retry_ms = text:match("retry in (%d+)ms")
   if retry_ms then
-    return math.floor(tonumber(retry_ms) + 1000) as integer
+    return math.floor(tonumber(retry_ms)) as integer
   end
 
   -- "reset after Xs" or "reset after XhYmZs"
   local reset_seconds = text:match("reset after (%d+)s")
   if reset_seconds then
-    return math.floor(tonumber(reset_seconds) * 1000 + 1000) as integer
+    return math.floor(tonumber(reset_seconds) * 1000) as integer
   end
 
   return nil
 end
 
--- Sleep for given milliseconds
+-- Sleep for given milliseconds using nanosleep (no fork overhead)
 local function sleep_ms(ms: integer)
-  local child = require("cosmic.child")
-  local seconds = ms / 1000
-  local handle = child.spawn({"sleep", string.format("%.3f", seconds)})
-  if handle then
-    handle:wait()
-  end
+  local seconds = math.floor(ms / 1000)
+  local nanos = (ms % 1000) * 1000000
+  unix.nanosleep(seconds, nanos)
 end
 
 -- Parse API error response to extract clean message
@@ -177,9 +174,12 @@ local function stream(messages: {any}, opts: {string:any}, callback: function({s
       last_error = "fetch failed: " .. (result.error or "unknown error")
       -- Network errors are retryable
       if attempt < MAX_RETRIES then
-        local delay_ms = BASE_DELAY_MS * (2 ^ attempt)
+        -- Exponential backoff with jitter: base * 2^attempt * (0.5 + rand(0.5))
+        local base_delay = BASE_DELAY_MS * (2 ^ attempt)
+        local jitter = 0.5 + math.random() * 0.5
+        local delay_ms = math.floor(base_delay * jitter) as integer
         table.insert(retries, {attempt = attempt, error = last_error, delay_ms = delay_ms})
-        sleep_ms(delay_ms as integer)
+        sleep_ms(delay_ms)
       end
     elseif result.status == 200 then
       break
@@ -192,11 +192,16 @@ local function stream(messages: {any}, opts: {string:any}, callback: function({s
         -- Try to get delay from headers or error message
         local delay_ms: integer = extract_retry_delay(error_body, result.headers as {string:string})
         if not delay_ms then
-          delay_ms = math.floor(BASE_DELAY_MS * (2 ^ attempt)) as integer
+          -- Exponential backoff with jitter
+          local base_delay = BASE_DELAY_MS * (2 ^ attempt)
+          local jitter = 0.5 + math.random() * 0.5
+          delay_ms = math.floor(base_delay * jitter) as integer
         end
-        -- Cap the delay
+        -- Fail fast if server requests excessive delay
         if delay_ms > MAX_RETRY_DELAY_MS then
-          return nil, last_error
+          local delay_secs = math.ceil(delay_ms / 1000)
+          local max_secs = math.ceil(MAX_RETRY_DELAY_MS / 1000)
+          return nil, string.format("server requested %ds retry delay (max: %ds). %s", delay_secs, max_secs, last_error)
         end
         table.insert(retries, {attempt = attempt, status = status, error = last_error, delay_ms = delay_ms})
         sleep_ms(delay_ms)
