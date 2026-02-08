@@ -24,6 +24,8 @@ local record EventData
   -- api_call_start / api_call_end
   input_tokens: integer
   output_tokens: integer
+  cache_creation_input_tokens: integer
+  cache_read_input_tokens: integer
   api_latency_ms: integer
   message_id: string
 
@@ -95,11 +97,13 @@ local function api_call_start(): EventData
   return make_event("api_call_start")
 end
 
-local function api_call_end(message_id: string, input_tokens: integer, output_tokens: integer, api_latency_ms: integer, model: string): EventData
+local function api_call_end(message_id: string, input_tokens: integer, output_tokens: integer, api_latency_ms: integer, model: string, cache_creation_input_tokens: integer, cache_read_input_tokens: integer): EventData
   local e = make_event("api_call_end")
   e.message_id = message_id
   e.input_tokens = input_tokens
   e.output_tokens = output_tokens
+  e.cache_creation_input_tokens = cache_creation_input_tokens
+  e.cache_read_input_tokens = cache_read_input_tokens
   e.api_latency_ms = api_latency_ms
   e.model = model
   return e

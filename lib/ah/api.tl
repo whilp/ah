@@ -151,16 +151,20 @@ local function build_request(messages: {any}, opts: {string:any}, is_oauth: bool
     stream = opts.stream ~= false,
   }
 
-  -- Format system prompt
+  -- Format system prompt with cache_control on the last block
+  -- Anthropic caches up to the marked breakpoint, reducing input token costs
   if is_oauth then
     -- OAuth: Claude Code identity MUST be in first system block, user prompt in second
     local system_blocks: {{string:any}} = {{type = "text", text = CLAUDE_CODE_IDENTITY}}
     if opts.system then
-      table.insert(system_blocks, {type = "text", text = opts.system as string})
+      table.insert(system_blocks, {type = "text", text = opts.system as string, cache_control = {type = "ephemeral"}})
+    else
+      system_blocks[1].cache_control = {type = "ephemeral"}
     end
     req.system = system_blocks
   elseif opts.system then
-    req.system = opts.system
+    -- Non-OAuth: system prompt as array with cache_control on the block
+    req.system = {{type = "text", text = opts.system as string, cache_control = {type = "ephemeral"}}}
   end
 
   -- Only include tools if provided (allows testing without tools)

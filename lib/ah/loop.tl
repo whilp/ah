@@ -267,6 +267,23 @@ local function run_agent(d: db.DB, qdb: queue.QueueDB, system_prompt: string, mo
     -- Emit api_call_start
     emit(on_event, events.api_call_start())
 
+    -- Add cache_control breakpoint on the last content block of the last message.
+    -- This tells the Anthropic API to cache everything up to this point,
+    -- reducing input token costs on subsequent turns.
+    local cache_msg_idx: integer = nil
+    local cache_block_idx: integer = nil
+    for i = #api_messages, 1, -1 do
+      local msg = api_messages[i] as {string:any}
+      local content = msg.content as {any}
+      if content and #content > 0 then
+        cache_msg_idx = i
+        cache_block_idx = #content
+        local block = content[cache_block_idx] as {string:any}
+        block.cache_control = {type = "ephemeral"}
+        break
+      end
+    end
+
     -- Stream response with mid-stream interruption support
     local response, err = api.stream(api_messages, {
       system = system_prompt,
@@ -280,6 +297,14 @@ local function run_agent(d: db.DB, qdb: queue.QueueDB, system_prompt: string, mo
         end
       end
     end, is_interrupted)
+
+    -- Remove the cache_control marker we added (clean up for next iteration)
+    if cache_msg_idx and cache_block_idx then
+      local msg = api_messages[cache_msg_idx] as {string:any}
+      local content = msg.content as {any}
+      local block = content[cache_block_idx] as {string:any}
+      block.cache_control = nil
+    end
 
     if err then
       emit(on_event, events.error_event(err))
@@ -356,6 +381,8 @@ local function run_agent(d: db.DB, qdb: queue.QueueDB, system_prompt: string, mo
     -- Extract usage and metadata from response
     local usage = (resp.usage or {}) as {string:any}
     last_input_tokens = (usage.input_tokens or 0) as integer
+    local cache_creation_tokens = (usage.cache_creation_input_tokens or 0) as integer
+    local cache_read_tokens = (usage.cache_read_input_tokens or 0) as integer
     local msg_opts: db.MessageOpts = {
       input_tokens = usage.input_tokens as integer,
       output_tokens = usage.output_tokens as integer,
@@ -396,13 +423,15 @@ local function run_agent(d: db.DB, qdb: queue.QueueDB, system_prompt: string, mo
 
     db.commit(d)
 
-    -- Emit api_call_end with message metadata
+    -- Emit api_call_end with message metadata and cache stats
     emit(on_event, events.api_call_end(
       assistant_msg.id,
       usage.input_tokens as integer,
       usage.output_tokens as integer,
       resp.api_latency_ms as integer,
-      resp.model as string
+      resp.model as string,
+      cache_creation_tokens,
+      cache_read_tokens
     ))
 
     -- Log api_call_end event to DB
@@ -411,7 +440,9 @@ local function run_agent(d: db.DB, qdb: queue.QueueDB, system_prompt: string, mo
       usage.input_tokens as integer,
       usage.output_tokens as integer,
       resp.api_latency_ms as integer,
-      resp.model as string
+      resp.model as string,
+      cache_creation_tokens,
+      cache_read_tokens
     )))
 
     -- Add assistant message to API messages

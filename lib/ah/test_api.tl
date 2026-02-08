@@ -79,7 +79,14 @@ test_build_request_nil_model()
 
 local function test_build_request_with_system()
   local req = api.build_request({}, {system = "You are a helpful assistant"}, false)
-  assert(req.system == "You are a helpful assistant", "should include system prompt")
+  -- Non-OAuth system prompt is now an array with cache_control
+  local system_arr = req.system as {{string:any}}
+  assert(type(req.system) == "table", "system should be array")
+  assert(#system_arr == 1, "should have 1 system block")
+  assert(system_arr[1].text == "You are a helpful assistant", "should include system prompt text")
+  assert(system_arr[1].cache_control ~= nil, "should have cache_control")
+  local cc = system_arr[1].cache_control as {string:any}
+  assert(cc.type == "ephemeral", "cache_control type should be ephemeral")
 end
 test_build_request_with_system()
 
@@ -99,8 +106,24 @@ local function test_build_request_oauth_system_prompt()
   assert(#system_arr == 2, "should have 2 system blocks")
   assert((system_arr[1].text as string):match("Claude Code"), "first block should be Claude Code identity")
   assert(system_arr[2].text == "Custom prompt", "second block should be custom prompt")
+  -- cache_control should be on the last block (second block)
+  assert(system_arr[1].cache_control == nil, "first block should not have cache_control")
+  assert(system_arr[2].cache_control ~= nil, "last block should have cache_control")
+  local cc = system_arr[2].cache_control as {string:any}
+  assert(cc.type == "ephemeral", "cache_control type should be ephemeral")
 end
 test_build_request_oauth_system_prompt()
+
+local function test_build_request_oauth_no_system_cache()
+  -- OAuth mode without system prompt should cache the identity block
+  local req = api.build_request({}, {}, true)
+  local system_arr = req.system as {{string:any}}
+  assert(#system_arr == 1, "should have 1 system block (identity only)")
+  assert(system_arr[1].cache_control ~= nil, "identity block should have cache_control when no user system")
+  local cc = system_arr[1].cache_control as {string:any}
+  assert(cc.type == "ephemeral", "cache_control type should be ephemeral")
+end
+test_build_request_oauth_no_system_cache()
 
 -- Tests for parse_api_error
 local function test_parse_api_error_rate_limit()
