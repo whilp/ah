@@ -60,6 +60,9 @@ local record EventData
   consecutive_count: integer
   turn_signature: string
   action: string  -- "warn" or "break"
+
+  -- compaction
+  context_limit: integer
 end
 
 local type EventCallback = function(event: EventData)
@@ -174,6 +177,20 @@ local function loop_detected(consecutive_count: integer, signature: string, acti
   return e
 end
 
+local function compaction_triggered(input_tokens: integer, context_limit: integer): EventData
+  local e = make_event("compaction_triggered")
+  e.input_tokens = input_tokens
+  e.context_limit = context_limit
+  return e
+end
+
+local function compaction_complete(input_tokens: integer, output_tokens: integer): EventData
+  local e = make_event("compaction_complete")
+  e.input_tokens = input_tokens
+  e.output_tokens = output_tokens
+  return e
+end
+
 -- Serialize an event to JSON (for persistence or JSON logging)
 local function to_json(event: EventData): string
   local t: {string:any} = {}
@@ -206,6 +223,8 @@ return {
   steering_received = steering_received,
   followup_received = followup_received,
   loop_detected = loop_detected,
+  compaction_triggered = compaction_triggered,
+  compaction_complete = compaction_complete,
 
   -- Serialization
   to_json = to_json,

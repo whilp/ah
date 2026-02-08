@@ -496,6 +496,12 @@ local function make_cli_handler(): events.EventCallback
       -- Text output complete for this turn; check if tool calls follow
       -- (tool_call_start will handle the newline separator)
 
+    elseif t == "compaction_triggered" then
+      io.stderr:write(string.format("\n%scompacting conversation (%d/%d tokens)...%s\n", DIM, event.input_tokens, event.context_limit, RESET))
+
+    elseif t == "compaction_complete" then
+      io.stderr:write(string.format("%scompaction complete (summary: %d tokens)%s\n\n", DIM, event.output_tokens, RESET))
+
     elseif t == "tool_call_start" then
       -- Separator between text and first tool block
       if event.tool_index == 1 then
