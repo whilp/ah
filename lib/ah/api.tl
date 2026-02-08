@@ -14,6 +14,24 @@ end
 local API_URL = "https://api.anthropic.com/v1/messages"
 local DEFAULT_MODEL = "claude-sonnet-4-20250514"
 local DEFAULT_MAX_TOKENS = 8192
+
+local MODELS: {string} = {
+  "claude-sonnet-4-20250514",
+  "claude-opus-4-20250514",
+  "claude-haiku-3-20250314",
+}
+
+local MODEL_ALIASES: {string:string} = {
+  ["sonnet"] = "claude-sonnet-4-20250514",
+  ["opus"] = "claude-opus-4-20250514",
+  ["haiku"] = "claude-haiku-3-20250314",
+}
+
+-- Resolve model name, expanding aliases
+local function resolve_model(name: string): string
+  if not name then return nil end
+  return MODEL_ALIASES[name] or name
+end
 local CLAUDE_CODE_IDENTITY = "You are Claude Code, Anthropic's official CLI for Claude."
 
 local MAX_RETRIES = 3
@@ -317,7 +335,10 @@ return {
   parse_api_error = parse_api_error,
   is_retryable_error = is_retryable_error,
   extract_retry_delay = extract_retry_delay,
+  resolve_model = resolve_model,
   DEFAULT_MODEL = DEFAULT_MODEL,
+  MODELS = MODELS,
+  MODEL_ALIASES = MODEL_ALIASES,
   MAX_RETRIES = MAX_RETRIES,
   BASE_DELAY_MS = BASE_DELAY_MS,
   MAX_RETRY_DELAY_MS = MAX_RETRY_DELAY_MS,
