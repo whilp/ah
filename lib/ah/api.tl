@@ -213,19 +213,18 @@ local function stream(messages: {any}, opts: {string:any}, callback: function({s
   local retries: {{string:any}} = {}
 
   -- Retry loop for transient errors
-  local result: fetch.Result = nil
+  local reader: fetch.Reader = nil
   local last_error: string = nil
 
   for attempt = 0, MAX_RETRIES do
-    result = fetch.Fetch(API_URL, {
+    local stream_result = fetch.stream(API_URL, {
       method = "POST",
       headers = auth_headers,
       body = body,
-      maxresponse = 10 * 1024 * 1024,
     } as fetch.Opts)
 
-    if not result.ok then
-      last_error = "fetch failed: " .. (result.error or "unknown error")
+    if not stream_result.ok then
+      last_error = "fetch failed: " .. (stream_result.error or "unknown error")
       -- Network errors are retryable
       if attempt < MAX_RETRIES then
         -- Exponential backoff with jitter: base * 2^attempt * (0.5 + rand(0.5))
@@ -235,16 +234,25 @@ local function stream(messages: {any}, opts: {string:any}, callback: function({s
         table.insert(retries, {attempt = attempt, error = last_error, delay_ms = delay_ms})
         sleep_ms(delay_ms)
       end
-    elseif result.status == 200 then
+    elseif stream_result.status == 200 then
+      reader = stream_result.reader
       break
     else
-      local status = result.status as integer
-      local error_body = result.body or ""
+      local status = stream_result.status as integer
+      -- Read error body for non-200 responses
+      local error_chunks: {string} = {}
+      if stream_result.reader then
+        for chunk in stream_result.reader.read, stream_result.reader do
+          table.insert(error_chunks, chunk)
+        end
+        stream_result.reader:close()
+      end
+      local error_body = table.concat(error_chunks)
       last_error = parse_api_error(status, error_body)
 
       if attempt < MAX_RETRIES and is_retryable_error(status, error_body) then
         -- Try to get delay from headers or error message
-        local delay_ms: integer = extract_retry_delay(error_body, result.headers as {string:string})
+        local delay_ms: integer = extract_retry_delay(error_body, stream_result.headers as {string:string})
         if not delay_ms then
           -- Exponential backoff with jitter
           local base_delay = BASE_DELAY_MS * (2 ^ attempt)
@@ -265,21 +273,17 @@ local function stream(messages: {any}, opts: {string:any}, callback: function({s
     end
   end
 
-  if not result or not result.ok then
+  if not reader then
     return nil, last_error or "fetch failed"
   end
 
-  if result.status ~= 200 then
-    return nil, parse_api_error(result.status as integer, result.body)
-  end
-
-  -- Parse SSE response
+  -- Parse SSE response with true streaming
   local response: {string:any} = nil
   local current_block: {string:any} = nil
   local block_index: integer = nil
   local content_blocks: {integer:{string:any}} = {}
 
-  for line in result.body:gmatch("[^\r\n]+") do
+  for line in reader:lines() do
     local kind, data = parse_sse_line(line)
     if kind == "data" and data ~= "[DONE]" then
       local event = json.decode(data) as {string:any}
@@ -332,6 +336,8 @@ local function stream(messages: {any}, opts: {string:any}, callback: function({s
       end
     end
   end
+
+  reader:close()
 
   -- For OAuth, convert tool names back from Claude Code format
   if creds.is_oauth and response and response.content then
