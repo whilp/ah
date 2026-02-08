@@ -74,13 +74,22 @@ end
 
 -- Compute a turn signature from a list of tool calls.
 -- The signature captures the tool names and key parameters to identify
--- repetitive patterns across turns.
+-- repetitive patterns across turns. For edit operations, includes the full
+-- old_string and new_string to distinguish edits to the same file.
 local function turn_signature(tool_calls: {any}): string
   local parts: {string} = {}
   for _, tool_call in ipairs(tool_calls) do
     local tc = tool_call as {string:any}
-    local input_json = json.encode(tc.input or {})
+    local input = (tc.input or {}) as {string:any}
+    local input_json = json.encode(input)
     local key = tool_key_param(tc.name as string, input_json, nil)
+    -- For edit tool, append old_string and new_string to avoid collisions
+    -- when multiple edits target the same file with different content.
+    if tc.name == "edit" and input then
+      local old_s = (input.old_string or "") as string
+      local new_s = (input.new_string or "") as string
+      key = key .. "|" .. old_s .. "|" .. new_s
+    end
     table.insert(parts, (tc.name as string) .. ":" .. key)
   end
   return table.concat(parts, "|")
@@ -248,6 +257,15 @@ local function run_agent(d: db.DB, qdb: queue.QueueDB, system_prompt: string, mo
 
       local compact_result, compact_err = compact.compact(api_messages, model, is_interrupted)
       if compact_result then
+        -- Persist compaction summary as a user message so it survives crashes.
+        -- The full conversation is always preserved; this message acts as the
+        -- compaction checkpoint that a new invocation can rebuild from.
+        db.begin_transaction(d)
+        local compact_msg = db.create_message(d, "user", user_msg.id)
+        db.add_content_block(d, compact_msg.id, "text", {content = "[COMPACTION SUMMARY]\n" .. compact_result.summary})
+        db.commit(d)
+        user_msg = compact_msg
+
         -- Replace api_messages with compacted summary
         api_messages = {{
           role = "user",
@@ -626,6 +644,18 @@ local function run_agent(d: db.DB, qdb: queue.QueueDB, system_prompt: string, mo
     -- Loop detection: check for repetitive tool call patterns
     local sig = turn_signature(tool_calls)
     table.insert(turn_history, sig)
+
+    -- Cap turn history to avoid unbounded growth. Only the most recent
+    -- entries matter for loop detection; older entries are never examined.
+    local max_history = LOOP_BREAK_THRESHOLD * 2
+    if #turn_history > max_history then
+      local trimmed: {string} = {}
+      for i = #turn_history - max_history + 1, #turn_history do
+        table.insert(trimmed, turn_history[i])
+      end
+      turn_history = trimmed
+    end
+
     local consecutive = check_loop(turn_history)
 
     if consecutive >= LOOP_BREAK_THRESHOLD then

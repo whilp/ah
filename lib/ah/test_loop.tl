@@ -144,8 +144,39 @@ local function test_turn_signature_edit()
   local sig = loop.turn_signature(tool_calls)
   assert(sig:match("edit:"), "should start with edit: " .. sig)
   assert(sig:match("/tmp/file.lua"), "should include path: " .. sig)
+  -- Should include old_string and new_string for precise signatures
+  assert(sig:match("foo"), "should include old_string: " .. sig)
+  assert(sig:match("bar"), "should include new_string: " .. sig)
 end
 test_turn_signature_edit()
+
+-- Edits to the same file with different content must produce different signatures
+local function test_turn_signature_edit_different_content()
+  local calls_a = {
+    {name = "edit", input = {path = "/tmp/file.lua", old_string = "alpha", new_string = "beta"}},
+  }
+  local calls_b = {
+    {name = "edit", input = {path = "/tmp/file.lua", old_string = "gamma", new_string = "delta"}},
+  }
+  local sig_a = loop.turn_signature(calls_a)
+  local sig_b = loop.turn_signature(calls_b)
+  assert(sig_a ~= sig_b, "edits with different content should have different signatures")
+end
+test_turn_signature_edit_different_content()
+
+-- Edits to the same file with the same content must produce identical signatures
+local function test_turn_signature_edit_same_content()
+  local calls_a = {
+    {name = "edit", input = {path = "/tmp/file.lua", old_string = "foo", new_string = "bar"}},
+  }
+  local calls_b = {
+    {name = "edit", input = {path = "/tmp/file.lua", old_string = "foo", new_string = "bar"}},
+  }
+  local sig_a = loop.turn_signature(calls_a)
+  local sig_b = loop.turn_signature(calls_b)
+  assert(sig_a == sig_b, "edits with same content should have same signatures")
+end
+test_turn_signature_edit_same_content()
 
 local function test_turn_signature_deterministic()
   local tool_calls = {

@@ -413,4 +413,60 @@ local function test_linear_tree()
 end
 test_linear_tree()
 
+-- Test: diff command shows divergent branches
+local function test_cmd_diff()
+  local d, _, _, _, msg4, _, fork6 = make_tree()
+  local init = require("ah.init")
+
+  -- Capture output
+  local old_write = io.write
+  local output = ""
+  io.write = function(...: any): FILE, string, integer
+    for i = 1, select("#", ...) do
+      output = output .. tostring(select(i, ...))
+    end
+    return io.stdout, nil, nil
+  end
+
+  -- Diff between msg4 (Lua branch tip) and fork6 (Python branch tip) by ID
+  init.cmd_diff(d, msg4.id, fork6.id)
+
+  io.write = old_write
+
+  -- Should show fork point (msg2 at @1 is the last common ancestor)
+  assert(output:match("fork point: @1"), "should show fork point @1: " .. output)
+  -- Should show branch sections
+  assert(output:match("@3"), "should reference branch tip seq")
+  -- Should contain branch content
+  assert(output:match("Lua"), "should show Lua branch content")
+  assert(output:match("Python"), "should show Python branch content")
+
+  db.close(d)
+end
+test_cmd_diff()
+
+-- Test: diff same message shows no differences
+local function test_cmd_diff_same()
+  local d, _, _, _, msg4 = make_tree()
+  local init = require("ah.init")
+
+  local old_write = io.write
+  local output = ""
+  io.write = function(...: any): FILE, string, integer
+    for i = 1, select("#", ...) do
+      output = output .. tostring(select(i, ...))
+    end
+    return io.stdout, nil, nil
+  end
+
+  init.cmd_diff(d, msg4.id, msg4.id)
+
+  io.write = old_write
+
+  assert(output:match("no differences"), "same branch should show no differences: " .. output)
+
+  db.close(d)
+end
+test_cmd_diff_same()
+
 print("all branch tests passed")
