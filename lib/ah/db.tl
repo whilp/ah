@@ -1,52 +1,7 @@
 -- ah/db.lua: SQLite storage for conversation tree
 local fs = require("cosmic.fs")
 local sqlite = require("cosmic.sqlite")
-local sqlite3 = require("cosmo.lsqlite3")
-local unix = require("cosmo.unix")
 local ulid = require("ulid")
-
--- Helper types for raw sqlite3 access
-local record RawStmt
-  bind: function(RawStmt, integer, any)
-  step: function(RawStmt): integer
-  finalize: function(RawStmt)
-end
-
-local record RawDb
-  prepare: function(RawDb, string): RawStmt
-  errmsg: function(RawDb): string
-end
-
-local record DbWrapper
-  exec: function
-end
-
--- Helper to execute SQL with proper nil handling
--- The cosmic.sqlite varargs API drops trailing nils, so we use raw lsqlite3
--- We access the raw db via debug.getupvalue since cosmic.sqlite doesn't expose it
-local function exec_with_nils(db: DbWrapper, sql: string, values: {any}, count: integer): boolean, string
-  -- Get raw_db from the exec function's upvalues (exec is the first method in the wrapper)
-  local exec_fn = db.exec
-  local _, raw_db_any = debug.getupvalue(exec_fn, 1)
-  if not raw_db_any then
-    return false, "cannot access raw database"
-  end
-  local raw_db = raw_db_any as RawDb
-
-  local stmt = raw_db:prepare(sql)
-  if not stmt then
-    return false, raw_db:errmsg()
-  end
-  for i = 1, count do
-    stmt:bind(i, values[i])
-  end
-  local rc = stmt:step()
-  stmt:finalize()
-  if rc ~= sqlite3.DONE and rc ~= sqlite3.ROW then
-    return false, raw_db:errmsg()
-  end
-  return true, nil
-end
 
 local SCHEMA = [[
 create table if not exists messages (
@@ -104,8 +59,10 @@ end
 
 local record Database
   exec: function(Database, string, any...): boolean, string
+  exec_list: function(Database, string, {any}, integer): boolean, string
   prepare: function(Database, string): Statement, string
   query: function(Database, string, any...): function(): {string:any}
+  transaction: function<T>(Database, function(): T): T
   close: function(Database)
 end
 
@@ -218,16 +175,6 @@ local function open(db_path?: string): DB, string
   return {_db = db} as DB, nil
 end
 
--- Block signals during a database write operation to prevent corruption
-local function with_signals_blocked(fn: function())
-  local old_mask = unix.sigprocmask(unix.SIG_BLOCK, unix.Sigset(unix.SIGINT, unix.SIGTERM))
-  local ok, err = pcall(fn) as (boolean, string)
-  unix.sigprocmask(unix.SIG_SETMASK, old_mask)
-  if not ok then
-    error(err)
-  end
-end
-
 local function close(self: DB)
   if self._db then
     self._db:close()
@@ -256,9 +203,7 @@ local function get_context(self: DB, key: string): string
 end
 
 local function set_context(self: DB, key: string, value: string)
-  with_signals_blocked(function()
-    self._db:exec("insert or replace into context (key, value) values (?, ?)", key, value)
-  end)
+  self._db:exec("insert or replace into context (key, value) values (?, ?)", key, value)
 end
 
 -- Message operations
@@ -281,17 +226,14 @@ local function create_message(self: DB, role: string, parent_id?: string, opts?:
     end
   end
 
-  -- Use exec_with_nils to properly handle nil values in the insert
   local values: {any} = {id, parent_id, role, seq, now, opts.input_tokens, opts.output_tokens, opts.stop_reason, opts.model, opts.api_latency_ms}
 
-  with_signals_blocked(function()
-    exec_with_nils(self._db as DbWrapper, [[
-      insert into messages (id, parent_id, role, seq, created_at, input_tokens, output_tokens, stop_reason, model, api_latency_ms)
-      values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ]], values, 10)
+  self._db:exec_list([[
+    insert into messages (id, parent_id, role, seq, created_at, input_tokens, output_tokens, stop_reason, model, api_latency_ms)
+    values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  ]], values, 10)
 
-    self._db:exec("insert or replace into context (key, value) values (?, ?)", "current_message", id)
-  end)
+  self._db:exec("insert or replace into context (key, value) values (?, ?)", "current_message", id)
 
   return {
     id = id,
@@ -353,14 +295,12 @@ end
 
 local function delete_message(self: DB, id: string)
   local current = get_context(self, "current_message")
-  with_signals_blocked(function()
-    self._db:exec("delete from content_blocks where message_id = ?", id)
-    self._db:exec("delete from messages where id = ?", id)
+  self._db:exec("delete from content_blocks where message_id = ?", id)
+  self._db:exec("delete from messages where id = ?", id)
 
-    if current == id then
-      self._db:exec("delete from context where key = 'current_message'")
-    end
-  end)
+  if current == id then
+    self._db:exec("delete from context where key = 'current_message'")
+  end
 end
 
 -- Content block operations
@@ -375,7 +315,6 @@ local function add_content_block(self: DB, message_id: string, block_type: strin
     end
   end
 
-  -- Use exec_with_nils to properly handle nil values in the insert
   local values: {any} = {
     id, message_id, block_type, seq,
     opts.content,
@@ -387,12 +326,10 @@ local function add_content_block(self: DB, message_id: string, block_type: strin
     opts.duration_ms
   }
 
-  with_signals_blocked(function()
-    exec_with_nils(self._db as DbWrapper, [[
-      insert into content_blocks (id, message_id, block_type, seq, content, tool_id, tool_name, tool_input, tool_output, is_error, duration_ms)
-      values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ]], values, 11)
-  end)
+  self._db:exec_list([[
+    insert into content_blocks (id, message_id, block_type, seq, content, tool_id, tool_name, tool_input, tool_output, is_error, duration_ms)
+    values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  ]], values, 11)
 
   return {
     id = id,
@@ -441,14 +378,7 @@ local function update_content_block(self: DB, id: string, opts: UpdateOpts)
 
   table.insert(values, id)
   local sql = "update content_blocks set " .. table.concat(sets, ", ") .. " where id = ?"
-  with_signals_blocked(function()
-    local stmt = self._db:prepare(sql)
-    if stmt then
-      stmt:bind(table.unpack(values))
-      stmt:exec()
-      stmt:close()
-    end
-  end)
+  self._db:exec_list(sql, values, #values)
 end
 
 -- Event logging
@@ -456,15 +386,12 @@ local function log_event(self: DB, event_type: string, message_id?: string, deta
   local id = ulid.generate()
   local now = os.time()
 
-  -- Use exec_with_nils to properly handle nil values in the insert
   local values: {any} = {id, message_id, event_type, now, details}
 
-  with_signals_blocked(function()
-    exec_with_nils(self._db as DbWrapper, [[
-      insert into events (id, message_id, event_type, created_at, details)
-      values (?, ?, ?, ?, ?)
-    ]], values, 5)
-  end)
+  self._db:exec_list([[
+    insert into events (id, message_id, event_type, created_at, details)
+    values (?, ?, ?, ?, ?)
+  ]], values, 5)
 
   return {
     id = id,
