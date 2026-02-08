@@ -110,4 +110,104 @@ local function test_tool_key_param_nil_details_fallback()
 end
 test_tool_key_param_nil_details_fallback()
 
+-- Tests for turn_signature
+local function test_turn_signature_single()
+  local tool_calls = {
+    {name = "bash", input = {command = "ls -la"}},
+  }
+  local sig = loop.turn_signature(tool_calls)
+  assert(sig == "bash:ls -la", "single tool call signature: " .. sig)
+end
+test_turn_signature_single()
+
+local function test_turn_signature_multiple()
+  local tool_calls = {
+    {name = "read", input = {path = "/tmp/foo.txt"}},
+    {name = "bash", input = {command = "echo hello"}},
+  }
+  local sig = loop.turn_signature(tool_calls)
+  assert(sig == "read:/tmp/foo.txt|bash:echo hello", "multi tool call signature: " .. sig)
+end
+test_turn_signature_multiple()
+
+local function test_turn_signature_empty()
+  local tool_calls: {any} = {}
+  local sig = loop.turn_signature(tool_calls)
+  assert(sig == "", "empty tool calls should give empty signature: " .. sig)
+end
+test_turn_signature_empty()
+
+local function test_turn_signature_edit()
+  local tool_calls = {
+    {name = "edit", input = {path = "/tmp/file.lua", old_string = "foo", new_string = "bar"}},
+  }
+  local sig = loop.turn_signature(tool_calls)
+  assert(sig:match("edit:"), "should start with edit: " .. sig)
+  assert(sig:match("/tmp/file.lua"), "should include path: " .. sig)
+end
+test_turn_signature_edit()
+
+local function test_turn_signature_deterministic()
+  local tool_calls = {
+    {name = "bash", input = {command = "ls"}},
+    {name = "read", input = {path = "/tmp/a.txt"}},
+  }
+  local sig1 = loop.turn_signature(tool_calls)
+  local sig2 = loop.turn_signature(tool_calls)
+  assert(sig1 == sig2, "same tool calls should produce same signature")
+end
+test_turn_signature_deterministic()
+
+-- Tests for check_loop
+local function test_check_loop_empty()
+  local count = loop.check_loop({})
+  assert(count == 0, "empty history should return 0: " .. count)
+end
+test_check_loop_empty()
+
+local function test_check_loop_single()
+  local count = loop.check_loop({"bash:ls"})
+  assert(count == 1, "single entry should return 1: " .. count)
+end
+test_check_loop_single()
+
+local function test_check_loop_no_repeat()
+  local count = loop.check_loop({"bash:ls", "read:/tmp/foo", "bash:pwd"})
+  assert(count == 1, "no repeat should return 1: " .. count)
+end
+test_check_loop_no_repeat()
+
+local function test_check_loop_two_repeat()
+  local count = loop.check_loop({"bash:ls", "bash:ls"})
+  assert(count == 2, "two identical should return 2: " .. count)
+end
+test_check_loop_two_repeat()
+
+local function test_check_loop_three_repeat()
+  local count = loop.check_loop({"read:/tmp/a", "bash:ls", "bash:ls", "bash:ls"})
+  assert(count == 3, "three consecutive identical should return 3: " .. count)
+end
+test_check_loop_three_repeat()
+
+local function test_check_loop_broken_sequence()
+  local count = loop.check_loop({"bash:ls", "bash:ls", "read:/tmp/a", "bash:ls"})
+  assert(count == 1, "broken sequence should return 1: " .. count)
+end
+test_check_loop_broken_sequence()
+
+local function test_check_loop_five_repeat()
+  local history = {"bash:ls", "bash:ls", "bash:ls", "bash:ls", "bash:ls"}
+  local count = loop.check_loop(history)
+  assert(count == 5, "five identical should return 5: " .. count)
+end
+test_check_loop_five_repeat()
+
+-- Test thresholds are exported and sensible
+local function test_thresholds()
+  assert(loop.LOOP_WARN_THRESHOLD == 3, "LOOP_WARN_THRESHOLD should be 3")
+  assert(loop.LOOP_BREAK_THRESHOLD == 5, "LOOP_BREAK_THRESHOLD should be 5")
+  assert(loop.LOOP_BREAK_THRESHOLD > loop.LOOP_WARN_THRESHOLD, "break should be greater than warn")
+end
+test_thresholds()
+
 print("all loop tests passed")

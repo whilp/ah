@@ -178,4 +178,34 @@ local function test_state_change_json()
 end
 test_state_change_json()
 
+-- Test loop_detected constructor
+local function test_loop_detected()
+  local e = events.loop_detected(3, "bash:ls|read:/tmp/foo", "warn")
+  assert(e.event_type == "loop_detected", "event_type should be loop_detected")
+  assert(e.consecutive_count == 3, "consecutive_count should be 3")
+  assert(e.turn_signature == "bash:ls|read:/tmp/foo", "turn_signature mismatch")
+  assert(e.action == "warn", "action should be warn")
+end
+test_loop_detected()
+
+-- Test loop_detected break action
+local function test_loop_detected_break()
+  local e = events.loop_detected(5, "bash:ls", "break")
+  assert(e.action == "break", "action should be break")
+  assert(e.consecutive_count == 5, "consecutive_count should be 5")
+end
+test_loop_detected_break()
+
+-- Test loop_detected serialization
+local function test_loop_detected_json()
+  local e = events.loop_detected(4, "edit:/tmp/file.lua", "warn")
+  local json_str = events.to_json(e)
+  local parsed = json.decode(json_str) as {string:any}
+  assert(parsed.event_type == "loop_detected", "event_type should survive round-trip")
+  assert(parsed.consecutive_count == 4, "consecutive_count should survive round-trip")
+  assert(parsed.turn_signature == "edit:/tmp/file.lua", "turn_signature should survive round-trip")
+  assert(parsed.action == "warn", "action should survive round-trip")
+end
+test_loop_detected_json()
+
 print("all events tests passed")

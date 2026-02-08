@@ -14,6 +14,10 @@ local ToolDetails = tools.ToolDetails
 -- Reference the global interrupted flag (set by application layer)
 global interrupted: boolean
 
+-- Loop detection thresholds
+local LOOP_WARN_THRESHOLD = 3   -- Consecutive identical turns before steering injection
+local LOOP_BREAK_THRESHOLD = 5  -- Consecutive identical turns before forced break
+
 -- Get monotonic time in seconds
 local function now(): number
   local s, ns = unix.clock_gettime(unix.CLOCK_MONOTONIC)
@@ -65,6 +69,36 @@ local function tool_key_param(tool_name: string, tool_input: string, details_jso
     return cmd
   end
   return ""
+end
+
+-- Compute a turn signature from a list of tool calls.
+-- The signature captures the tool names and key parameters to identify
+-- repetitive patterns across turns.
+local function turn_signature(tool_calls: {any}): string
+  local parts: {string} = {}
+  for _, tool_call in ipairs(tool_calls) do
+    local tc = tool_call as {string:any}
+    local input_json = json.encode(tc.input or {})
+    local key = tool_key_param(tc.name as string, input_json, nil)
+    table.insert(parts, (tc.name as string) .. ":" .. key)
+  end
+  return table.concat(parts, "|")
+end
+
+-- Check for consecutive identical signatures at the end of the history.
+-- Returns the count of consecutive identical entries (1 = no repetition).
+local function check_loop(history: {string}): integer
+  if #history < 2 then return #history end
+  local current = history[#history]
+  local count = 1
+  for i = #history - 1, 1, -1 do
+    if history[i] == current then
+      count = count + 1
+    else
+      break
+    end
+  end
+  return count
 end
 
 -- Emit an event through the callback, silently ignoring if no callback
@@ -166,6 +200,9 @@ local function run_agent(d: db.DB, qdb: queue.QueueDB, system_prompt: string, mo
 
   -- Track final stop reason for agent_end event
   local final_stop_reason = "unknown"
+
+  -- Turn signature history for loop detection
+  local turn_history: {string} = {}
 
   -- Closure for api.stream to check interruption mid-stream
   local function is_interrupted(): boolean
@@ -526,6 +563,45 @@ local function run_agent(d: db.DB, qdb: queue.QueueDB, system_prompt: string, mo
       break
     end
 
+    -- Loop detection: check for repetitive tool call patterns
+    local sig = turn_signature(tool_calls)
+    table.insert(turn_history, sig)
+    local consecutive = check_loop(turn_history)
+
+    if consecutive >= LOOP_BREAK_THRESHOLD then
+      -- Too many identical turns even after steering - force break
+      emit(on_event, events.loop_detected(consecutive, sig, "break"))
+      db.log_event(d, "loop_detected", assistant_msg.id,
+        events.to_json(events.loop_detected(consecutive, sig, "break")))
+      final_stop_reason = "loop_detected"
+      break
+    elseif consecutive >= LOOP_WARN_THRESHOLD then
+      -- Inject steering to break the loop
+      emit(on_event, events.loop_detected(consecutive, sig, "warn"))
+      db.log_event(d, "loop_detected", assistant_msg.id,
+        events.to_json(events.loop_detected(consecutive, sig, "warn")))
+
+      local steering_text = string.format(
+        "[LOOP DETECTED] You have repeated the same tool call pattern %d times (%s). " ..
+        "This indicates you may be stuck in a loop. Try a different approach or " ..
+        "ask the user for help.",
+        consecutive, sig)
+
+      -- Create steering user message
+      db.begin_transaction(d)
+      local loop_steer_msg = db.create_message(d, "user", user_msg.id)
+      db.add_content_block(d, loop_steer_msg.id, "text", {content = steering_text})
+      db.commit(d)
+
+      -- Add to API messages
+      table.insert(api_messages, {
+        role = "user",
+        content = {{type = "text", text = steering_text}},
+      })
+
+      user_msg = loop_steer_msg
+    end
+
     final_stop_reason = "tool_use"
 
     ::continue_loop::
@@ -550,4 +626,8 @@ end
 return {
   run_agent = run_agent,
   tool_key_param = tool_key_param,
+  turn_signature = turn_signature,
+  check_loop = check_loop,
+  LOOP_WARN_THRESHOLD = LOOP_WARN_THRESHOLD,
+  LOOP_BREAK_THRESHOLD = LOOP_BREAK_THRESHOLD,
 }
