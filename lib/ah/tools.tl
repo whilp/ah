@@ -212,8 +212,9 @@ local edit_tool: Tool = {
       return "error: old_string is not unique (found " .. count .. " times)", true
     end
 
-    -- Perform replacement
-    local new_content = content:gsub(old_string:gsub("[%(%)%.%%%+%-%*%?%[%]%^%$]", "%%%1"), new_string, 1)
+    -- Perform replacement (escape % in replacement string)
+    local escaped_new = new_string:gsub("%%", "%%%%")
+    local new_content = content:gsub(old_string:gsub("[%(%)%.%%%+%-%*%?%[%]%^%$]", "%%%1"), escaped_new, 1)
 
     local ok = cio.barf(file_path, new_content, tonumber("644", 8))
     if not ok then

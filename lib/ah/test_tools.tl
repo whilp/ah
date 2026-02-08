@@ -43,6 +43,21 @@ local function test_edit_tool()
   print("✓ edit tool works")
 end
 
+local function test_edit_tool_percent_in_replacement()
+  local test_file = os.getenv("TEST_TMPDIR") .. "/test_edit_percent.txt"
+  tools.execute_tool("write", {path = test_file, content = "value = 100"})
+  local result, is_error = tools.execute_tool("edit", {
+    path = test_file,
+    old_string = "100",
+    new_string = "50%"
+  })
+  assert(not is_error, "edit with % should succeed: " .. (result or "nil"))
+
+  local content, _ = tools.execute_tool("read", {path = test_file})
+  assert(content:match("value = 50%%"), "content should have 50%")
+  print("✓ edit tool handles % in replacement string")
+end
+
 local function test_bash_tool()
   local result, is_error = tools.execute_tool("bash", {command = "echo hello"})
   assert(not is_error, "bash should succeed")
@@ -89,6 +104,7 @@ test_read_tool()
 test_read_nonexistent()
 test_write_tool()
 test_edit_tool()
+test_edit_tool_percent_in_replacement()
 test_bash_tool()
 test_bash_exit_code()
 
