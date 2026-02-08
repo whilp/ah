@@ -468,6 +468,16 @@ local function make_cli_handler(): events.EventCallback
   local DIM = is_tty and "\27[2m" or ""
   local RESET = is_tty and "\27[0m" or ""
   local has_text = false
+  local text_buffer: {string} = {}
+
+  -- Flush buffered agent response text to stdout
+  local function flush_text()
+    if #text_buffer > 0 then
+      io.write(table.concat(text_buffer))
+      io.flush()
+      text_buffer = {}
+    end
+  end
 
   return function(event: events.EventData)
     local t = event.event_type
@@ -479,11 +489,12 @@ local function make_cli_handler(): events.EventCallback
       end
 
     elseif t == "text_delta" then
-      io.write(event.text)
-      io.flush()
+      -- Buffer text and print when the response is complete
+      table.insert(text_buffer, event.text)
       has_text = true
 
     elseif t == "agent_end" then
+      flush_text()
       -- Trailing newline after text output
       if has_text then
         io.write("\n")
@@ -493,6 +504,8 @@ local function make_cli_handler(): events.EventCallback
       io.stderr:write("\nerror: " .. (event.error or "unknown") .. "\n")
 
     elseif t == "api_call_end" then
+      -- Flush buffered agent response text now that the response is complete
+      flush_text()
       -- Show cache stats when prompt caching is active
       local cache_read = event.cache_read_input_tokens or 0
       local cache_create = event.cache_creation_input_tokens or 0
