@@ -8,6 +8,7 @@ local auth = require("ah.auth")
 local events = require("ah.events")
 local queue = require("ah.queue")
 local truncate = require("ah.truncate")
+local compact = require("ah.compact")
 
 local ToolDetails = tools.ToolDetails
 
@@ -204,6 +205,9 @@ local function run_agent(d: db.DB, qdb: queue.QueueDB, system_prompt: string, mo
   -- Turn signature history for loop detection
   local turn_history: {string} = {}
 
+  -- Track input tokens from last API response for compaction decisions
+  local last_input_tokens: integer = 0
+
   -- Closure for api.stream to check interruption mid-stream
   local function is_interrupted(): boolean
     return interrupted
@@ -233,6 +237,30 @@ local function run_agent(d: db.DB, qdb: queue.QueueDB, system_prompt: string, mo
 
         -- Update parent for next iteration
         user_msg = steer_user_msg
+      end
+    end
+
+    -- Check if compaction is needed before API call
+    if last_input_tokens > 0 and compact.needs_compaction(last_input_tokens, model) then
+      local context_limit = compact.get_context_limit(model)
+      emit(on_event, events.compaction_triggered(last_input_tokens, context_limit))
+      db.log_event(d, "compaction_triggered", nil, events.to_json(events.compaction_triggered(last_input_tokens, context_limit)))
+
+      local compact_result, compact_err = compact.compact(api_messages, model, is_interrupted)
+      if compact_result then
+        -- Replace api_messages with compacted summary
+        api_messages = {{
+          role = "user",
+          content = {{type = "text", text = compact_result.summary}},
+        }}
+        last_input_tokens = 0  -- Reset to avoid re-triggering
+
+        emit(on_event, events.compaction_complete(compact_result.input_tokens, compact_result.output_tokens))
+        db.log_event(d, "compaction_complete", nil, events.to_json(events.compaction_complete(compact_result.input_tokens, compact_result.output_tokens)))
+      else
+        -- Compaction failed - continue without it
+        emit(on_event, events.error_event(compact_err))
+        last_input_tokens = 0  -- Don't keep retrying
       end
     end
 
@@ -327,6 +355,7 @@ local function run_agent(d: db.DB, qdb: queue.QueueDB, system_prompt: string, mo
 
     -- Extract usage and metadata from response
     local usage = (resp.usage or {}) as {string:any}
+    last_input_tokens = (usage.input_tokens or 0) as integer
     local msg_opts: db.MessageOpts = {
       input_tokens = usage.input_tokens as integer,
       output_tokens = usage.output_tokens as integer,
