@@ -55,6 +55,11 @@ local record EventData
   -- steering/followup
   content: string
   message_count: integer
+
+  -- loop_detected
+  consecutive_count: integer
+  turn_signature: string
+  action: string  -- "warn" or "break"
 end
 
 local type EventCallback = function(event: EventData)
@@ -161,6 +166,14 @@ local function followup_received(content: string, message_count: integer): Event
   return e
 end
 
+local function loop_detected(consecutive_count: integer, signature: string, action: string): EventData
+  local e = make_event("loop_detected")
+  e.consecutive_count = consecutive_count
+  e.turn_signature = signature
+  e.action = action
+  return e
+end
+
 -- Serialize an event to JSON (for persistence or JSON logging)
 local function to_json(event: EventData): string
   local t: {string:any} = {}
@@ -192,6 +205,7 @@ return {
   state_change = state_change,
   steering_received = steering_received,
   followup_received = followup_received,
+  loop_detected = loop_detected,
 
   -- Serialization
   to_json = to_json,
