@@ -478,6 +478,26 @@ local function cleanup_orphans(self: DB): integer
   return #orphans
 end
 
+-- Token totals: sum input and output tokens across all messages in the session
+local record TokenTotals
+  input_tokens: integer
+  output_tokens: integer
+end
+
+local function get_session_token_totals(self: DB): TokenTotals
+  for row in self._db:query([[
+    select coalesce(sum(input_tokens), 0) as total_input,
+           coalesce(sum(output_tokens), 0) as total_output
+    from messages
+  ]]) do
+    return {
+      input_tokens = (row.total_input or 0) as integer,
+      output_tokens = (row.total_output or 0) as integer,
+    }
+  end
+  return {input_tokens = 0, output_tokens = 0}
+end
+
 -- Session state management: idle, processing, closed
 -- States are stored in the context table under key "session_state"
 local function get_session_state(self: DB): string
@@ -640,8 +660,10 @@ return {
   get_events = get_events,
   get_session_state = get_session_state,
   set_session_state = set_session_state,
+  get_session_token_totals = get_session_token_totals,
   -- Export types for consumers
   DB = DB,
+  TokenTotals = TokenTotals,
   Message = Message,
   ContentBlock = ContentBlock,
   ContentBlockOpts = ContentBlockOpts,

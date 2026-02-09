@@ -128,12 +128,21 @@ local function transition_state(d: db.DB, on_event: events.EventCallback, to_sta
   end
 end
 
+-- Options for run_agent
+local record AgentOpts
+  max_tokens: integer  -- Optional token budget (input + output combined). Stop with budget_exceeded when exceeded.
+end
+
 -- Send prompt and run agent loop
 -- qdb: optional queue database for inter-process coordination (steering/followup)
 -- on_event: optional callback for structured lifecycle events.
 -- When provided, the loop emits events instead of writing directly to stderr/stdout.
 -- When nil, the loop still functions but produces no output.
-local function run_agent(d: db.DB, qdb: queue.QueueDB, system_prompt: string, model: string, prompt: string, parent_id: string, on_event: events.EventCallback)
+-- opts: optional agent options (e.g. token budget)
+local function run_agent(d: db.DB, qdb: queue.QueueDB, system_prompt: string, model: string, prompt: string, parent_id: string, on_event: events.EventCallback, opts: AgentOpts)
+  opts = opts or {}
+  local max_tokens = opts.max_tokens
+
   -- Load credentials to determine if OAuth mode
   local creds, creds_err = auth.load_credentials()
   if not creds then
@@ -216,6 +225,10 @@ local function run_agent(d: db.DB, qdb: queue.QueueDB, system_prompt: string, mo
 
   -- Track input tokens from last API response for compaction decisions
   local last_input_tokens: integer = 0
+
+  -- Track cumulative tokens for budget enforcement
+  local cumulative_input_tokens: integer = 0
+  local cumulative_output_tokens: integer = 0
 
   -- Closure for api.stream to check interruption mid-stream
   local function is_interrupted(): boolean
@@ -463,6 +476,19 @@ local function run_agent(d: db.DB, qdb: queue.QueueDB, system_prompt: string, mo
       cache_read_tokens
     )))
 
+    -- Accumulate tokens for budget tracking
+    cumulative_input_tokens = cumulative_input_tokens + ((usage.input_tokens or 0) as integer)
+    cumulative_output_tokens = cumulative_output_tokens + ((usage.output_tokens or 0) as integer)
+
+    -- Check token budget
+    if max_tokens and (cumulative_input_tokens + cumulative_output_tokens) > max_tokens then
+      emit(on_event, events.budget_exceeded(cumulative_input_tokens, cumulative_output_tokens, max_tokens))
+      db.log_event(d, "budget_exceeded", assistant_msg.id,
+        events.to_json(events.budget_exceeded(cumulative_input_tokens, cumulative_output_tokens, max_tokens)))
+      final_stop_reason = "budget_exceeded"
+      break
+    end
+
     -- Add assistant message to API messages
     table.insert(api_messages, {role = "assistant", content = assistant_api_content})
 
@@ -706,15 +732,19 @@ local function run_agent(d: db.DB, qdb: queue.QueueDB, system_prompt: string, mo
   -- Transition to idle (or closed if interrupted)
   transition_state(d, on_event, "idle")
 
-  -- Emit agent_end
-  emit(on_event, events.agent_end(final_stop_reason))
+  -- Query final token totals from DB (includes all messages in session, not just this run)
+  local totals = db.get_session_token_totals(d)
+
+  -- Emit agent_end with token totals
+  emit(on_event, events.agent_end(final_stop_reason, totals.input_tokens, totals.output_tokens))
 
   -- Log agent_end event to DB
-  db.log_event(d, "agent_end", nil, events.to_json(events.agent_end(final_stop_reason)))
+  db.log_event(d, "agent_end", nil, events.to_json(events.agent_end(final_stop_reason, totals.input_tokens, totals.output_tokens)))
 end
 
 return {
   run_agent = run_agent,
+  AgentOpts = AgentOpts,
   tool_key_param = tool_key_param,
   turn_signature = turn_signature,
   check_loop = check_loop,
