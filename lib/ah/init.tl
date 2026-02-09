@@ -1155,8 +1155,6 @@ return {
   main = main,
   load_system_prompt = load_system_prompt,
   load_claude_md = load_claude_md,
-  make_cli_handler = make_cli_handler,
-  tool_key_param = loop.tool_key_param,
   list_sessions = list_sessions,
   resolve_session = resolve_session,
   -- Branch UX commands (exported for testing)

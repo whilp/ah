@@ -416,7 +416,6 @@ return {
   to_claude_code_name = to_claude_code_name,
   from_claude_code_name = from_claude_code_name,
   DEFAULT_MODEL = DEFAULT_MODEL,
-  MODELS = MODELS,
   MODEL_ALIASES = MODEL_ALIASES,
   MAX_RETRIES = MAX_RETRIES,
   BASE_DELAY_MS = BASE_DELAY_MS,
