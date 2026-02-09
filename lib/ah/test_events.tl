@@ -253,4 +253,85 @@ local function test_budget_exceeded_json()
 end
 test_budget_exceeded_json()
 
+-- Test steering_received constructor
+local function test_steering_received()
+  local e = events.steering_received("please stop", 2)
+  assert(e.event_type == "steering_received", "event_type should be steering_received")
+  assert(e.content == "please stop", "content mismatch")
+  assert(e.message_count == 2, "message_count mismatch")
+  assert(e.timestamp, "should have timestamp")
+end
+test_steering_received()
+
+-- Test steering_received serialization
+local function test_steering_received_json()
+  local e = events.steering_received("change direction", 1)
+  local json_str = events.to_json(e)
+  local parsed = json.decode(json_str) as {string:any}
+  assert(parsed.event_type == "steering_received", "event_type should survive round-trip")
+  assert(parsed.content == "change direction", "content should survive round-trip")
+  assert(parsed.message_count == 1, "message_count should survive round-trip")
+end
+test_steering_received_json()
+
+-- Test followup_received constructor
+local function test_followup_received()
+  local e = events.followup_received("do this next", 3)
+  assert(e.event_type == "followup_received", "event_type should be followup_received")
+  assert(e.content == "do this next", "content mismatch")
+  assert(e.message_count == 3, "message_count mismatch")
+  assert(e.timestamp, "should have timestamp")
+end
+test_followup_received()
+
+-- Test followup_received serialization
+local function test_followup_received_json()
+  local e = events.followup_received("follow up task", 1)
+  local json_str = events.to_json(e)
+  local parsed = json.decode(json_str) as {string:any}
+  assert(parsed.event_type == "followup_received", "event_type should survive round-trip")
+  assert(parsed.content == "follow up task", "content should survive round-trip")
+end
+test_followup_received_json()
+
+-- Test compaction_triggered constructor
+local function test_compaction_triggered()
+  local e = events.compaction_triggered(170000, 200000)
+  assert(e.event_type == "compaction_triggered", "event_type should be compaction_triggered")
+  assert(e.input_tokens == 170000, "input_tokens mismatch")
+  assert(e.context_limit == 200000, "context_limit mismatch")
+end
+test_compaction_triggered()
+
+-- Test compaction_triggered serialization
+local function test_compaction_triggered_json()
+  local e = events.compaction_triggered(180000, 200000)
+  local json_str = events.to_json(e)
+  local parsed = json.decode(json_str) as {string:any}
+  assert(parsed.event_type == "compaction_triggered", "event_type should survive round-trip")
+  assert(parsed.input_tokens == 180000, "input_tokens should survive round-trip")
+  assert(parsed.context_limit == 200000, "context_limit should survive round-trip")
+end
+test_compaction_triggered_json()
+
+-- Test compaction_complete constructor
+local function test_compaction_complete()
+  local e = events.compaction_complete(180000, 2000)
+  assert(e.event_type == "compaction_complete", "event_type should be compaction_complete")
+  assert(e.input_tokens == 180000, "input_tokens mismatch")
+  assert(e.output_tokens == 2000, "output_tokens mismatch")
+end
+test_compaction_complete()
+
+-- Test compaction_complete serialization
+local function test_compaction_complete_json()
+  local e = events.compaction_complete(150000, 3000)
+  local json_str = events.to_json(e)
+  local parsed = json.decode(json_str) as {string:any}
+  assert(parsed.event_type == "compaction_complete", "event_type should survive round-trip")
+  assert(parsed.input_tokens == 150000, "input_tokens should survive round-trip")
+  assert(parsed.output_tokens == 3000, "output_tokens should survive round-trip")
+end
+test_compaction_complete_json()
+
 print("all events tests passed")

@@ -10,8 +10,6 @@ local queue = require("ah.queue")
 local truncate = require("ah.truncate")
 local compact = require("ah.compact")
 
-local ToolDetails = tools.ToolDetails
-
 -- Reference the global interrupted flag (set by application layer)
 global interrupted: boolean
 
