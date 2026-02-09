@@ -166,6 +166,7 @@ options:
   -m, --model MODEL   set model (default: sonnet)
   --steer MSG         send steering message to running session
   --followup MSG      queue followup message for after session completes
+  --max-tokens N      stop when cumulative tokens exceed N
 
 models:
 ]])
@@ -588,6 +589,16 @@ local function make_cli_handler(): events.EventCallback
       if has_text then
         io.write("\n")
       end
+      -- Display session token totals
+      local total_in = event.total_input_tokens or 0
+      local total_out = event.total_output_tokens or 0
+      if total_in > 0 or total_out > 0 then
+        io.stderr:write(string.format("%stokens [in:%d out:%d total:%d]%s\n", DIM, total_in, total_out, total_in + total_out, RESET))
+      end
+
+    elseif t == "budget_exceeded" then
+      local total = (event.total_input_tokens or 0) + (event.total_output_tokens or 0)
+      io.stderr:write(string.format("\ntoken budget exceeded (%d/%d tokens)\n", total, event.max_tokens or 0))
 
     elseif t == "error" then
       io.stderr:write("\nerror: " .. (event.error or "unknown") .. "\n")
@@ -678,6 +689,7 @@ local function main(args: {string}): integer, string
   local session_prefix: string = nil
   local steer_msg: string = nil
   local followup_msg: string = nil
+  local max_tokens: integer = nil
   local cwd = fs.getcwd()
 
   local longopts = {
@@ -689,6 +701,7 @@ local function main(args: {string}): integer, string
     {name = "output", has_arg = "required", short = "o"},
     {name = "steer", has_arg = "required"},
     {name = "followup", has_arg = "required"},
+    {name = "max-tokens", has_arg = "required"},
   }
 
   local parser = getopt.new(args, "hnS:m:o:", longopts)
@@ -714,6 +727,8 @@ local function main(args: {string}): integer, string
       steer_msg = optarg
     elseif opt == "followup" then
       followup_msg = optarg
+    elseif opt == "max-tokens" then
+      max_tokens = tonumber(optarg) as integer
     elseif opt == "?" then
       usage()
       return 1
@@ -1120,7 +1135,11 @@ local function main(args: {string}): integer, string
 
   -- Run agent with CLI event handler
   local on_event = make_cli_handler()
-  loop.run_agent(d, qdb, effective_system, effective_model, prompt, parent_id, on_event)
+  local agent_opts: loop.AgentOpts = {}
+  if max_tokens then
+    agent_opts.max_tokens = max_tokens
+  end
+  loop.run_agent(d, qdb, effective_system, effective_model, prompt, parent_id, on_event, agent_opts)
 
   -- Mark session as closed before exit
   db.set_session_state(d, "closed")

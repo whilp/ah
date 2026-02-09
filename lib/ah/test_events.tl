@@ -24,11 +24,23 @@ test_agent_start()
 
 -- Test agent_end constructor
 local function test_agent_end()
-  local e = events.agent_end("end_turn")
+  local e = events.agent_end("end_turn", 1000, 500)
   assert(e.event_type == "agent_end", "event_type should be agent_end")
   assert(e.stop_reason == "end_turn", "stop_reason mismatch")
+  assert(e.total_input_tokens == 1000, "total_input_tokens mismatch")
+  assert(e.total_output_tokens == 500, "total_output_tokens mismatch")
 end
 test_agent_end()
+
+-- Test agent_end without token totals (nil)
+local function test_agent_end_no_tokens()
+  local e = events.agent_end("interrupted", nil, nil)
+  assert(e.event_type == "agent_end", "event_type should be agent_end")
+  assert(e.stop_reason == "interrupted", "stop_reason mismatch")
+  assert(e.total_input_tokens == nil, "total_input_tokens should be nil")
+  assert(e.total_output_tokens == nil, "total_output_tokens should be nil")
+end
+test_agent_end_no_tokens()
 
 -- Test api_call_start constructor
 local function test_api_call_start()
@@ -159,7 +171,7 @@ local function test_event_callback()
 
   cb(events.agent_start("model", "prompt", nil))
   cb(events.text_delta("hello"))
-  cb(events.agent_end("end_turn"))
+  cb(events.agent_end("end_turn", nil, nil))
 
   assert(#received == 3, "should receive 3 events")
   assert(received[1].event_type == "agent_start", "first should be agent_start")
@@ -218,5 +230,27 @@ local function test_loop_detected_json()
   assert(parsed.action == "warn", "action should survive round-trip")
 end
 test_loop_detected_json()
+
+-- Test budget_exceeded constructor
+local function test_budget_exceeded()
+  local e = events.budget_exceeded(50000, 10000, 40000)
+  assert(e.event_type == "budget_exceeded", "event_type should be budget_exceeded")
+  assert(e.total_input_tokens == 50000, "total_input_tokens mismatch")
+  assert(e.total_output_tokens == 10000, "total_output_tokens mismatch")
+  assert(e.max_tokens == 40000, "max_tokens mismatch")
+end
+test_budget_exceeded()
+
+-- Test budget_exceeded serialization
+local function test_budget_exceeded_json()
+  local e = events.budget_exceeded(100000, 25000, 120000)
+  local json_str = events.to_json(e)
+  local parsed = json.decode(json_str) as {string:any}
+  assert(parsed.event_type == "budget_exceeded", "event_type should survive round-trip")
+  assert(parsed.total_input_tokens == 100000, "total_input_tokens should survive round-trip")
+  assert(parsed.total_output_tokens == 25000, "total_output_tokens should survive round-trip")
+  assert(parsed.max_tokens == 120000, "max_tokens should survive round-trip")
+end
+test_budget_exceeded_json()
 
 print("all events tests passed")

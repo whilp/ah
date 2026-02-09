@@ -65,6 +65,11 @@ local record EventData
 
   -- compaction
   context_limit: integer
+
+  -- token budget
+  total_input_tokens: integer
+  total_output_tokens: integer
+  max_tokens: integer
 end
 
 local type EventCallback = function(event: EventData)
@@ -87,9 +92,11 @@ local function agent_start(model: string, prompt: string, parent_id: string): Ev
   return e
 end
 
-local function agent_end(stop_reason: string): EventData
+local function agent_end(stop_reason: string, total_input_tokens: integer, total_output_tokens: integer): EventData
   local e = make_event("agent_end")
   e.stop_reason = stop_reason
+  e.total_input_tokens = total_input_tokens
+  e.total_output_tokens = total_output_tokens
   return e
 end
 
@@ -195,6 +202,14 @@ local function compaction_complete(input_tokens: integer, output_tokens: integer
   return e
 end
 
+local function budget_exceeded(total_input_tokens: integer, total_output_tokens: integer, max_tokens: integer): EventData
+  local e = make_event("budget_exceeded")
+  e.total_input_tokens = total_input_tokens
+  e.total_output_tokens = total_output_tokens
+  e.max_tokens = max_tokens
+  return e
+end
+
 -- Serialize an event to JSON (for persistence or JSON logging)
 local function to_json(event: EventData): string
   local t: {string:any} = {}
@@ -229,6 +244,7 @@ return {
   loop_detected = loop_detected,
   compaction_triggered = compaction_triggered,
   compaction_complete = compaction_complete,
+  budget_exceeded = budget_exceeded,
 
   -- Serialization
   to_json = to_json,

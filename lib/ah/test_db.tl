@@ -452,4 +452,60 @@ local function test_session_state_persistence()
 end
 test_session_state_persistence()
 
+-- Test get_session_token_totals
+local function test_session_token_totals_empty()
+  local db_path = fs.join(TEST_TMPDIR, "tokens_empty.db")
+  local d = db.open(db_path)
+
+  local totals = db.get_session_token_totals(d)
+  assert(totals.input_tokens == 0, "empty db should have 0 input_tokens, got " .. totals.input_tokens)
+  assert(totals.output_tokens == 0, "empty db should have 0 output_tokens, got " .. totals.output_tokens)
+
+  db.close(d)
+end
+test_session_token_totals_empty()
+
+local function test_session_token_totals()
+  local db_path = fs.join(TEST_TMPDIR, "tokens_sum.db")
+  local d = db.open(db_path)
+
+  -- Create messages with token counts
+  local msg1 = db.create_message(d, "user")
+  local msg2 = db.create_message(d, "assistant", msg1.id, {
+    input_tokens = 100,
+    output_tokens = 50,
+  })
+  local msg3 = db.create_message(d, "user", msg2.id)
+  local msg4 = db.create_message(d, "assistant", msg3.id, {
+    input_tokens = 200,
+    output_tokens = 75,
+  })
+
+  local totals = db.get_session_token_totals(d)
+  assert(totals.input_tokens == 300, "input_tokens should be 300, got " .. totals.input_tokens)
+  assert(totals.output_tokens == 125, "output_tokens should be 125, got " .. totals.output_tokens)
+
+  db.close(d)
+end
+test_session_token_totals()
+
+-- Test that user messages with nil tokens don't break the sum
+local function test_session_token_totals_with_nil()
+  local db_path = fs.join(TEST_TMPDIR, "tokens_nil.db")
+  local d = db.open(db_path)
+
+  local msg1 = db.create_message(d, "user")  -- nil tokens
+  local msg2 = db.create_message(d, "assistant", msg1.id, {
+    input_tokens = 500,
+    output_tokens = 100,
+  })
+
+  local totals = db.get_session_token_totals(d)
+  assert(totals.input_tokens == 500, "should handle nil tokens, got " .. totals.input_tokens)
+  assert(totals.output_tokens == 100, "should handle nil tokens, got " .. totals.output_tokens)
+
+  db.close(d)
+end
+test_session_token_totals_with_nil()
+
 print("all db tests passed")
