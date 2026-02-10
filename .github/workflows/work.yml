@@ -19,55 +19,35 @@ env:
   PATH: o/bin:${{ github.workspace }}/o/bin:/usr/local/bin:/usr/bin:/bin
 
 jobs:
-  select:
-    runs-on: ubuntu-latest
-    outputs:
-      issue: ${{ steps.select.outputs.issue }}
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-
-      - name: Install cosmic
-        run: make cosmic
-
-      - name: Select issue
-        id: select
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          issue="${{ inputs.issue }}"
-          bin/work-select --repo "$REPO" ${issue:+--issue "$issue"} >> "$GITHUB_OUTPUT"
-
   plan:
-    needs: select
-    if: needs.select.outputs.issue != ''
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    outputs:
+      issue: ${{ steps.plan.outputs.issue }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-
-      - name: Transition to doing
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh issue edit "${{ fromJson(needs.select.outputs.issue).url }}" --remove-label todo --add-label doing
 
       - name: Build ah
         run: make ah
 
       - name: Run plan phase
+        id: plan
         env:
+          GH_TOKEN: ${{ github.token }}
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-        run: bin/work-plan \
-          --title "${{ fromJson(needs.select.outputs.issue).title }}" \
-          --body "${{ fromJson(needs.select.outputs.issue).body }}" \
-          --number "${{ fromJson(needs.select.outputs.issue).number }}"
+        run: |
+          issue="${{ inputs.issue }}"
+          bin/work-plan --repo "$REPO" ${issue:+--issue "$issue"} >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: steps.plan.outputs.issue != ''
         with:
           name: work
           path: o/
 
   do:
-    needs: [select, plan]
+    needs: plan
+    if: needs.plan.outputs.issue != ''
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -84,8 +64,8 @@ jobs:
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
         run: bin/work-do \
-          --title "${{ fromJson(needs.select.outputs.issue).title }}" \
-          --number "${{ fromJson(needs.select.outputs.issue).number }}"
+          --title "${{ fromJson(needs.plan.outputs.issue).title }}" \
+          --number "${{ fromJson(needs.plan.outputs.issue).number }}"
 
       - name: Push branch
         env:
@@ -99,7 +79,7 @@ jobs:
           overwrite: true
 
   check:
-    needs: [select, plan, do]
+    needs: [plan, do]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -133,7 +113,8 @@ jobs:
           overwrite: true
 
   act:
-    needs: [select, plan, do, check]
+    needs: [plan, do, check]
+    if: always() && needs.plan.outputs.issue != ''
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -145,31 +126,14 @@ jobs:
 
       - run: chmod +x o/bin/*
 
-      - name: Execute actions (dry-run)
+      - name: Execute actions
         env:
           GH_TOKEN: ${{ github.token }}
         run: bin/work-act \
-          --issue-url "${{ fromJson(needs.select.outputs.issue).url }}"
+          --issue-url "${{ fromJson(needs.plan.outputs.issue).url }}"
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: work
           path: o/
           overwrite: true
-
-  cleanup:
-    needs: [select, plan, do, check, act]
-    if: always() && needs.select.outputs.issue != ''
-    runs-on: ubuntu-latest
-    steps:
-      - name: Update labels
-        env:
-          GH_TOKEN: ${{ github.token }}
-          ISSUE_URL: ${{ fromJson(needs.select.outputs.issue).url }}
-        run: |
-          gh issue edit "$ISSUE_URL" --remove-label doing || true
-          if [ "${{ needs.act.result }}" = "success" ]; then
-            gh issue edit "$ISSUE_URL" --add-label done
-          else
-            gh issue edit "$ISSUE_URL" --add-label failed
-          fi

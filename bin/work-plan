@@ -2,6 +2,7 @@
 
 local spawn = require("cosmic.child")
 local fs = require("cosmic.fs")
+local json = require("cosmic.json")
 local env = require("cosmic.env")
 local proc = require("cosmic.proc")
 local getopt = require("cosmic.getopt")
@@ -9,7 +10,7 @@ local getopt = require("cosmic.getopt")
 local M = {}
 
 local function usage()
-  io.stderr:write("usage: work-plan --title <title> --body <body> --number <number>\n")
+  io.stderr:write("usage: work-plan --repo <owner/repo> [--issue <number>]\n")
 end
 
 local function read_file(path)
@@ -26,42 +27,137 @@ local function file_exists(path)
   return false
 end
 
+local function run(cmd)
+  local handle, err = spawn.spawn(cmd, {env = env.all()})
+  if not handle then return false, nil, err end
+  local ok, stdout, exit_str = handle:read()
+  local exit_code = tonumber(exit_str) or 0
+  return ok and exit_code == 0, stdout, exit_code
+end
+
+function M.get_priority(labels)
+  for _, label in ipairs(labels) do
+    if label.name == "p0" then return 0 end
+    if label.name == "p1" then return 1 end
+    if label.name == "p2" then return 2 end
+  end
+  return 3
+end
+
+function M.sort_issues(issues)
+  table.sort(issues, function(a, b)
+    local a_priority = M.get_priority(a.labels)
+    local b_priority = M.get_priority(b.labels)
+    if a_priority ~= b_priority then
+      return a_priority < b_priority
+    end
+    return a.createdAt < b.createdAt
+  end)
+end
+
+function M.fetch_issues(repo)
+  local ok, stdout = run({
+    "gh", "issue", "list",
+    "--repo", repo,
+    "--label", "todo",
+    "--state", "open",
+    "--json", "number,title,body,url,labels,createdAt",
+    "--limit", "100"
+  })
+  if not ok then return nil, "gh command failed" end
+  local success, issues = pcall(json.decode, stdout)
+  if not success or type(issues) ~= "table" then
+    return nil, "failed to parse JSON"
+  end
+  return issues
+end
+
+function M.select_issue(issues)
+  if #issues == 0 then return nil end
+  M.sort_issues(issues)
+  local s = issues[1]
+  return {number = s.number, title = s.title, body = s.body, url = s.url}
+end
+
+function M.fetch_issue(repo, issue_number)
+  local ok, stdout = run({
+    "gh", "issue", "view", tostring(issue_number),
+    "--repo", repo,
+    "--json", "number,title,body,url"
+  })
+  if not ok then return nil, "gh command failed" end
+  local success, issue = pcall(json.decode, stdout)
+  if not success or type(issue) ~= "table" then
+    return nil, "failed to parse JSON"
+  end
+  return issue
+end
+
+function M.transition_to_doing(issue_url)
+  run({"gh", "issue", "edit", issue_url, "--remove-label", "todo", "--add-label", "doing"})
+end
+
 function M.main(args)
-  local title, body, number
+  local repo, issue_number
 
   local longopts = {
     {name = "help", has_arg = "none", short = "h"},
-    {name = "title", has_arg = "required", short = "t"},
-    {name = "body", has_arg = "required", short = "b"},
-    {name = "number", has_arg = "required", short = "n"},
+    {name = "repo", has_arg = "required", short = "r"},
+    {name = "issue", has_arg = "required", short = "i"},
   }
 
-  local parser = getopt.new(args, "ht:b:n:", longopts)
+  local parser = getopt.new(args, "hr:i:", longopts)
 
   while true do
     local opt, optarg = parser:next()
     if not opt then break end
-
     if opt == "h" or opt == "help" then
       usage()
       return 0
-    elseif opt == "t" or opt == "title" then
-      title = optarg
-    elseif opt == "b" or opt == "body" then
-      body = optarg
-    elseif opt == "n" or opt == "number" then
-      number = optarg
+    elseif opt == "r" or opt == "repo" then
+      repo = optarg
+    elseif opt == "i" or opt == "issue" then
+      issue_number = tonumber(optarg)
     elseif opt == "?" then
       usage()
       return 1
     end
   end
 
-  if not title or not body or not number then
+  if not repo then
     usage()
     return 1
   end
 
+  -- Select or fetch issue
+  local issue, err
+  if issue_number then
+    issue, err = M.fetch_issue(repo, issue_number)
+  else
+    local issues
+    issues, err = M.fetch_issues(repo)
+    if issues then
+      issue = M.select_issue(issues)
+    end
+  end
+
+  if err then
+    io.stderr:write("error: " .. err .. "\n")
+    return 1
+  end
+
+  if not issue then
+    -- No issue to work on, exit cleanly
+    return 0
+  end
+
+  -- Output issue for workflow
+  print("issue=" .. json.encode(issue))
+
+  -- Transition to doing
+  M.transition_to_doing(issue.url)
+
+  -- Run plan phase
   fs.makedirs("o/work/plan")
 
   local prompt = read_file("sys/work/plan.md")
@@ -70,24 +166,14 @@ function M.main(args)
     return 1
   end
 
-  prompt = prompt:gsub("{title}", title)
-  prompt = prompt:gsub("{body}", body)
-  prompt = prompt:gsub("{issue_number}", number)
+  prompt = prompt:gsub("{title}", issue.title)
+  prompt = prompt:gsub("{body}", issue.body or "")
+  prompt = prompt:gsub("{issue_number}", tostring(issue.number))
 
-  local handle, err = spawn.spawn({
-    "o/bin/ah", "-n", "--db", "o/work/plan/session.db", prompt
-  }, {env = env.all()})
+  local ok = run({"o/bin/ah", "-n", "--db", "o/work/plan/session.db", prompt})
 
-  if not handle then
-    io.stderr:write("error: failed to spawn ah: " .. tostring(err) .. "\n")
-    return 1
-  end
-
-  local ok, _, exit_str = handle:read()
-  local exit_code = tonumber(exit_str) or 0
-
-  if not ok or exit_code ~= 0 then
-    io.stderr:write("error: ah exited with code " .. exit_code .. "\n")
+  if not ok then
+    io.stderr:write("error: ah failed\n")
     return 1
   end
 

@@ -1,7 +1,9 @@
 #!/usr/bin/env cosmic
 
+local spawn = require("cosmic.child")
 local fs = require("cosmic.fs")
 local json = require("cosmic.json")
+local env = require("cosmic.env")
 local proc = require("cosmic.proc")
 local getopt = require("cosmic.getopt")
 
@@ -33,6 +35,22 @@ local function tee(path, line)
   if f then
     f:write(line .. "\n")
     f:close()
+  end
+end
+
+local function run(cmd)
+  local handle = spawn.spawn(cmd, {env = env.all()})
+  if not handle then return false end
+  local ok, _, exit_str = handle:read()
+  return ok and tonumber(exit_str) == 0
+end
+
+function M.update_labels(issue_url, success)
+  run({"gh", "issue", "edit", issue_url, "--remove-label", "doing"})
+  if success then
+    run({"gh", "issue", "edit", issue_url, "--add-label", "done"})
+  else
+    run({"gh", "issue", "edit", issue_url, "--add-label", "failed"})
   end
 end
 
@@ -76,12 +94,14 @@ function M.main(args)
   local actions_content = read_file("o/work/check/actions.json")
   if not actions_content then
     tee(act_md, "No actions.json found")
+    M.update_labels(issue_url, false)
     return 0
   end
 
   local ok, actions_data = pcall(json.decode, actions_content)
   if not ok or type(actions_data) ~= "table" then
     tee(act_md, "Failed to parse actions.json")
+    M.update_labels(issue_url, false)
     return 1
   end
 
@@ -101,10 +121,15 @@ function M.main(args)
     end
   end
 
+  local success = verdict == "pass"
   write_file("o/work/act/results.json", json.encode({
     verdict = verdict,
-    dry_run = true
+    dry_run = true,
+    success = success
   }) .. "\n")
+
+  -- Cleanup: update labels
+  M.update_labels(issue_url, success)
 
   return 0
 end
