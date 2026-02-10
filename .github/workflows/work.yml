@@ -69,10 +69,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: gh issue edit "${{ needs.select.outputs.issue_url }}" --remove-label todo --add-label doing
 
-      - name: Install ah
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: make ah-release
+      - name: Build ah
+        run: make ah
 
       - name: Run plan phase
         env:
@@ -100,10 +98,8 @@ jobs:
         with:
           name: plan
 
-      - name: Install ah
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: make ah-release
+      - name: Build ah
+        run: make ah
 
       - name: Run do phase
         env:
@@ -148,10 +144,8 @@ jobs:
             git checkout "$branch"
           fi
 
-      - name: Install ah
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: make ah-release
+      - name: Build ah
+        run: make ah
 
       - name: Run check phase
         env:

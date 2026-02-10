@@ -19,7 +19,7 @@ prompt="${prompt//\{plan.md contents\}/$plan_contents}"
 branch=$(grep -oP 'Branch: \K.*' o/work/plan/plan.md || echo "work/$ISSUE_NUMBER")
 prompt="${prompt//\{branch\}/$branch}"
 
-o/bin/ah-release -n --db .ah/do.db "$prompt"
+o/bin/ah -n --db .ah/do.db "$prompt"
 
 # Save branch name for other phases
 echo "$branch" > o/work/do/branch.txt
