@@ -57,6 +57,15 @@ local function read_file(path: string): string
   return content
 end
 
+-- Load a phase artifact, preferring cached content over filesystem.
+-- When the do-phase agent deletes o/ (e.g. via make clean), files written
+-- by earlier phases disappear. Callers cache the content after each phase
+-- and pass it here so later phases are not affected.
+local function load_phase_file(cached: string, path: string): string
+  if cached then return cached end
+  return read_file(path)
+end
+
 local function write_file(path: string, content: string): boolean
   local f = io.open(path, "w")
   if not f then return false end
@@ -576,10 +585,10 @@ local function phase_plan(no_sandbox: boolean, repo: string, issue_number: integ
   return 0, issue
 end
 
-local function phase_do(no_sandbox: boolean, title: string, number: string): integer
+local function phase_do(no_sandbox: boolean, title: string, number: string, cached_plan?: string): integer
   fs.makedirs("o/work/do")
 
-  local plan_contents = read_file("o/work/plan/plan.md")
+  local plan_contents = load_phase_file(cached_plan, "o/work/plan/plan.md")
   if not plan_contents then
     io.stderr:write("error: could not read o/work/plan/plan.md\n")
     return 1
@@ -635,10 +644,10 @@ local function phase_push(): integer
   return 0
 end
 
-local function phase_check(no_sandbox: boolean): integer
+local function phase_check(no_sandbox: boolean, cached_plan?: string): integer
   fs.makedirs("o/work/check")
 
-  local plan_contents = read_file("o/work/plan/plan.md")
+  local plan_contents = load_phase_file(cached_plan, "o/work/plan/plan.md")
   if not plan_contents then
     io.stderr:write("error: could not read o/work/plan/plan.md\n")
     return 1
@@ -942,9 +951,17 @@ local function main(args: {string}): integer
     return 0
   end
 
+  -- Cache plan contents before do phase — the do agent may delete o/
+  -- (e.g. via make clean), so later phases must not depend on the file.
+  local plan_contents = read_file("o/work/plan/plan.md")
+  if not plan_contents then
+    io.stderr:write("error: could not read o/work/plan/plan.md after plan phase\n")
+    return 1
+  end
+
   -- Phase 2: Do (agent — sandboxed)
   io.stderr:write("==> do\n")
-  rc = phase_do(no_sandbox, issue.title, tostring(issue.number))
+  rc = phase_do(no_sandbox, issue.title, tostring(issue.number), plan_contents)
   if rc ~= 0 then return rc end
 
   -- Phase 3: Push (deterministic — unsandboxed)
@@ -954,7 +971,7 @@ local function main(args: {string}): integer
 
   -- Phase 4: Check (agent — sandboxed)
   io.stderr:write("==> check\n")
-  rc = phase_check(no_sandbox)
+  rc = phase_check(no_sandbox, plan_contents)
   if rc ~= 0 then return rc end
 
   -- Phase 5: Act (deterministic — unsandboxed)
@@ -983,4 +1000,5 @@ return {
   build_do_prompt = build_do_prompt,
   build_check_prompt = build_check_prompt,
   format_run_error = format_run_error,
+  load_phase_file = load_phase_file,
 }
