@@ -1,0 +1,84 @@
+#!/usr/bin/env cosmic
+
+local spawn = require("cosmic.child")
+local json = require("cosmic.json")
+local env = require("cosmic.env")
+
+local function get_priority(labels)
+  -- Return 0 for p0, 1 for p1, 2 for p2, 3 for no priority
+  for _, label in ipairs(labels) do
+    if label.name == "p0" then return 0 end
+    if label.name == "p1" then return 1 end
+    if label.name == "p2" then return 2 end
+  end
+  return 3
+end
+
+local function main()
+  local repo = arg[1]
+  if not repo then
+    io.stderr:write("usage: work-select <owner/repo>\n")
+    os.exit(1)
+  end
+  
+  -- Call gh to list issues
+  local handle, err = spawn.spawn({
+    "gh", "issue", "list",
+    "--repo", repo,
+    "--label", "todo",
+    "--state", "open",
+    "--json", "number,title,body,url,labels,createdAt",
+    "--limit", "100"
+  }, {env = env.all()})
+  
+  if not handle then
+    io.stderr:write("error: failed to spawn gh: " .. tostring(err) .. "\n")
+    os.exit(1)
+  end
+  
+  -- Read output: handle:read() returns (ok, stdout, exit_code_as_string)
+  local ok, stdout, exit_str = handle:read()
+  local exit_code = tonumber(exit_str) or 0
+  
+  if not ok or exit_code ~= 0 then
+    io.stderr:write("error: gh command failed with exit code " .. exit_code .. "\n")
+    os.exit(1)
+  end
+  
+  -- Parse issues
+  local success, issues = pcall(json.decode, stdout)
+  if not success or type(issues) ~= "table" then
+    io.stderr:write("error: failed to parse JSON response\n")
+    os.exit(1)
+  end
+  
+  if #issues == 0 then
+    os.exit(1)
+  end
+  
+  -- Sort issues by priority then by creation date
+  table.sort(issues, function(a, b)
+    local a_priority = get_priority(a.labels)
+    local b_priority = get_priority(b.labels)
+    
+    if a_priority ~= b_priority then
+      return a_priority < b_priority
+    end
+    
+    -- Sort by creation date (older first)
+    return a.createdAt < b.createdAt
+  end)
+  
+  -- Output the first issue
+  local selected = issues[1]
+  local output = {
+    number = selected.number,
+    title = selected.title,
+    body = selected.body,
+    url = selected.url
+  }
+  
+  print(json.encode(output))
+end
+
+main()
