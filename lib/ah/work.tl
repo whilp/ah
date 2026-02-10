@@ -244,6 +244,16 @@ local function slice(t: {string}, from: integer): {string}
   return result
 end
 
+-- Labels used throughout the PDCA workflow
+local required_labels: {string} = {"todo", "doing", "done", "failed"}
+
+local function ensure_labels(repo: string): boolean, string
+  for _, label in ipairs(required_labels) do
+    run({"gh", "label", "create", label, "--repo", repo, "--force"})
+  end
+  return true
+end
+
 -- Issue selection
 
 local function get_priority(labels: {Label}): integer
@@ -803,6 +813,9 @@ local function main(args: {string}): integer
     return 1
   end
 
+  -- Ensure required labels exist in the repository
+  ensure_labels(repo)
+
   -- Create issue from prompt template if specified
   if prompt_name then
     if issue_number then
@@ -868,4 +881,6 @@ return {
   validate_branch = validate_branch,
   execute_action = execute_action,
   slice = slice,
+  required_labels = required_labels,
+  ensure_labels = ensure_labels,
 }
