@@ -1,0 +1,303 @@
+name: work
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+    inputs:
+      issue:
+        description: 'Issue number (skip selection)'
+        type: number
+        required: false
+
+concurrency:
+  group: work
+  cancel-in-progress: false
+
+env:
+  REPO: ${{ github.repository }}
+
+jobs:
+  select:
+    runs-on: ubuntu-latest
+    outputs:
+      issue_number: ${{ steps.select.outputs.issue_number }}
+      issue_title: ${{ steps.select.outputs.issue_title }}
+      issue_body: ${{ steps.select.outputs.issue_body }}
+      issue_url: ${{ steps.select.outputs.issue_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install cosmic
+        run: |
+          mkdir -p o/bin
+          curl -fsSL -o o/bin/cosmic https://github.com/whilp/cosmic/releases/download/2026-02-08-2d56820/cosmic-lua
+          chmod +x o/bin/cosmic
+
+      - name: Select issue
+        id: select
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ -n "${{ inputs.issue }}" ]; then
+            # Use workflow_dispatch input if provided
+            gh issue view "${{ inputs.issue }}" \
+              --json number,title,body,url > issue.json
+          else
+            # Select highest priority todo issue
+            o/bin/cosmic bin/work-select "$REPO" > issue.json || true
+          fi
+
+          if [ ! -s issue.json ]; then
+            echo "No issue selected"
+            exit 0
+          fi
+
+          # Parse and set outputs
+          echo "issue_number=$(jq -r .number issue.json)" >> "$GITHUB_OUTPUT"
+          echo "issue_title=$(jq -r .title issue.json)" >> "$GITHUB_OUTPUT"
+          echo "issue_url=$(jq -r .url issue.json)" >> "$GITHUB_OUTPUT"
+
+          # Body may be multiline, use heredoc
+          {
+            echo 'issue_body<<EOF'
+            jq -r '.body // ""' issue.json
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
+  plan:
+    needs: select
+    if: needs.select.outputs.issue_number != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Transition to doing
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue edit "${{ needs.select.outputs.issue_url }}" \
+            --remove-label todo --add-label doing
+
+      - name: Install ah
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag=$(gh release list --limit 1 --json tagName -q '.[0].tagName')
+          mkdir -p o/bin
+          gh release download "$tag" --pattern 'ah' --dir o/bin
+          chmod +x o/bin/ah
+
+      - name: Run plan phase
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ISSUE_TITLE: ${{ needs.select.outputs.issue_title }}
+          ISSUE_BODY: ${{ needs.select.outputs.issue_body }}
+          ISSUE_NUMBER: ${{ needs.select.outputs.issue_number }}
+        run: |
+          mkdir -p o/work/plan
+
+          # Interpolate prompt
+          prompt=$(cat sys/work/plan.md)
+          prompt="${prompt//\{title\}/$ISSUE_TITLE}"
+          prompt="${prompt//\{body\}/$ISSUE_BODY}"
+          prompt="${prompt//\{issue_number\}/$ISSUE_NUMBER}"
+
+          o/bin/ah -n --db .ah/plan.db "$prompt"
+
+      - name: Check for plan output
+        run: test -f o/work/plan/plan.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: plan
+          path: |
+            .ah/plan.db
+            o/work/plan/
+
+  do:
+    needs: [select, plan]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: plan
+
+      - name: Install ah
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag=$(gh release list --limit 1 --json tagName -q '.[0].tagName')
+          mkdir -p o/bin
+          gh release download "$tag" --pattern 'ah' --dir o/bin
+          chmod +x o/bin/ah
+
+      - name: Run do phase
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ISSUE_TITLE: ${{ needs.select.outputs.issue_title }}
+          ISSUE_NUMBER: ${{ needs.select.outputs.issue_number }}
+        run: |
+          mkdir -p o/work/do
+
+          # Read plan.md contents
+          plan_contents=$(cat o/work/plan/plan.md)
+
+          # Build prompt with plan contents
+          prompt=$(cat sys/work/do.md)
+          prompt="${prompt//\{title\}/$ISSUE_TITLE}"
+          prompt="${prompt//\{plan.md contents\}/$plan_contents}"
+
+          # Extract branch from plan
+          branch=$(grep -oP 'Branch: \K.*' o/work/plan/plan.md || echo "work/$ISSUE_NUMBER")
+          prompt="${prompt//\{branch\}/$branch}"
+
+          o/bin/ah -n --db .ah/do.db "$prompt"
+
+          # Save branch name for other jobs
+          echo "$branch" > o/work/do/branch.txt
+
+      - name: Push branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          branch=$(cat o/work/do/branch.txt)
+          if git rev-parse --verify HEAD~1 >/dev/null 2>&1; then
+            # Check if there are commits beyond main
+            if ! git diff --quiet origin/main...HEAD 2>/dev/null; then
+              git push -u origin "HEAD:$branch" || true
+            fi
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: do
+          path: |
+            .ah/do.db
+            o/work/do/
+
+  check:
+    needs: [select, plan, do]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: plan
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: do
+
+      - name: Checkout work branch
+        run: |
+          branch=$(cat o/work/do/branch.txt)
+          if git ls-remote --heads origin "$branch" | grep -q .; then
+            git checkout "$branch"
+          fi
+
+      - name: Install ah
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag=$(gh release list --limit 1 --json tagName -q '.[0].tagName')
+          mkdir -p o/bin
+          gh release download "$tag" --pattern 'ah' --dir o/bin
+          chmod +x o/bin/ah
+
+      - name: Run check phase
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          mkdir -p o/work/check
+
+          # Read plan.md and do.md contents
+          plan_contents=$(cat o/work/plan/plan.md)
+          do_contents=$(cat o/work/do/do.md)
+
+          # Build prompt with contents
+          prompt=$(cat sys/work/check.md)
+          prompt="${prompt//\{plan.md contents\}/$plan_contents}"
+          prompt="${prompt//\{do.md contents\}/$do_contents}"
+
+          o/bin/ah -n --db .ah/check.db "$prompt"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: check
+          path: |
+            .ah/check.db
+            o/work/check/
+
+  act:
+    needs: [select, plan, do, check]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: do
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: check
+
+      - name: Execute actions (dry-run)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_URL: ${{ needs.select.outputs.issue_url }}
+        run: |
+          mkdir -p o/work/act
+
+          echo "=== DRY RUN ===" | tee o/work/act/act.md
+
+          if [ ! -f o/work/check/actions.json ]; then
+            echo "No actions.json found" | tee -a o/work/act/act.md
+            exit 0
+          fi
+
+          verdict=$(jq -r .verdict o/work/check/actions.json)
+          echo "Verdict: $verdict" | tee -a o/work/act/act.md
+          echo "" >> o/work/act/act.md
+
+          echo "## Actions" >> o/work/act/act.md
+          jq -c '.actions[]' o/work/check/actions.json | while read -r action; do
+            action_type=$(echo "$action" | jq -r .action)
+            echo "Would execute: $action_type" | tee -a o/work/act/act.md
+            echo "  Payload: $action" >> o/work/act/act.md
+          done
+
+          # Write results.json
+          jq -n --arg verdict "$verdict" '{verdict: $verdict, dry_run: true}' > o/work/act/results.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: act
+          path: o/work/act/
+
+  cleanup:
+    needs: [select, plan, do, check, act]
+    if: always() && needs.select.outputs.issue_number != ''
+    runs-on: ubuntu-latest
+    steps:
+      - name: Update labels
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_URL: ${{ needs.select.outputs.issue_url }}
+        run: |
+          gh issue edit "$ISSUE_URL" --remove-label doing || true
+
+          if [ "${{ needs.act.result }}" = "success" ]; then
+            gh issue edit "$ISSUE_URL" --add-label done
+          else
+            gh issue edit "$ISSUE_URL" --add-label failed
+          fi
