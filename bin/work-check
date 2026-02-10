@@ -1,0 +1,15 @@
+#!/bin/bash
+# Run check phase: review execution against plan
+# Expects: o/work/plan/plan.md, o/work/do/do.md
+set -euo pipefail
+
+mkdir -p o/work/check
+
+plan_contents=$(cat o/work/plan/plan.md)
+do_contents=$(cat o/work/do/do.md)
+
+prompt=$(cat sys/work/check.md)
+prompt="${prompt//\{plan.md contents\}/$plan_contents}"
+prompt="${prompt//\{do.md contents\}/$do_contents}"
+
+o/bin/ah -n --db .ah/check.db "$prompt"

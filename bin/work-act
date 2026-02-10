@@ -1,0 +1,27 @@
+#!/bin/bash
+# Run act phase: execute actions from check phase
+# Currently dry-run only - logs actions without executing
+# Expects: o/work/check/actions.json
+set -euo pipefail
+
+mkdir -p o/work/act
+
+echo "=== DRY RUN ===" | tee o/work/act/act.md
+
+if [ ! -f o/work/check/actions.json ]; then
+  echo "No actions.json found" | tee -a o/work/act/act.md
+  exit 0
+fi
+
+verdict=$(jq -r .verdict o/work/check/actions.json)
+echo "Verdict: $verdict" | tee -a o/work/act/act.md
+echo "" >> o/work/act/act.md
+
+echo "## Actions" >> o/work/act/act.md
+jq -c '.actions[]' o/work/check/actions.json | while read -r action; do
+  action_type=$(echo "$action" | jq -r .action)
+  echo "Would execute: $action_type" | tee -a o/work/act/act.md
+  echo "  Payload: $action" >> o/work/act/act.md
+done
+
+jq -n --arg verdict "$verdict" '{verdict: $verdict, dry_run: true}' > o/work/act/results.json

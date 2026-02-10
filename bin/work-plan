@@ -1,0 +1,20 @@
+#!/bin/bash
+# Run plan phase: research issue and produce plan.md
+# Requires: ISSUE_TITLE, ISSUE_BODY, ISSUE_NUMBER
+set -euo pipefail
+
+: "${ISSUE_TITLE:?required}"
+: "${ISSUE_BODY:?required}"
+: "${ISSUE_NUMBER:?required}"
+
+mkdir -p o/work/plan
+
+prompt=$(cat sys/work/plan.md)
+prompt="${prompt//\{title\}/$ISSUE_TITLE}"
+prompt="${prompt//\{body\}/$ISSUE_BODY}"
+prompt="${prompt//\{issue_number\}/$ISSUE_NUMBER}"
+
+o/bin/ah -n --db .ah/plan.db "$prompt"
+
+# Verify output
+test -f o/work/plan/plan.md

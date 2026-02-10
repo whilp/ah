@@ -29,10 +29,7 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Install cosmic
-        run: |
-          mkdir -p o/bin
-          curl -fsSL -o o/bin/cosmic https://github.com/whilp/cosmic/releases/download/2026-02-08-2d56820/cosmic-lua
-          chmod +x o/bin/cosmic
+        run: make cosmic
 
       - name: Select issue
         id: select
@@ -40,11 +37,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           if [ -n "${{ inputs.issue }}" ]; then
-            # Use workflow_dispatch input if provided
-            gh issue view "${{ inputs.issue }}" \
-              --json number,title,body,url > issue.json
+            gh issue view "${{ inputs.issue }}" --json number,title,body,url > issue.json
           else
-            # Select highest priority todo issue
             o/bin/cosmic bin/work-select "$REPO" > issue.json || true
           fi
 
@@ -53,12 +47,9 @@ jobs:
             exit 0
           fi
 
-          # Parse and set outputs
           echo "issue_number=$(jq -r .number issue.json)" >> "$GITHUB_OUTPUT"
           echo "issue_title=$(jq -r .title issue.json)" >> "$GITHUB_OUTPUT"
           echo "issue_url=$(jq -r .url issue.json)" >> "$GITHUB_OUTPUT"
-
-          # Body may be multiline, use heredoc
           {
             echo 'issue_body<<EOF'
             jq -r '.body // ""' issue.json
@@ -76,18 +67,12 @@ jobs:
       - name: Transition to doing
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          gh issue edit "${{ needs.select.outputs.issue_url }}" \
-            --remove-label todo --add-label doing
+        run: gh issue edit "${{ needs.select.outputs.issue_url }}" --remove-label todo --add-label doing
 
       - name: Install ah
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          tag=$(gh release list --limit 1 --json tagName -q '.[0].tagName')
-          mkdir -p o/bin
-          gh release download "$tag" --pattern 'ah' --dir o/bin
-          chmod +x o/bin/ah
+        run: bin/work-install-ah
 
       - name: Run plan phase
         env:
@@ -95,19 +80,7 @@ jobs:
           ISSUE_TITLE: ${{ needs.select.outputs.issue_title }}
           ISSUE_BODY: ${{ needs.select.outputs.issue_body }}
           ISSUE_NUMBER: ${{ needs.select.outputs.issue_number }}
-        run: |
-          mkdir -p o/work/plan
-
-          # Interpolate prompt
-          prompt=$(cat sys/work/plan.md)
-          prompt="${prompt//\{title\}/$ISSUE_TITLE}"
-          prompt="${prompt//\{body\}/$ISSUE_BODY}"
-          prompt="${prompt//\{issue_number\}/$ISSUE_NUMBER}"
-
-          o/bin/ah -n --db .ah/plan.db "$prompt"
-
-      - name: Check for plan output
-        run: test -f o/work/plan/plan.md
+        run: bin/work-plan
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -130,48 +103,19 @@ jobs:
       - name: Install ah
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          tag=$(gh release list --limit 1 --json tagName -q '.[0].tagName')
-          mkdir -p o/bin
-          gh release download "$tag" --pattern 'ah' --dir o/bin
-          chmod +x o/bin/ah
+        run: bin/work-install-ah
 
       - name: Run do phase
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           ISSUE_TITLE: ${{ needs.select.outputs.issue_title }}
           ISSUE_NUMBER: ${{ needs.select.outputs.issue_number }}
-        run: |
-          mkdir -p o/work/do
-
-          # Read plan.md contents
-          plan_contents=$(cat o/work/plan/plan.md)
-
-          # Build prompt with plan contents
-          prompt=$(cat sys/work/do.md)
-          prompt="${prompt//\{title\}/$ISSUE_TITLE}"
-          prompt="${prompt//\{plan.md contents\}/$plan_contents}"
-
-          # Extract branch from plan
-          branch=$(grep -oP 'Branch: \K.*' o/work/plan/plan.md || echo "work/$ISSUE_NUMBER")
-          prompt="${prompt//\{branch\}/$branch}"
-
-          o/bin/ah -n --db .ah/do.db "$prompt"
-
-          # Save branch name for other jobs
-          echo "$branch" > o/work/do/branch.txt
+        run: bin/work-do
 
       - name: Push branch
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          branch=$(cat o/work/do/branch.txt)
-          if git rev-parse --verify HEAD~1 >/dev/null 2>&1; then
-            # Check if there are commits beyond main
-            if ! git diff --quiet origin/main...HEAD 2>/dev/null; then
-              git push -u origin "HEAD:$branch" || true
-            fi
-          fi
+        run: bin/work-push
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -207,28 +151,12 @@ jobs:
       - name: Install ah
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          tag=$(gh release list --limit 1 --json tagName -q '.[0].tagName')
-          mkdir -p o/bin
-          gh release download "$tag" --pattern 'ah' --dir o/bin
-          chmod +x o/bin/ah
+        run: bin/work-install-ah
 
       - name: Run check phase
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: |
-          mkdir -p o/work/check
-
-          # Read plan.md and do.md contents
-          plan_contents=$(cat o/work/plan/plan.md)
-          do_contents=$(cat o/work/do/do.md)
-
-          # Build prompt with contents
-          prompt=$(cat sys/work/check.md)
-          prompt="${prompt//\{plan.md contents\}/$plan_contents}"
-          prompt="${prompt//\{do.md contents\}/$do_contents}"
-
-          o/bin/ah -n --db .ah/check.db "$prompt"
+        run: bin/work-check
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -255,29 +183,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           ISSUE_URL: ${{ needs.select.outputs.issue_url }}
-        run: |
-          mkdir -p o/work/act
-
-          echo "=== DRY RUN ===" | tee o/work/act/act.md
-
-          if [ ! -f o/work/check/actions.json ]; then
-            echo "No actions.json found" | tee -a o/work/act/act.md
-            exit 0
-          fi
-
-          verdict=$(jq -r .verdict o/work/check/actions.json)
-          echo "Verdict: $verdict" | tee -a o/work/act/act.md
-          echo "" >> o/work/act/act.md
-
-          echo "## Actions" >> o/work/act/act.md
-          jq -c '.actions[]' o/work/check/actions.json | while read -r action; do
-            action_type=$(echo "$action" | jq -r .action)
-            echo "Would execute: $action_type" | tee -a o/work/act/act.md
-            echo "  Payload: $action" >> o/work/act/act.md
-          done
-
-          # Write results.json
-          jq -n --arg verdict "$verdict" '{verdict: $verdict, dry_run: true}' > o/work/act/results.json
+        run: bin/work-act
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -295,7 +201,6 @@ jobs:
           ISSUE_URL: ${{ needs.select.outputs.issue_url }}
         run: |
           gh issue edit "$ISSUE_URL" --remove-label doing || true
-
           if [ "${{ needs.act.result }}" = "success" ]; then
             gh issue edit "$ISSUE_URL" --add-label done
           else

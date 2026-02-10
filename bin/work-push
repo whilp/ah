@@ -1,0 +1,13 @@
+#!/bin/bash
+# Push work branch if there are commits beyond main
+# Expects: o/work/do/branch.txt
+set -euo pipefail
+
+branch=$(cat o/work/do/branch.txt)
+
+# Check if there are commits beyond main
+if git rev-parse --verify HEAD~1 >/dev/null 2>&1; then
+  if ! git diff --quiet origin/main...HEAD 2>/dev/null; then
+    git push -u origin "HEAD:$branch" || true
+  fi
+fi

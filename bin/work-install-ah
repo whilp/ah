@@ -1,0 +1,10 @@
+#!/bin/bash
+# Install ah from latest GitHub release
+set -euo pipefail
+
+dest="${1:-o/bin}"
+mkdir -p "$dest"
+
+tag=$(gh release list --limit 1 --json tagName -q '.[0].tagName')
+gh release download "$tag" --pattern 'ah' --dir "$dest"
+chmod +x "$dest/ah"
