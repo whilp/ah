@@ -5,6 +5,7 @@ local child = require("cosmic.child")
 local unix = require("cosmo.unix")
 local cosmo = require("cosmo")
 local json = require("cosmic.json")
+local env = require("cosmic.env")
 
 -- Track running process handles for abort cleanup
 -- Maps pid -> process handle for active bash commands
@@ -290,7 +291,9 @@ local bash_tool: Tool = {
     -- Wrap command with timeout
     local wrapped = string.format("timeout %d sh -c %q", timeout_sec, command)
 
-    local handle, err = child.spawn({"sh", "-c", wrapped})
+    -- Pass current environment to the child process
+    -- env.all() returns an array of "key=value" strings
+    local handle, err = child.spawn({"sh", "-c", wrapped}, {env = env.all() as {string}})
     if not handle then
       return "error: failed to spawn: " .. tostring(err), true, nil
     end
@@ -382,7 +385,7 @@ end
 
 -- Check if a file is executable
 local function is_executable(path: string): boolean
-  local handle, err = child.spawn({"test", "-x", path})
+  local handle, err = child.spawn({"test", "-x", path}, {env = env.all() as {string}})
   if not handle then return false end
   local _, _, exit_str = handle:read()
   return tonumber(exit_str) == 0
@@ -422,7 +425,7 @@ local function load_cli_tools_from_dir(dir: string): {Tool}
       end
     else
       -- Try --help
-      local handle = child.spawn({bin_path, "--help"})
+      local handle = child.spawn({bin_path, "--help"}, {env = env.all() as {string}})
       if handle then
         local _, stdout = handle:read()
         if stdout and stdout ~= "" then
@@ -455,7 +458,7 @@ local function load_cli_tools_from_dir(dir: string): {Tool}
           table.insert(cmd, arg)
         end
 
-        local handle, err = child.spawn(cmd)
+        local handle, err = child.spawn(cmd, {env = env.all() as {string}})
         if not handle then
           return "error: failed to spawn: " .. tostring(err), true, nil
         end
