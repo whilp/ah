@@ -45,6 +45,10 @@ end
 
 -- Helpers
 
+local function log(msg: string)
+  io.stderr:write("[work] " .. msg .. "\n")
+end
+
 local function read_file(path: string): string
   local f = io.open(path, "r")
   if not f then return nil end
@@ -78,26 +82,34 @@ end
 -- Start sandbox proxy
 -- Returns sandbox context or nil on error
 local function start_sandbox(): SandboxCtx, string
+  log("starting sandbox...")
   -- Create temp directory for socket
   local tmpdir = unix.mkdtemp("/tmp/ah-sandbox-XXXXXX")
   if not tmpdir then
+    log("failed to create temp directory for sandbox")
     return nil, "failed to create temp directory"
   end
+  log("sandbox tmpdir: " .. tmpdir)
 
   local socket_path = tmpdir .. "/proxy.sock"
 
   -- Fork and exec proxy
+  local exe = ah_exe()
+  log("forking proxy: " .. exe .. " proxy " .. socket_path)
   local pid = unix.fork()
   if pid < 0 then
+    log("fork failed")
     unix.rmrf(tmpdir)
     return nil, "fork failed"
   end
 
   if pid == 0 then
     -- Child: exec proxy
-    unix.execve(ah_exe(), {ah_exe(), "proxy", socket_path}, env.all() as {string})
+    unix.execve(exe, {exe, "proxy", socket_path}, env.all() as {string})
     os.exit(1)  -- exec failed
   end
+
+  log("proxy forked with pid: " .. tostring(pid))
 
   -- Parent: wait for socket to appear
   local timeout = 50  -- 5 seconds (50 * 100ms)
@@ -111,12 +123,14 @@ local function start_sandbox(): SandboxCtx, string
   end
 
   if timeout == 0 then
+    log("proxy socket not ready after 5s, killing pid " .. tostring(pid))
     unix.kill(pid, unix.SIGTERM)
     unix.wait()
     unix.rmrf(tmpdir)
     return nil, "proxy socket not ready"
   end
 
+  log("sandbox ready, socket: " .. socket_path)
   return {
     enabled = true,
     socket_path = socket_path,
@@ -138,10 +152,24 @@ local function stop_sandbox(ctx: SandboxCtx)
 end
 
 local function run(cmd: {string}): boolean, string, integer
+  log("exec: " .. table.concat(cmd, " "))
   local handle, spawn_err = spawn.spawn(cmd, {env = env.all() as {string}})
-  if not handle then return false, spawn_err as string, -1 end
+  if not handle then
+    log("spawn failed: " .. (spawn_err or "unknown"))
+    return false, spawn_err as string, -1
+  end
+  local stderr_out = handle.stderr:read()
   local ok, stdout, exit_str = handle:read()
   local exit_code = (tonumber(exit_str) or 0) as integer
+  if not (ok and exit_code == 0) then
+    log("command failed (exit " .. tostring(exit_code) .. ")")
+    if stdout and stdout ~= "" then
+      log("stdout: " .. stdout:sub(1, 500))
+    end
+    if stderr_out and stderr_out ~= "" then
+      log("stderr: " .. stderr_out:sub(1, 1000))
+    end
+  end
   return ok and exit_code == 0, stdout, exit_code
 end
 
@@ -247,10 +275,10 @@ local function fetch_issues(repo: string): {RawIssue}, string
     "--json", "number,title,body,url,labels,createdAt",
     "--limit", "100"
   })
-  if not ok then return nil, "gh command failed" end
+  if not ok then return nil, "gh issue list failed: " .. (stdout or "no output") end
   local success, issues = pcall(json.decode, stdout)
   if not success or type(issues) ~= "table" then
-    return nil, "failed to parse JSON"
+    return nil, "failed to parse JSON from gh issue list: " .. (stdout or ""):sub(1, 200)
   end
   return issues as {RawIssue}
 end
@@ -268,10 +296,10 @@ local function fetch_issue(repo: string, issue_number: integer): Issue, string
     "--repo", repo,
     "--json", "number,title,body,url"
   })
-  if not ok then return nil, "gh command failed" end
+  if not ok then return nil, "gh issue view failed: " .. (stdout or "no output") end
   local success, issue = pcall(json.decode, stdout)
   if not success or type(issue) ~= "table" then
-    return nil, "failed to parse JSON"
+    return nil, "failed to parse JSON from gh issue view: " .. (stdout or ""):sub(1, 200)
   end
   return issue as Issue
 end
@@ -281,6 +309,7 @@ local function create_issue_from_prompt(repo: string, prompt_name: string): inte
   if not body then
     return nil, "unknown prompt: " .. prompt_name
   end
+  log("creating issue from prompt: " .. prompt_name .. " (body length: " .. #body .. ")")
   local ok, stdout = run({
     "gh", "issue", "create",
     "--repo", repo,
@@ -288,15 +317,18 @@ local function create_issue_from_prompt(repo: string, prompt_name: string): inte
     "--body", body,
     "--label", "todo",
   })
-  if not ok then return nil, "gh issue create failed" end
+  if not ok then
+    return nil, "gh issue create failed: " .. (stdout or "no output")
+  end
   local number = tonumber(stdout:match("/issues/(%d+)"))
   if not number then
-    return nil, "failed to parse issue number from: " .. stdout
+    return nil, "failed to parse issue number from: " .. (stdout or ""):sub(1, 200)
   end
   return number as integer
 end
 
 local function transition_to_doing(issue_url: string)
+  log("transitioning issue to doing: " .. issue_url)
   run({"gh", "issue", "edit", issue_url, "--remove-label", "todo", "--add-label", "doing"})
 end
 
@@ -332,8 +364,8 @@ end
 
 local function execute_comment_issue(issue_url: string, body: string): boolean, string
   if not body then return false, "missing body" end
-  local ok = run({"gh", "issue", "comment", issue_url, "--body", body})
-  if not ok then return false, "gh issue comment failed" end
+  local ok, stdout = run({"gh", "issue", "comment", issue_url, "--body", body})
+  if not ok then return false, "gh issue comment failed: " .. (stdout or "no output") end
   return true
 end
 
@@ -342,8 +374,8 @@ local function execute_create_pr(branch: string, title: string, body: string): b
   if not valid then return false, verr end
   if not title then return false, "missing title" end
   if not body then return false, "missing body" end
-  local ok = run({"gh", "pr", "create", "--head", branch, "--title", title, "--body", body})
-  if not ok then return false, "gh pr create failed" end
+  local ok, stdout = run({"gh", "pr", "create", "--head", branch, "--title", title, "--body", body})
+  if not ok then return false, "gh pr create failed: " .. (stdout or "no output") end
   return true
 end
 
@@ -376,6 +408,7 @@ local function execute_action(issue_url: string, action: {string:any}, log_fn: f
 end
 
 local function update_labels(issue_url: string, success: boolean)
+  log("updating labels for: " .. issue_url .. " (success: " .. tostring(success) .. ")")
   run({"gh", "issue", "edit", issue_url, "--remove-label", "doing"})
   if success then
     run({"gh", "issue", "edit", issue_url, "--add-label", "done"})
