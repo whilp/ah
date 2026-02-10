@@ -89,7 +89,7 @@ function M.main(args)
   local act_md = "o/work/act/act.md"
   write_file(act_md, "")
 
-  tee(act_md, "=== DRY RUN ===")
+  tee(act_md, "# Act")
 
   local actions_content = read_file("o/work/check/actions.json")
   if not actions_content then
@@ -124,7 +124,6 @@ function M.main(args)
   local success = verdict == "pass"
   write_file("o/work/act/results.json", json.encode({
     verdict = verdict,
-    dry_run = true,
     success = success
   }) .. "\n")
 
