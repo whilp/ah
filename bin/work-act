@@ -1,0 +1,153 @@
+#!/usr/bin/env cosmic
+
+local spawn = require("cosmic.child")
+local fs = require("cosmic.fs")
+local json = require("cosmic.json")
+local env = require("cosmic.env")
+local proc = require("cosmic.proc")
+local getopt = require("cosmic.getopt")
+
+local M = {}
+
+function M.parse_actions(content)
+  if not content then return nil, "no content" end
+  local ok, data = pcall(json.decode, content)
+  if not ok or type(data) ~= "table" then
+    return nil, "invalid json"
+  end
+  return {
+    verdict = data.verdict or "unknown",
+    actions = data.actions or {},
+    success = data.verdict == "pass"
+  }
+end
+
+local function usage()
+  io.stderr:write("usage: work-act --issue-url <url>\n")
+end
+
+local function read_file(path)
+  local f = io.open(path, "r")
+  if not f then return nil end
+  local content = f:read("*a")
+  f:close()
+  return content
+end
+
+local function write_file(path, content)
+  local f = io.open(path, "w")
+  if not f then return false end
+  f:write(content)
+  f:close()
+  return true
+end
+
+local function tee(path, line)
+  print(line)
+  local f = io.open(path, "a")
+  if f then
+    f:write(line .. "\n")
+    f:close()
+  end
+end
+
+local function run(cmd)
+  local handle = spawn.spawn(cmd, {env = env.all()})
+  if not handle then return false end
+  local ok, _, exit_str = handle:read()
+  return ok and tonumber(exit_str) == 0
+end
+
+function M.update_labels(issue_url, success)
+  run({"gh", "issue", "edit", issue_url, "--remove-label", "doing"})
+  if success then
+    run({"gh", "issue", "edit", issue_url, "--add-label", "done"})
+  else
+    run({"gh", "issue", "edit", issue_url, "--add-label", "failed"})
+  end
+end
+
+function M.main(args)
+  local issue_url
+
+  local longopts = {
+    {name = "help", has_arg = "none", short = "h"},
+    {name = "issue-url", has_arg = "required"},
+  }
+
+  local parser = getopt.new(args, "h", longopts)
+
+  while true do
+    local opt, optarg = parser:next()
+    if not opt then break end
+
+    if opt == "h" or opt == "help" then
+      usage()
+      return 0
+    elseif opt == "issue-url" then
+      issue_url = optarg
+    elseif opt == "?" then
+      usage()
+      return 1
+    end
+  end
+
+  if not issue_url then
+    usage()
+    return 1
+  end
+
+  fs.makedirs("o/work/act")
+
+  local act_md = "o/work/act/act.md"
+  write_file(act_md, "")
+
+  tee(act_md, "# Act")
+
+  local actions_content = read_file("o/work/check/actions.json")
+  if not actions_content then
+    tee(act_md, "No actions.json found")
+    M.update_labels(issue_url, false)
+    return 0
+  end
+
+  local ok, actions_data = pcall(json.decode, actions_content)
+  if not ok or type(actions_data) ~= "table" then
+    tee(act_md, "Failed to parse actions.json")
+    M.update_labels(issue_url, false)
+    return 1
+  end
+
+  local verdict = actions_data.verdict or "unknown"
+  tee(act_md, "Verdict: " .. verdict)
+  tee(act_md, "")
+  tee(act_md, "## Actions")
+
+  local actions = actions_data.actions or {}
+  for _, action in ipairs(actions) do
+    local action_type = action.action or "unknown"
+    tee(act_md, "Would execute: " .. action_type)
+    local f = io.open(act_md, "a")
+    if f then
+      f:write("  Payload: " .. json.encode(action) .. "\n")
+      f:close()
+    end
+  end
+
+  local success = verdict == "pass"
+  write_file("o/work/act/results.json", json.encode({
+    verdict = verdict,
+    success = success
+  }) .. "\n")
+
+  -- Cleanup: update labels
+  M.update_labels(issue_url, success)
+
+  return 0
+end
+
+if proc.is_main() then
+  os.exit(M.main(arg) or 0)
+end
+
+return M
