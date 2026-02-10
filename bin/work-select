@@ -68,9 +68,9 @@ function M.select_issue(issues)
   if #issues == 0 then
     return nil
   end
-  
+
   M.sort_issues(issues)
-  
+
   -- Return the first issue in the required format
   local selected = issues[1]
   return {
@@ -81,24 +81,61 @@ function M.select_issue(issues)
   }
 end
 
+function M.fetch_issue(repo, issue_number)
+  local handle, err = spawn.spawn({
+    "gh", "issue", "view", tostring(issue_number),
+    "--repo", repo,
+    "--json", "number,title,body,url"
+  }, {env = env.all()})
+
+  if not handle then
+    return nil, "failed to spawn gh: " .. tostring(err)
+  end
+
+  local ok, stdout, exit_str = handle:read()
+  local exit_code = tonumber(exit_str) or 0
+
+  if not ok or exit_code ~= 0 then
+    return nil, "gh command failed with exit code " .. exit_code
+  end
+
+  local success, issue = pcall(json.decode, stdout)
+  if not success or type(issue) ~= "table" then
+    return nil, "failed to parse JSON response"
+  end
+
+  return issue
+end
+
 function M.main(args)
   local repo = args and args[1]
   if not repo then
-    io.stderr:write("usage: work-select <owner/repo>\n")
+    io.stderr:write("usage: work-select <owner/repo> [issue-number]\n")
     return 1
   end
-  
-  local issues, err = M.fetch_issues(repo)
-  if not issues then
+
+  local issue_number = args[2] and tonumber(args[2])
+  local selected, err
+
+  if issue_number then
+    selected, err = M.fetch_issue(repo, issue_number)
+  else
+    local issues
+    issues, err = M.fetch_issues(repo)
+    if issues then
+      selected = M.select_issue(issues)
+    end
+  end
+
+  if err then
     io.stderr:write("error: " .. err .. "\n")
     return 1
   end
-  
-  local selected = M.select_issue(issues)
+
   if not selected then
     return 1
   end
-  
+
   print(json.encode(selected))
   return 0
 end
