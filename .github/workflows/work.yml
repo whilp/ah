@@ -64,7 +64,7 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: work
-          path: o/work/
+          path: o/
 
   do:
     needs: [select, plan]
@@ -76,10 +76,9 @@ jobs:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: work
-          path: o/work/
+          path: o/
 
-      - name: Build ah
-        run: make ah
+      - run: chmod +x o/bin/*
 
       - name: Run do phase
         env:
@@ -96,7 +95,7 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: work
-          path: o/work/
+          path: o/
           overwrite: true
 
   check:
@@ -111,7 +110,9 @@ jobs:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: work
-          path: o/work/
+          path: o/
+
+      - run: chmod +x o/bin/*
 
       - name: Checkout work branch
         run: |
@@ -119,9 +120,6 @@ jobs:
           if git ls-remote --heads origin "$branch" | grep -q .; then
             git checkout "$branch"
           fi
-
-      - name: Build ah
-        run: make ah
 
       - name: Run check phase
         env:
@@ -131,7 +129,7 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: work
-          path: o/work/
+          path: o/
           overwrite: true
 
   act:
@@ -143,7 +141,9 @@ jobs:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: work
-          path: o/work/
+          path: o/
+
+      - run: chmod +x o/bin/*
 
       - name: Execute actions (dry-run)
         env:
@@ -154,7 +154,7 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: work
-          path: o/work/
+          path: o/
           overwrite: true
 
   cleanup:
