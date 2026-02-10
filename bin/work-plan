@@ -1,18 +1,27 @@
 #!/bin/bash
 # Run plan phase: research issue and produce plan.md
-# Requires: ISSUE_TITLE, ISSUE_BODY, ISSUE_NUMBER
 set -euo pipefail
 
-: "${ISSUE_TITLE:?required}"
-: "${ISSUE_BODY:?required}"
-: "${ISSUE_NUMBER:?required}"
+usage() { echo "usage: work-plan --title <title> --body <body> --number <number>" >&2; exit 1; }
+
+title="" body="" number=""
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --title) title="$2"; shift 2 ;;
+    --body) body="$2"; shift 2 ;;
+    --number) number="$2"; shift 2 ;;
+    *) usage ;;
+  esac
+done
+
+[[ -n "$title" && -n "$body" && -n "$number" ]] || usage
 
 mkdir -p o/work/plan
 
 prompt=$(cat sys/work/plan.md)
-prompt="${prompt//\{title\}/$ISSUE_TITLE}"
-prompt="${prompt//\{body\}/$ISSUE_BODY}"
-prompt="${prompt//\{issue_number\}/$ISSUE_NUMBER}"
+prompt="${prompt//\{title\}/$title}"
+prompt="${prompt//\{body\}/$body}"
+prompt="${prompt//\{issue_number\}/$number}"
 
 o/bin/ah -n --db o/work/plan/session.db "$prompt"
 

@@ -1,22 +1,31 @@
 #!/bin/bash
 # Run do phase: execute plan and create commits
-# Requires: ISSUE_TITLE, ISSUE_NUMBER
 # Expects: o/work/plan/plan.md from plan phase
 set -euo pipefail
 
-: "${ISSUE_TITLE:?required}"
-: "${ISSUE_NUMBER:?required}"
+usage() { echo "usage: work-do --title <title> --number <number>" >&2; exit 1; }
+
+title="" number=""
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --title) title="$2"; shift 2 ;;
+    --number) number="$2"; shift 2 ;;
+    *) usage ;;
+  esac
+done
+
+[[ -n "$title" && -n "$number" ]] || usage
 
 mkdir -p o/work/do
 
 plan_contents=$(cat o/work/plan/plan.md)
 
 prompt=$(cat sys/work/do.md)
-prompt="${prompt//\{title\}/$ISSUE_TITLE}"
+prompt="${prompt//\{title\}/$title}"
 prompt="${prompt//\{plan.md contents\}/$plan_contents}"
 
 # Extract branch from plan or use default
-branch=$(grep -oP 'Branch: \K.*' o/work/plan/plan.md || echo "work/$ISSUE_NUMBER")
+branch=$(grep -oP 'Branch: \K.*' o/work/plan/plan.md || echo "work/$number")
 prompt="${prompt//\{branch\}/$branch}"
 
 o/bin/ah -n --db o/work/do/session.db "$prompt"
