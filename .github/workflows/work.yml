@@ -9,6 +9,14 @@ on:
         description: 'Issue number (skip selection)'
         type: number
         required: false
+      prompt:
+        description: 'Run a predetermined prompt instead of picking an issue'
+        type: choice
+        required: false
+        default: ''
+        options:
+          - ''
+          - update-docs
 
 concurrency:
   group: work
@@ -30,12 +38,33 @@ jobs:
       - name: Build ah
         run: make ah
 
+      - name: Create issue from prompt
+        if: inputs.prompt != ''
+        id: prompt-issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          prompt_file="sys/work/prompts/${{ inputs.prompt }}.md"
+          if [ ! -f "$prompt_file" ]; then
+            echo "error: prompt file not found: $prompt_file" >&2
+            exit 1
+          fi
+          body=$(cat "$prompt_file")
+          issue_number=$(gh issue create \
+            --repo "$REPO" \
+            --title "work: ${{ inputs.prompt }}" \
+            --body "$body" \
+            --label todo \
+            | grep -o '[0-9]*$')
+          echo "number=$issue_number" >> "$GITHUB_OUTPUT"
+
       - name: Run work
         env:
           GH_TOKEN: ${{ github.token }}
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          PROMPT_ISSUE: ${{ steps.prompt-issue.outputs.number }}
         run: |
-          issue="${{ inputs.issue }}"
+          issue="${PROMPT_ISSUE:-${{ inputs.issue }}}"
           o/bin/ah work --repo "$REPO" ${issue:+--issue "$issue"}
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
