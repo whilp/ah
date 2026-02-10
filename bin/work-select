@@ -1,0 +1,111 @@
+#!/usr/bin/env cosmic
+
+local spawn = require("cosmic.child")
+local json = require("cosmic.json")
+local env = require("cosmic.env")
+local proc = require("cosmic.proc")
+
+-- Export functions for testing
+local M = {}
+
+function M.get_priority(labels)
+  -- Return 0 for p0, 1 for p1, 2 for p2, 3 for no priority
+  for _, label in ipairs(labels) do
+    if label.name == "p0" then return 0 end
+    if label.name == "p1" then return 1 end
+    if label.name == "p2" then return 2 end
+  end
+  return 3
+end
+
+function M.sort_issues(issues)
+  table.sort(issues, function(a, b)
+    local a_priority = M.get_priority(a.labels)
+    local b_priority = M.get_priority(b.labels)
+    
+    if a_priority ~= b_priority then
+      return a_priority < b_priority
+    end
+    
+    -- Sort by creation date (older first)
+    return a.createdAt < b.createdAt
+  end)
+end
+
+function M.fetch_issues(repo)
+  -- Call gh to list issues
+  local handle, err = spawn.spawn({
+    "gh", "issue", "list",
+    "--repo", repo,
+    "--label", "todo",
+    "--state", "open",
+    "--json", "number,title,body,url,labels,createdAt",
+    "--limit", "100"
+  }, {env = env.all()})
+  
+  if not handle then
+    return nil, "failed to spawn gh: " .. tostring(err)
+  end
+  
+  -- Read output: handle:read() returns (ok, stdout, exit_code_as_string)
+  local ok, stdout, exit_str = handle:read()
+  local exit_code = tonumber(exit_str) or 0
+  
+  if not ok or exit_code ~= 0 then
+    return nil, "gh command failed with exit code " .. exit_code
+  end
+  
+  -- Parse issues
+  local success, issues = pcall(json.decode, stdout)
+  if not success or type(issues) ~= "table" then
+    return nil, "failed to parse JSON response"
+  end
+  
+  return issues
+end
+
+function M.select_issue(issues)
+  if #issues == 0 then
+    return nil
+  end
+  
+  M.sort_issues(issues)
+  
+  -- Return the first issue in the required format
+  local selected = issues[1]
+  return {
+    number = selected.number,
+    title = selected.title,
+    body = selected.body,
+    url = selected.url
+  }
+end
+
+function M.main(args)
+  local repo = args and args[1]
+  if not repo then
+    io.stderr:write("usage: work-select <owner/repo>\n")
+    return 1
+  end
+  
+  local issues, err = M.fetch_issues(repo)
+  if not issues then
+    io.stderr:write("error: " .. err .. "\n")
+    return 1
+  end
+  
+  local selected = M.select_issue(issues)
+  if not selected then
+    return 1
+  end
+  
+  print(json.encode(selected))
+  return 0
+end
+
+-- When run as main script, execute main function
+if proc.is_main() then
+  os.exit(M.main(arg) or 0)
+end
+
+return M
