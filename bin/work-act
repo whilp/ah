@@ -1,27 +1,82 @@
-#!/bin/bash
-# Run act phase: execute actions from check phase
-# Currently dry-run only - logs actions without executing
-# Expects: o/work/check/actions.json
-set -euo pipefail
+#!/usr/bin/env cosmic
 
-mkdir -p o/work/act
+local fs = require("cosmic.fs")
+local json = require("cosmic.json")
+local proc = require("cosmic.proc")
 
-echo "=== DRY RUN ===" | tee o/work/act/act.md
+local M = {}
 
-if [ ! -f o/work/check/actions.json ]; then
-  echo "No actions.json found" | tee -a o/work/act/act.md
-  exit 0
-fi
+local function read_file(path)
+  local f = io.open(path, "r")
+  if not f then return nil end
+  local content = f:read("*a")
+  f:close()
+  return content
+end
 
-verdict=$(jq -r .verdict o/work/check/actions.json)
-echo "Verdict: $verdict" | tee -a o/work/act/act.md
-echo "" >> o/work/act/act.md
+local function write_file(path, content)
+  local f = io.open(path, "w")
+  if not f then return false end
+  f:write(content)
+  f:close()
+  return true
+end
 
-echo "## Actions" >> o/work/act/act.md
-jq -c '.actions[]' o/work/check/actions.json | while read -r action; do
-  action_type=$(echo "$action" | jq -r .action)
-  echo "Would execute: $action_type" | tee -a o/work/act/act.md
-  echo "  Payload: $action" >> o/work/act/act.md
-done
+local function tee(path, line)
+  print(line)
+  local f = io.open(path, "a")
+  if f then
+    f:write(line .. "\n")
+    f:close()
+  end
+end
 
-jq -n --arg verdict "$verdict" '{verdict: $verdict, dry_run: true}' > o/work/act/results.json
+function M.main()
+  fs.makedirs("o/work/act")
+
+  local act_md = "o/work/act/act.md"
+  write_file(act_md, "")
+
+  tee(act_md, "=== DRY RUN ===")
+
+  local actions_content = read_file("o/work/check/actions.json")
+  if not actions_content then
+    tee(act_md, "No actions.json found")
+    return 0
+  end
+
+  local ok, actions_data = pcall(json.decode, actions_content)
+  if not ok or type(actions_data) ~= "table" then
+    tee(act_md, "Failed to parse actions.json")
+    return 1
+  end
+
+  local verdict = actions_data.verdict or "unknown"
+  tee(act_md, "Verdict: " .. verdict)
+  tee(act_md, "")
+  tee(act_md, "## Actions")
+
+  local actions = actions_data.actions or {}
+  for _, action in ipairs(actions) do
+    local action_type = action.action or "unknown"
+    tee(act_md, "Would execute: " .. action_type)
+    local f = io.open(act_md, "a")
+    if f then
+      f:write("  Payload: " .. json.encode(action) .. "\n")
+      f:close()
+    end
+  end
+
+  write_file("o/work/act/results.json", json.encode({
+    verdict = verdict,
+    dry_run = true
+  }) .. "\n")
+
+  return 0
+end
+
+if proc.is_main() then
+  os.exit(M.main() or 0)
+end
+
+return M

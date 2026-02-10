@@ -1,34 +1,112 @@
-#!/bin/bash
-# Run do phase: execute plan and create commits
-# Expects: o/work/plan/plan.md from plan phase
-set -euo pipefail
+#!/usr/bin/env cosmic
 
-usage() { echo "usage: work-do --title <title> --number <number>" >&2; exit 1; }
+local spawn = require("cosmic.child")
+local fs = require("cosmic.fs")
+local env = require("cosmic.env")
+local proc = require("cosmic.proc")
+local getopt = require("cosmic.getopt")
 
-title="" number=""
-while [[ $# -gt 0 ]]; do
-  case $1 in
-    --title) title="$2"; shift 2 ;;
-    --number) number="$2"; shift 2 ;;
-    *) usage ;;
-  esac
-done
+local M = {}
 
-[[ -n "$title" && -n "$number" ]] || usage
+local function usage()
+  io.stderr:write("usage: work-do --title <title> --number <number>\n")
+end
 
-mkdir -p o/work/do
+local function read_file(path)
+  local f = io.open(path, "r")
+  if not f then return nil end
+  local content = f:read("*a")
+  f:close()
+  return content
+end
 
-plan_contents=$(cat o/work/plan/plan.md)
+local function write_file(path, content)
+  local f = io.open(path, "w")
+  if not f then return false end
+  f:write(content)
+  f:close()
+  return true
+end
 
-prompt=$(cat sys/work/do.md)
-prompt="${prompt//\{title\}/$title}"
-prompt="${prompt//\{plan.md contents\}/$plan_contents}"
+function M.main(args)
+  local title, number
 
-# Extract branch from plan or use default
-branch=$(grep -oP 'Branch: \K.*' o/work/plan/plan.md || echo "work/$number")
-prompt="${prompt//\{branch\}/$branch}"
+  local longopts = {
+    {name = "help", has_arg = "none", short = "h"},
+    {name = "title", has_arg = "required", short = "t"},
+    {name = "number", has_arg = "required", short = "n"},
+  }
 
-o/bin/ah -n --db o/work/do/session.db "$prompt"
+  local parser = getopt.new(args, "ht:n:", longopts)
 
-# Save branch name for other phases
-echo "$branch" > o/work/do/branch.txt
+  while true do
+    local opt, optarg = parser:next()
+    if not opt then break end
+
+    if opt == "h" or opt == "help" then
+      usage()
+      return 0
+    elseif opt == "t" or opt == "title" then
+      title = optarg
+    elseif opt == "n" or opt == "number" then
+      number = optarg
+    elseif opt == "?" then
+      usage()
+      return 1
+    end
+  end
+
+  if not title or not number then
+    usage()
+    return 1
+  end
+
+  fs.makedirs("o/work/do")
+
+  local plan_contents = read_file("o/work/plan/plan.md")
+  if not plan_contents then
+    io.stderr:write("error: could not read o/work/plan/plan.md\n")
+    return 1
+  end
+
+  local prompt = read_file("sys/work/do.md")
+  if not prompt then
+    io.stderr:write("error: could not read sys/work/do.md\n")
+    return 1
+  end
+
+  -- Extract branch from plan or use default
+  local branch = plan_contents:match("Branch: ([^\n]+)") or ("work/" .. number)
+
+  prompt = prompt:gsub("{title}", title)
+  prompt = prompt:gsub("{plan.md contents}", plan_contents)
+  prompt = prompt:gsub("{branch}", branch)
+
+  local handle, err = spawn.spawn({
+    "o/bin/ah", "-n", "--db", "o/work/do/session.db", prompt
+  }, {env = env.all()})
+
+  if not handle then
+    io.stderr:write("error: failed to spawn ah: " .. tostring(err) .. "\n")
+    return 1
+  end
+
+  local ok, _, exit_str = handle:read()
+  local exit_code = tonumber(exit_str) or 0
+
+  if not ok or exit_code ~= 0 then
+    io.stderr:write("error: ah exited with code " .. exit_code .. "\n")
+    return 1
+  end
+
+  -- Save branch name for other phases
+  write_file("o/work/do/branch.txt", branch .. "\n")
+
+  return 0
+end
+
+if proc.is_main() then
+  os.exit(M.main(arg) or 0)
+end
+
+return M

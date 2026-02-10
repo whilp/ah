@@ -1,15 +1,66 @@
-#!/bin/bash
-# Run check phase: review execution against plan
-# Expects: o/work/plan/plan.md, o/work/do/do.md
-set -euo pipefail
+#!/usr/bin/env cosmic
 
-mkdir -p o/work/check
+local spawn = require("cosmic.child")
+local fs = require("cosmic.fs")
+local env = require("cosmic.env")
+local proc = require("cosmic.proc")
 
-plan_contents=$(cat o/work/plan/plan.md)
-do_contents=$(cat o/work/do/do.md)
+local M = {}
 
-prompt=$(cat sys/work/check.md)
-prompt="${prompt//\{plan.md contents\}/$plan_contents}"
-prompt="${prompt//\{do.md contents\}/$do_contents}"
+local function read_file(path)
+  local f = io.open(path, "r")
+  if not f then return nil end
+  local content = f:read("*a")
+  f:close()
+  return content
+end
 
-o/bin/ah -n --db o/work/check/session.db "$prompt"
+function M.main()
+  fs.makedirs("o/work/check")
+
+  local plan_contents = read_file("o/work/plan/plan.md")
+  if not plan_contents then
+    io.stderr:write("error: could not read o/work/plan/plan.md\n")
+    return 1
+  end
+
+  local do_contents = read_file("o/work/do/do.md")
+  if not do_contents then
+    io.stderr:write("error: could not read o/work/do/do.md\n")
+    return 1
+  end
+
+  local prompt = read_file("sys/work/check.md")
+  if not prompt then
+    io.stderr:write("error: could not read sys/work/check.md\n")
+    return 1
+  end
+
+  prompt = prompt:gsub("{plan.md contents}", plan_contents)
+  prompt = prompt:gsub("{do.md contents}", do_contents)
+
+  local handle, err = spawn.spawn({
+    "o/bin/ah", "-n", "--db", "o/work/check/session.db", prompt
+  }, {env = env.all()})
+
+  if not handle then
+    io.stderr:write("error: failed to spawn ah: " .. tostring(err) .. "\n")
+    return 1
+  end
+
+  local ok, _, exit_str = handle:read()
+  local exit_code = tonumber(exit_str) or 0
+
+  if not ok or exit_code ~= 0 then
+    io.stderr:write("error: ah exited with code " .. exit_code .. "\n")
+    return 1
+  end
+
+  return 0
+end
+
+if proc.is_main() then
+  os.exit(M.main() or 0)
+end
+
+return M
