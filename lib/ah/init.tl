@@ -709,7 +709,8 @@ local function main(args: {string}): integer, string
     -- unix: unix domain sockets (for proxy)
     -- Use EPERM mode (2) so blocked calls return error instead of crashing
     local PLEDGE_PENALTY_RETURN_EPERM = 2
-    sandbox.pledge("stdio rpath wpath cpath flock tty proc exec unix", nil, PLEDGE_PENALTY_RETURN_EPERM)
+    local promises = "stdio rpath wpath cpath flock tty proc exec unix"
+    sandbox.pledge(promises, promises, PLEDGE_PENALTY_RETURN_EPERM)
   end
 
   local model: string = nil

@@ -10,13 +10,19 @@ local ALLOWLIST: {string:boolean} = {
   ["api.anthropic.com:443"] = true,
 }
 
--- DNS cache (hardcoded for now, could use getaddrinfo before pledge)
+-- DNS: hardcoded for known allowlist entries.
+-- TODO: resolve dynamically via net.getaddrinfo once cosmic exposes it,
+-- or resolve in work.tl before pledge and pass IPs via env/args.
 local DNS_CACHE: {string:string} = {
   ["api.anthropic.com"] = "160.79.104.11",
 }
 
+local function resolvehost(host: string): string
+  return DNS_CACHE[host]
+end
+
 local function log(...: string)
-  local parts: {string} = {...}
+  local parts = {...} as {string}
   io.stderr:write("[proxy] " .. table.concat(parts, "\t") .. "\n")
 end
 
@@ -91,7 +97,7 @@ local function handle_client(client_fd: number)
     return
   end
 
-  local ip_str = DNS_CACHE[host]
+  local ip_str = resolvehost(host)
   if not ip_str then
     log("DNS failed:", host)
     unix.write(client_fd, "HTTP/1.1 502 Bad Gateway\r\n\r\nDNS resolution failed\r\n")
@@ -138,7 +144,9 @@ function M.serve(socket_path: string): number
     return 1
   end
 
-  local ok = unix.bind(server_fd, socket_path)
+  -- unix.bind is overloaded: inet bind(fd, ip, port) vs unix bind(fd, path)
+  -- Teal only sees the inet signature, so cast for the AF_UNIX variant
+  local ok = (unix.bind as function(number, string): boolean)(server_fd, socket_path)
   if not ok then
     io.stderr:write("error: failed to bind to " .. socket_path .. "\n")
     unix.close(server_fd)
@@ -150,6 +158,8 @@ function M.serve(socket_path: string): number
 
   log("listening on", socket_path)
 
+  -- Note: forked children become zombies until the proxy is killed.
+  -- Acceptable since proxy lifetime is bounded by the work session.
   while true do
     local client_fd = unix.accept(server_fd, 0)
     if client_fd and client_fd >= 0 then
