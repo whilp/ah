@@ -7,14 +7,15 @@ local auth = require("ah.auth")
 -- Detect proxy from environment (set by work.tl for sandboxed processes)
 local proxy_url: string = nil
 do
-  local http_proxy = os.getenv("http_proxy")
+  local http_proxy = os.getenv("https_proxy") or os.getenv("HTTPS_PROXY")
+                  or os.getenv("http_proxy") or os.getenv("HTTP_PROXY")
   if http_proxy and http_proxy:sub(1, 7) == "unix://" then
     local path = http_proxy:sub(8)
     local url, err = fetch.unix_proxy(path)
     if url then
       proxy_url = url
     else
-      io.stderr:write("[api] warning: invalid http_proxy: " .. (err or "unknown") .. "\n")
+      io.stderr:write("[api] warning: invalid proxy url: " .. (err or "unknown") .. "\n")
     end
   end
 end

@@ -137,9 +137,13 @@ local function run(cmd: {string}): boolean, string, integer
     local proxy_url, proxy_err = fetch.unix_proxy(sandbox_ctx.socket_path)
     if not proxy_url then
       io.stderr:write("[sandbox] invalid proxy path: " .. (proxy_err or "unknown") .. "\n")
-    else
-      run_env.http_proxy = proxy_url
+      return false, "invalid proxy path: " .. (proxy_err or "unknown"), 1
     end
+    -- Set all proxy env vars so children (curl, git, ah, etc.) route through the socket
+    run_env.http_proxy = proxy_url
+    run_env.HTTP_PROXY = proxy_url
+    run_env.https_proxy = proxy_url
+    run_env.HTTPS_PROXY = proxy_url
     run_env.AH_SANDBOX = "1"
   end
 
