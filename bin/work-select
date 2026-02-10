@@ -167,7 +167,7 @@ function M.main(args)
     return 1
   end
 
-  print(json.encode(selected))
+  print("issue=" .. json.encode(selected))
   return 0
 end
 

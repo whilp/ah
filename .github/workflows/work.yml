@@ -35,14 +35,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           issue="${{ inputs.issue }}"
-          bin/work-select --repo "$REPO" ${issue:+--issue "$issue"} > issue.json || true
-
-          if [ ! -s issue.json ]; then
-            echo "No issue selected"
-            exit 0
-          fi
-
-          echo "issue=$(jq -c . issue.json)" >> "$GITHUB_OUTPUT"
+          bin/work-select --repo "$REPO" ${issue:+--issue "$issue"} >> "$GITHUB_OUTPUT"
 
   plan:
     needs: select
