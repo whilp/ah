@@ -8,6 +8,10 @@ local getopt = require("cosmic.getopt")
 
 local M = {}
 
+function M.extract_branch(plan_contents, default_number)
+  return plan_contents:match("Branch: ([^\n]+)") or ("work/" .. default_number)
+end
+
 local function usage()
   io.stderr:write("usage: work-do --title <title> --number <number>\n")
 end
@@ -76,7 +80,7 @@ function M.main(args)
   end
 
   -- Extract branch from plan or use default
-  local branch = plan_contents:match("Branch: ([^\n]+)") or ("work/" .. number)
+  local branch = M.extract_branch(plan_contents, number)
 
   prompt = prompt:gsub("{title}", title)
   prompt = prompt:gsub("{plan.md contents}", plan_contents)

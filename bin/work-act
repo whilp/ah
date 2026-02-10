@@ -9,6 +9,19 @@ local getopt = require("cosmic.getopt")
 
 local M = {}
 
+function M.parse_actions(content)
+  if not content then return nil, "no content" end
+  local ok, data = pcall(json.decode, content)
+  if not ok or type(data) ~= "table" then
+    return nil, "invalid json"
+  end
+  return {
+    verdict = data.verdict or "unknown",
+    actions = data.actions or {},
+    success = data.verdict == "pass"
+  }
+end
+
 local function usage()
   io.stderr:write("usage: work-act --issue-url <url>\n")
 end
