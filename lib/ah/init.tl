@@ -17,6 +17,7 @@ local loop = require("ah.loop")
 local events = require("ah.events")
 local ulid = require("ulid")
 local queue = require("ah.queue")
+local sandbox = require("cosmic.sandbox")
 
 -- Session record for listing
 local record Session
@@ -683,6 +684,35 @@ local function main(args: {string}): integer, string
   -- RLIMIT_CORE = 4 on Linux, RLIM_INFINITY = -1
   unix.setrlimit(4, -1, -1)
 
+  -- Sandbox mode: when AH_SANDBOX=1, restrict capabilities
+  -- Used by work.tl to run ah with limited network access
+  if os.getenv("AH_SANDBOX") then
+    -- Unveil: restrict filesystem visibility
+    local cwd_for_unveil = fs.getcwd()
+    sandbox.unveil(cwd_for_unveil, "rwxc")  -- workspace
+    sandbox.unveil("/tmp", "rwc")            -- proxy socket, temp files
+    sandbox.unveil("/usr", "rx")             -- system binaries
+    sandbox.unveil("/bin", "rx")             -- system binaries
+    sandbox.unveil("/lib", "rx")             -- shared libraries
+    sandbox.unveil("/lib64", "rx")           -- shared libraries (64-bit)
+    sandbox.unveil("/etc/ssl", "r")          -- CA certificates
+    sandbox.unveil("/etc/resolv.conf", "r")  -- DNS config
+    sandbox.unveil(nil, nil)                 -- commit unveil
+
+    -- Pledge: drop inet, keep unix for proxy socket
+    -- stdio: basic I/O
+    -- rpath/wpath/cpath: file operations
+    -- flock: file locking for sqlite
+    -- tty: terminal I/O
+    -- proc: fork/wait for subprocesses
+    -- exec: run git, make, etc.
+    -- unix: unix domain sockets (for proxy)
+    -- Use EPERM mode (2) so blocked calls return error instead of crashing
+    local PLEDGE_PENALTY_RETURN_EPERM = 2
+    local promises = "stdio rpath wpath cpath flock tty proc exec unix"
+    sandbox.pledge(promises, promises, PLEDGE_PENALTY_RETURN_EPERM)
+  end
+
   local model: string = nil
   local db_path: string = nil
   local output_path: string = nil
@@ -773,6 +803,16 @@ local function main(args: {string}): integer, string
       sub_args[#sub_args + 1] = remaining[i]
     end
     return work.main(sub_args)
+
+  elseif cmd == "proxy" then
+    -- Internal command: run HTTP CONNECT proxy for sandboxed network access
+    local socket_path = remaining[2]
+    if not socket_path then
+      io.stderr:write("usage: ah proxy <socket-path>\n")
+      return 1
+    end
+    local proxy = require("ah.proxy")
+    return proxy.serve(socket_path)
 
   elseif cmd == "extract" then
     local output_dir = remaining[2]
