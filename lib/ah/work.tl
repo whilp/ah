@@ -66,6 +66,11 @@ local function read_prompt(name: string): string
       or cio.slurp("sys/work/" .. name)
 end
 
+local function read_prompt_template(name: string): string
+  return cio.slurp("/zip/embed/sys/work/prompts/" .. name .. ".md")
+      or cio.slurp("sys/work/prompts/" .. name .. ".md")
+end
+
 local function ah_exe(): string
   return arg and arg[-1] or "ah"
 end
@@ -242,6 +247,27 @@ local function fetch_issue(repo: string, issue_number: integer): Issue, string
     return nil, "failed to parse JSON"
   end
   return issue as Issue
+end
+
+local function create_issue_from_prompt(repo: string, prompt_name: string): integer, string
+  local body = read_prompt_template(prompt_name)
+  if not body then
+    return nil, "unknown prompt: " .. prompt_name
+  end
+  local ok, stdout = run({
+    "gh", "issue", "create",
+    "--repo", repo,
+    "--title", "work: " .. prompt_name,
+    "--body", body,
+    "--label", "todo",
+    "--json", "number",
+  })
+  if not ok then return nil, "gh issue create failed" end
+  local success, data = pcall(json.decode, stdout)
+  if not success or type(data) ~= "table" then
+    return nil, "failed to parse issue JSON"
+  end
+  return (data as {string:any}).number as integer
 end
 
 local function transition_to_doing(issue_url: string)
@@ -542,6 +568,7 @@ options:
   -h, --help               show this help
   -r, --repo <owner/repo>  repository (required)
   -i, --issue <number>     issue number (optional)
+  -p, --prompt <name>      create issue from prompt template
 ]])
 end
 
@@ -698,14 +725,16 @@ local function main(args: {string}): integer
     -- Unified mode: parse options, run all phases
     local repo: string
     local issue_number: string
+    local prompt_name: string
 
     local longopts = {
       {name = "help", has_arg = "none", short = "h"},
       {name = "repo", has_arg = "required", short = "r"},
       {name = "issue", has_arg = "required", short = "i"},
+      {name = "prompt", has_arg = "required", short = "p"},
     }
 
-    local parser = getopt.new(filtered_args, "hr:i:", longopts)
+    local parser = getopt.new(filtered_args, "hr:i:p:", longopts)
 
     while true do
       local opt, optarg = parser:next()
@@ -717,6 +746,8 @@ local function main(args: {string}): integer
         repo = optarg
       elseif opt == "i" or opt == "issue" then
         issue_number = optarg
+      elseif opt == "p" or opt == "prompt" then
+        prompt_name = optarg
       elseif opt == "?" then
         usage()
         return 1
@@ -726,6 +757,21 @@ local function main(args: {string}): integer
     if not repo then
       usage()
       return 1
+    end
+
+    -- Create issue from prompt template if specified
+    if prompt_name then
+      if issue_number then
+        io.stderr:write("error: --prompt and --issue are mutually exclusive\n")
+        return 1
+      end
+      local num, err = create_issue_from_prompt(repo, prompt_name)
+      if not num then
+        io.stderr:write("error: " .. (err or "unknown") .. "\n")
+        return 1
+      end
+      issue_number = tostring(num)
+      io.stderr:write("created issue #" .. issue_number .. " from prompt: " .. prompt_name .. "\n")
     end
 
     -- Phase 1: Plan
