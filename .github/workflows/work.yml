@@ -16,6 +16,7 @@ concurrency:
 
 env:
   REPO: ${{ github.repository }}
+  PATH: o/bin:${{ github.workspace }}/o/bin:/usr/local/bin:/usr/bin:/bin
 
 jobs:
   select:
@@ -34,7 +35,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           issue="${{ inputs.issue }}"
-          o/bin/cosmic bin/work-select --repo "$REPO" ${issue:+--issue "$issue"} > issue.json || true
+          bin/work-select --repo "$REPO" ${issue:+--issue "$issue"} > issue.json || true
 
           if [ ! -s issue.json ]; then
             echo "No issue selected"
