@@ -24,22 +24,33 @@ local function parse_env_file(path: string): {string:string}
   return env
 end
 
+-- Strip leading/trailing whitespace and control characters from a token.
+-- Tokens from environment variables or .env files may contain trailing
+-- newlines or carriage returns that are invalid in HTTP header values.
+local function sanitize_token(token: string): string
+  if not token then return nil end
+  return (token:match("^%s*(.-)%s*$"))
+end
+
 local function load_credentials(): Credentials, string
   -- Priority: CLAUDE_CODE_OAUTH_TOKEN (OAuth tokens for Claude Max)
-  local oauth_token = os.getenv("CLAUDE_CODE_OAUTH_TOKEN")
-  if oauth_token then
+  local oauth_token = sanitize_token(os.getenv("CLAUDE_CODE_OAUTH_TOKEN"))
+  if oauth_token and oauth_token ~= "" then
     return {access_token = oauth_token, is_oauth = true}
   end
 
   -- Fall back to ANTHROPIC_API_KEY (regular API key)
-  local api_key = os.getenv("ANTHROPIC_API_KEY")
-  if api_key then
+  local api_key = sanitize_token(os.getenv("ANTHROPIC_API_KEY"))
+  if api_key and api_key ~= "" then
     return {access_token = api_key, is_oauth = false}
   end
 
   local env = parse_env_file(".env")
   if env and env.ANTHROPIC_API_KEY then
-    return {access_token = env.ANTHROPIC_API_KEY, is_oauth = false}
+    local key = sanitize_token(env.ANTHROPIC_API_KEY)
+    if key and key ~= "" then
+      return {access_token = key, is_oauth = false}
+    end
   end
 
   return nil, "no credentials found (set ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN)"
