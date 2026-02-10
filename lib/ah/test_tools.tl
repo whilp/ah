@@ -263,6 +263,24 @@ local function test_bash_timeout_not_triggered()
 end
 test_bash_timeout_not_triggered()
 
+local function test_bash_env_passthrough()
+  -- Verify that environment variables are passed to child processes
+  -- HOME should always be set and passed through
+  local home = os.getenv("HOME")
+  assert(home, "HOME should be set in test environment")
+
+  local result, is_error = tools.execute_tool("bash", {command = "echo $HOME"})
+  assert(not is_error, "bash should succeed")
+  assert(result:match(home), "child process should see HOME env var: " .. result)
+
+  -- Also verify PATH is passed (needed for commands to work)
+  local path_result, path_error = tools.execute_tool("bash", {command = "echo $PATH"})
+  assert(not path_error, "bash should succeed")
+  assert(path_result:match("/"), "child process should see PATH with directories: " .. path_result)
+  print("✓ bash tool passes environment variables to child processes")
+end
+test_bash_env_passthrough()
+
 -- CLI tool tests
 local function test_load_cli_tools_empty_dir()
   local empty_dir = fs.join(TEST_TMPDIR, "empty_bin")
