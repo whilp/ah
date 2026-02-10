@@ -679,6 +679,72 @@ local function make_cli_handler(): events.EventCallback
   end
 end
 
+local record ParsedArgs
+  model: string
+  db_path: string
+  output_path: string
+  new_session: boolean
+  session_prefix: string
+  steer_msg: string
+  followup_msg: string
+  max_tokens: integer
+  remaining: {string}
+end
+
+local function parse_args(args: {string}): ParsedArgs, string
+  local result: ParsedArgs = {
+    new_session = false,
+    remaining = {},
+  }
+
+  local longopts = {
+    {name = "help", has_arg = "none", short = "h"},
+    {name = "new", has_arg = "none", short = "n"},
+    {name = "session", has_arg = "required", short = "S"},
+    {name = "db", has_arg = "required"},
+    {name = "model", has_arg = "required", short = "m"},
+    {name = "output", has_arg = "required", short = "o"},
+    {name = "steer", has_arg = "required"},
+    {name = "followup", has_arg = "required"},
+    {name = "max-tokens", has_arg = "required"},
+  }
+
+  -- Use + prefix for POSIX mode: stop parsing options at first non-option arg.
+  -- This allows subcommands like "work" to have their own flags (--repo, --issue,
+  -- --prompt) without the top-level parser rejecting them as unknown options.
+  local parser = getopt.new(args, "+hnS:m:o:", longopts)
+
+  while true do
+    local opt, optarg = parser:next()
+    if not opt then break end
+
+    if opt == "h" or opt == "help" then
+      return nil, "help"
+    elseif opt == "n" or opt == "new" then
+      result.new_session = true
+    elseif opt == "S" or opt == "session" then
+      result.session_prefix = optarg
+    elseif opt == "db" then
+      result.db_path = optarg
+    elseif opt == "m" or opt == "model" then
+      result.model = optarg
+    elseif opt == "o" or opt == "output" then
+      result.output_path = optarg
+    elseif opt == "steer" then
+      result.steer_msg = optarg
+    elseif opt == "followup" then
+      result.followup_msg = optarg
+    elseif opt == "max-tokens" then
+      result.max_tokens = tonumber(optarg) as integer
+    elseif opt == "?" then
+      return nil, "unknown"
+    end
+  end
+
+  result.remaining = parser:remaining() or {}
+  return result
+end
+
 local function main(args: {string}): integer, string
   -- Enable core dumps for crash debugging
   -- RLIMIT_CORE = 4 on Linux, RLIM_INFINITY = -1
@@ -713,60 +779,26 @@ local function main(args: {string}): integer, string
     sandbox.pledge(promises, promises, PLEDGE_PENALTY_RETURN_EPERM)
   end
 
-  local model: string = nil
-  local db_path: string = nil
-  local output_path: string = nil
-  local new_session: boolean = false
-  local session_prefix: string = nil
-  local steer_msg: string = nil
-  local followup_msg: string = nil
-  local max_tokens: integer = nil
   local cwd = fs.getcwd()
 
-  local longopts = {
-    {name = "help", has_arg = "none", short = "h"},
-    {name = "new", has_arg = "none", short = "n"},
-    {name = "session", has_arg = "required", short = "S"},
-    {name = "db", has_arg = "required"},
-    {name = "model", has_arg = "required", short = "m"},
-    {name = "output", has_arg = "required", short = "o"},
-    {name = "steer", has_arg = "required"},
-    {name = "followup", has_arg = "required"},
-    {name = "max-tokens", has_arg = "required"},
-  }
-
-  local parser = getopt.new(args, "hnS:m:o:", longopts)
-
-  while true do
-    local opt, optarg = parser:next()
-    if not opt then break end
-
-    if opt == "h" or opt == "help" then
-      usage()
+  local parsed, err = parse_args(args)
+  if not parsed then
+    usage()
+    if err == "help" then
       return 0
-    elseif opt == "n" or opt == "new" then
-      new_session = true
-    elseif opt == "S" or opt == "session" then
-      session_prefix = optarg
-    elseif opt == "db" then
-      db_path = optarg
-    elseif opt == "m" or opt == "model" then
-      model = optarg
-    elseif opt == "o" or opt == "output" then
-      output_path = optarg
-    elseif opt == "steer" then
-      steer_msg = optarg
-    elseif opt == "followup" then
-      followup_msg = optarg
-    elseif opt == "max-tokens" then
-      max_tokens = tonumber(optarg) as integer
-    elseif opt == "?" then
-      usage()
-      return 1
     end
+    return 1
   end
 
-  local remaining = parser:remaining() or {}
+  local model = parsed.model
+  local db_path = parsed.db_path
+  local output_path = parsed.output_path
+  local new_session = parsed.new_session
+  local session_prefix = parsed.session_prefix
+  local steer_msg = parsed.steer_msg
+  local followup_msg = parsed.followup_msg
+  local max_tokens = parsed.max_tokens
+  local remaining = parsed.remaining
 
   -- Handle commands that don't need db
   local cmd = remaining[1]
@@ -1202,6 +1234,7 @@ end
 
 return {
   main = main,
+  parse_args = parse_args,
   load_system_prompt = load_system_prompt,
   load_claude_md = load_claude_md,
   list_sessions = list_sessions,
