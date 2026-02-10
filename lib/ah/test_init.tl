@@ -162,4 +162,73 @@ local function test_resolve_session_not_found()
 end
 test_resolve_session_not_found()
 
+-- Arg parsing tests
+
+local function test_parse_args_help()
+  local parsed, err = init.parse_args({"-h"})
+  assert(not parsed, "help should return nil")
+  assert(err == "help", "err should be 'help', got: " .. tostring(err))
+end
+test_parse_args_help()
+
+local function test_parse_args_long_help()
+  local parsed, err = init.parse_args({"--help"})
+  assert(not parsed, "--help should return nil")
+  assert(err == "help", "err should be 'help', got: " .. tostring(err))
+end
+test_parse_args_long_help()
+
+local function test_parse_args_model()
+  local parsed = init.parse_args({"-m", "opus"})
+  assert(parsed, "should parse successfully")
+  assert(parsed.model == "opus", "model should be opus, got: " .. tostring(parsed.model))
+end
+test_parse_args_model()
+
+local function test_parse_args_unknown_option()
+  local parsed, err = init.parse_args({"--bogus"})
+  assert(not parsed, "unknown option should return nil")
+  assert(err == "unknown", "err should be 'unknown', got: " .. tostring(err))
+end
+test_parse_args_unknown_option()
+
+local function test_parse_args_work_subcommand_flags()
+  -- This is the failing case from the workflow:
+  -- ah work --repo owner/repo --prompt update-docs
+  -- The top-level parser must NOT reject --repo and --prompt as unknown options.
+  -- Instead, it should stop at "work" and pass everything after to the subcommand.
+  local parsed, err = init.parse_args({"work", "--repo", "owner/repo", "--prompt", "update-docs"})
+  assert(parsed, "work subcommand args should not be rejected, got err: " .. tostring(err))
+  assert(parsed.remaining[1] == "work", "first remaining should be 'work', got: " .. tostring(parsed.remaining[1]))
+  assert(parsed.remaining[2] == "--repo", "second remaining should be '--repo', got: " .. tostring(parsed.remaining[2]))
+  assert(parsed.remaining[3] == "owner/repo", "third remaining should be 'owner/repo', got: " .. tostring(parsed.remaining[3]))
+  assert(parsed.remaining[4] == "--prompt", "fourth remaining should be '--prompt', got: " .. tostring(parsed.remaining[4]))
+  assert(parsed.remaining[5] == "update-docs", "fifth remaining should be 'update-docs', got: " .. tostring(parsed.remaining[5]))
+end
+test_parse_args_work_subcommand_flags()
+
+local function test_parse_args_top_level_opts_before_work()
+  -- ah -m opus work --repo owner/repo
+  -- Top-level -m should be parsed, work and its args should be in remaining.
+  local parsed, err = init.parse_args({"-m", "opus", "work", "--repo", "owner/repo"})
+  assert(parsed, "should parse successfully, got err: " .. tostring(err))
+  assert(parsed.model == "opus", "model should be opus, got: " .. tostring(parsed.model))
+  assert(parsed.remaining[1] == "work", "first remaining should be 'work', got: " .. tostring(parsed.remaining[1]))
+  assert(parsed.remaining[2] == "--repo", "second remaining should be '--repo', got: " .. tostring(parsed.remaining[2]))
+  assert(parsed.remaining[3] == "owner/repo", "third remaining should be 'owner/repo', got: " .. tostring(parsed.remaining[3]))
+end
+test_parse_args_top_level_opts_before_work()
+
+local function test_parse_args_work_with_issue()
+  -- ah work --repo owner/repo --issue 42
+  local parsed, err = init.parse_args({"work", "--repo", "owner/repo", "--issue", "42"})
+  assert(parsed, "should parse successfully, got err: " .. tostring(err))
+  assert(parsed.remaining[1] == "work", "first remaining should be 'work'")
+  assert(parsed.remaining[2] == "--repo", "--repo should be in remaining")
+  assert(parsed.remaining[3] == "owner/repo", "repo value should be in remaining")
+  assert(parsed.remaining[4] == "--issue", "--issue should be in remaining")
+  assert(parsed.remaining[5] == "42", "issue number should be in remaining")
+end
+test_parse_args_work_with_issue()
+
 print("all init tests passed")
