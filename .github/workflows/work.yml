@@ -63,8 +63,8 @@ jobs:
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: plan
-          path: o/work/plan/
+          name: work
+          path: o/work/
 
   do:
     needs: [select, plan]
@@ -75,7 +75,8 @@ jobs:
 
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: plan
+          name: work
+          path: o/work/
 
       - name: Build ah
         run: make ah
@@ -94,8 +95,9 @@ jobs:
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: do
-          path: o/work/do/
+          name: work
+          path: o/work/
+          overwrite: true
 
   check:
     needs: [select, plan, do]
@@ -108,11 +110,8 @@ jobs:
 
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: plan
-
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          name: do
+          name: work
+          path: o/work/
 
       - name: Checkout work branch
         run: |
@@ -131,8 +130,9 @@ jobs:
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: check
-          path: o/work/check/
+          name: work
+          path: o/work/
+          overwrite: true
 
   act:
     needs: [select, plan, do, check]
@@ -142,11 +142,8 @@ jobs:
 
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: do
-
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          name: check
+          name: work
+          path: o/work/
 
       - name: Execute actions (dry-run)
         env:
@@ -156,8 +153,9 @@ jobs:
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: act
-          path: o/work/act/
+          name: work
+          path: o/work/
+          overwrite: true
 
   cleanup:
     needs: [select, plan, do, check, act]
