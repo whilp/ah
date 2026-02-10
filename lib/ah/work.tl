@@ -147,12 +147,27 @@ end
 
 -- Run an ah agent subprocess inside the network sandbox.
 -- Only api.anthropic.com is reachable; filesystem is restricted via pledge/unveil.
-local function sandboxed_agent(ctx: SandboxCtx, prompt: string, db: string): boolean, string, integer
+-- The sandbox is started and stopped around each agent invocation so that
+-- only agent actions run inside the sandbox; all other (deterministic) work
+-- executes without network isolation overhead.
+local function sandboxed_agent(no_sandbox: boolean, prompt: string, db: string): boolean, string, integer
+  local ctx: SandboxCtx = nil
+  if not no_sandbox then
+    local sctx, err = start_sandbox()
+    if not sctx then
+      io.stderr:write("error: sandbox failed to start: " .. (err or "unknown") .. "\n")
+      return false, "sandbox failed to start: " .. (err or "unknown"), 1
+    end
+    ctx = sctx
+    io.stderr:write("[sandbox] proxy started on " .. ctx.socket_path .. "\n")
+  end
+
   local run_env = env.all()
   if ctx and ctx.enabled then
     local proxy_url, proxy_err = fetch.unix_proxy(ctx.socket_path)
     if not proxy_url then
       io.stderr:write("[sandbox] invalid proxy path: " .. (proxy_err or "unknown") .. "\n")
+      stop_sandbox(ctx)
       return false, "invalid proxy path: " .. (proxy_err or "unknown"), 1
     end
     run_env.http_proxy = proxy_url
@@ -166,9 +181,21 @@ local function sandboxed_agent(ctx: SandboxCtx, prompt: string, db: string): boo
     {ah_exe(), "-n", "--db", db, prompt},
     {env = run_env as {string}}
   )
-  if not handle then return false, spawn_err as string, -1 end
+  if not handle then
+    if ctx then
+      io.stderr:write("[sandbox] stopping proxy\n")
+      stop_sandbox(ctx)
+    end
+    return false, spawn_err as string, -1
+  end
   local ok, stdout, exit_str = handle:read()
   local exit_code = (tonumber(exit_str) or 0) as integer
+
+  if ctx then
+    io.stderr:write("[sandbox] stopping proxy\n")
+    stop_sandbox(ctx)
+  end
+
   return ok and exit_code == 0, stdout, exit_code
 end
 
@@ -359,7 +386,7 @@ end
 
 -- Phase runners
 
-local function phase_plan(ctx: SandboxCtx, repo: string, issue_number: integer): integer, Issue
+local function phase_plan(no_sandbox: boolean, repo: string, issue_number: integer): integer, Issue
   -- Select or fetch issue
   local issue: Issue
   local err: string
@@ -397,7 +424,7 @@ local function phase_plan(ctx: SandboxCtx, repo: string, issue_number: integer):
   prompt = prompt:gsub("{body}", issue.body or "")
   prompt = prompt:gsub("{issue_number}", tostring(issue.number))
 
-  local ok = sandboxed_agent(ctx, prompt, "o/work/plan/session.db")
+  local ok = sandboxed_agent(no_sandbox, prompt, "o/work/plan/session.db")
 
   if not ok then
     io.stderr:write("error: plan agent failed\n")
@@ -412,7 +439,7 @@ local function phase_plan(ctx: SandboxCtx, repo: string, issue_number: integer):
   return 0, issue
 end
 
-local function phase_do(ctx: SandboxCtx, title: string, number: string): integer
+local function phase_do(no_sandbox: boolean, title: string, number: string): integer
   fs.makedirs("o/work/do")
 
   local plan_contents = read_file("o/work/plan/plan.md")
@@ -433,7 +460,7 @@ local function phase_do(ctx: SandboxCtx, title: string, number: string): integer
   prompt = prompt:gsub("{plan.md contents}", plan_contents)
   prompt = prompt:gsub("{branch}", branch)
 
-  local ok = sandboxed_agent(ctx, prompt, "o/work/do/session.db")
+  local ok = sandboxed_agent(no_sandbox, prompt, "o/work/do/session.db")
 
   if not ok then
     io.stderr:write("error: do agent failed\n")
@@ -469,7 +496,7 @@ local function phase_push(): integer
   return 0
 end
 
-local function phase_check(ctx: SandboxCtx): integer
+local function phase_check(no_sandbox: boolean): integer
   fs.makedirs("o/work/check")
 
   local plan_contents = read_file("o/work/plan/plan.md")
@@ -493,7 +520,7 @@ local function phase_check(ctx: SandboxCtx): integer
   prompt = prompt:gsub("{plan.md contents}", plan_contents)
   prompt = prompt:gsub("{do.md contents}", do_contents)
 
-  local ok = sandboxed_agent(ctx, prompt, "o/work/check/session.db")
+  local ok = sandboxed_agent(no_sandbox, prompt, "o/work/check/session.db")
 
   if not ok then
     io.stderr:write("error: check agent failed\n")
@@ -571,7 +598,7 @@ options:
 ]])
 end
 
-local function cmd_plan(ctx: SandboxCtx, args: {string}): integer
+local function cmd_plan(no_sandbox: boolean, args: {string}): integer
   local repo: string
   local issue_number: integer
 
@@ -604,11 +631,11 @@ local function cmd_plan(ctx: SandboxCtx, args: {string}): integer
     return 1
   end
 
-  local rc = phase_plan(ctx, repo, issue_number)
+  local rc = phase_plan(no_sandbox, repo, issue_number)
   return rc
 end
 
-local function cmd_do(ctx: SandboxCtx, args: {string}): integer
+local function cmd_do(no_sandbox: boolean, args: {string}): integer
   local title: string
   local number: string
 
@@ -641,7 +668,7 @@ local function cmd_do(ctx: SandboxCtx, args: {string}): integer
     return 1
   end
 
-  return phase_do(ctx, title, number)
+  return phase_do(no_sandbox, title, number)
 end
 
 local function cmd_act(args: {string}): integer
@@ -692,138 +719,109 @@ local function main(args: {string}): integer
     end
   end
 
-  -- Start sandbox unless disabled
-  local ctx: SandboxCtx = nil
-  if not no_sandbox then
-    local sctx, err = start_sandbox()
-    if not sctx then
-      io.stderr:write("error: sandbox failed to start: " .. (err or "unknown") .. "\n")
-      io.stderr:write("use --no-sandbox to run without network isolation\n")
-      return 1
-    end
-    ctx = sctx
-    io.stderr:write("[sandbox] proxy started on " .. ctx.socket_path .. "\n")
+  local subcmd = filtered_args[1]
+
+  if subcmd == "plan" then
+    return cmd_plan(no_sandbox, slice(filtered_args, 2))
+  elseif subcmd == "do" then
+    return cmd_do(no_sandbox, slice(filtered_args, 2))
+  elseif subcmd == "check" then
+    return phase_check(no_sandbox)
+  elseif subcmd == "act" then
+    return cmd_act(slice(filtered_args, 2))
+  elseif subcmd == "push" then
+    return phase_push()
   end
 
-  -- Wrap execution to ensure sandbox cleanup
-  local function run_main(): integer
-    local subcmd = filtered_args[1]
+  -- Unified mode: parse options, run all phases
+  local repo: string
+  local issue_number: string
+  local prompt_name: string
 
-    if subcmd == "plan" then
-      return cmd_plan(ctx, slice(filtered_args, 2))
-    elseif subcmd == "do" then
-      return cmd_do(ctx, slice(filtered_args, 2))
-    elseif subcmd == "check" then
-      return phase_check(ctx)
-    elseif subcmd == "act" then
-      return cmd_act(slice(filtered_args, 2))
-    elseif subcmd == "push" then
-      return phase_push()
-    end
+  local longopts = {
+    {name = "help", has_arg = "none", short = "h"},
+    {name = "repo", has_arg = "required", short = "r"},
+    {name = "issue", has_arg = "required", short = "i"},
+    {name = "prompt", has_arg = "required", short = "p"},
+  }
 
-    -- Unified mode: parse options, run all phases
-    local repo: string
-    local issue_number: string
-    local prompt_name: string
+  local parser = getopt.new(filtered_args, "hr:i:p:", longopts)
 
-    local longopts = {
-      {name = "help", has_arg = "none", short = "h"},
-      {name = "repo", has_arg = "required", short = "r"},
-      {name = "issue", has_arg = "required", short = "i"},
-      {name = "prompt", has_arg = "required", short = "p"},
-    }
-
-    local parser = getopt.new(filtered_args, "hr:i:p:", longopts)
-
-    while true do
-      local opt, optarg = parser:next()
-      if not opt then break end
-      if opt == "h" or opt == "help" then
-        usage()
-        return 0
-      elseif opt == "r" or opt == "repo" then
-        repo = optarg
-      elseif opt == "i" or opt == "issue" then
-        issue_number = optarg
-      elseif opt == "p" or opt == "prompt" then
-        prompt_name = optarg
-      elseif opt == "?" then
-        usage()
-        return 1
-      end
-    end
-
-    if not repo then
+  while true do
+    local opt, optarg = parser:next()
+    if not opt then break end
+    if opt == "h" or opt == "help" then
+      usage()
+      return 0
+    elseif opt == "r" or opt == "repo" then
+      repo = optarg
+    elseif opt == "i" or opt == "issue" then
+      issue_number = optarg
+    elseif opt == "p" or opt == "prompt" then
+      prompt_name = optarg
+    elseif opt == "?" then
       usage()
       return 1
     end
+  end
 
-    -- Create issue from prompt template if specified
-    if prompt_name then
-      if issue_number then
-        io.stderr:write("error: --prompt and --issue are mutually exclusive\n")
-        return 1
-      end
-      local num, err = create_issue_from_prompt(repo, prompt_name)
-      if not num then
-        io.stderr:write("error: " .. (err or "unknown") .. "\n")
-        return 1
-      end
-      issue_number = tostring(num)
-      io.stderr:write("created issue #" .. issue_number .. " from prompt: " .. prompt_name .. "\n")
-    end
+  if not repo then
+    usage()
+    return 1
+  end
 
-    -- Phase 1: Plan
-    io.stderr:write("==> plan\n")
-    local issue_num: integer = nil
+  -- Create issue from prompt template if specified
+  if prompt_name then
     if issue_number then
-      issue_num = tonumber(issue_number) as integer
+      io.stderr:write("error: --prompt and --issue are mutually exclusive\n")
+      return 1
     end
-    local rc: integer
-    local issue: Issue
-    rc, issue = phase_plan(ctx, repo, issue_num)
-    if rc ~= 0 then return rc end
-
-    if not issue then
-      io.stderr:write("no issues to work on\n")
-      return 0
+    local num, err = create_issue_from_prompt(repo, prompt_name)
+    if not num then
+      io.stderr:write("error: " .. (err or "unknown") .. "\n")
+      return 1
     end
+    issue_number = tostring(num)
+    io.stderr:write("created issue #" .. issue_number .. " from prompt: " .. prompt_name .. "\n")
+  end
 
-    -- Phase 2: Do
-    io.stderr:write("==> do\n")
-    rc = phase_do(ctx, issue.title, tostring(issue.number))
-    if rc ~= 0 then return rc end
+  -- Phase 1: Plan (agent — sandboxed)
+  io.stderr:write("==> plan\n")
+  local issue_num: integer = nil
+  if issue_number then
+    issue_num = tonumber(issue_number) as integer
+  end
+  local rc: integer
+  local issue: Issue
+  rc, issue = phase_plan(no_sandbox, repo, issue_num)
+  if rc ~= 0 then return rc end
 
-    -- Phase 3: Push
-    io.stderr:write("==> push\n")
-    rc = phase_push()
-    if rc ~= 0 then return rc end
-
-    -- Phase 4: Check
-    io.stderr:write("==> check\n")
-    rc = phase_check(ctx)
-    if rc ~= 0 then return rc end
-
-    -- Phase 5: Act
-    io.stderr:write("==> act\n")
-    rc = phase_act(issue.url)
-    if rc ~= 0 then return rc end
-
+  if not issue then
+    io.stderr:write("no issues to work on\n")
     return 0
   end
 
-  local ok, result = pcall(run_main)
+  -- Phase 2: Do (agent — sandboxed)
+  io.stderr:write("==> do\n")
+  rc = phase_do(no_sandbox, issue.title, tostring(issue.number))
+  if rc ~= 0 then return rc end
 
-  -- Always clean up sandbox
-  if ctx then
-    io.stderr:write("[sandbox] stopping proxy\n")
-    stop_sandbox(ctx)
-  end
+  -- Phase 3: Push (deterministic — unsandboxed)
+  io.stderr:write("==> push\n")
+  rc = phase_push()
+  if rc ~= 0 then return rc end
 
-  if not ok then
-    error(result)
-  end
-  return result as integer
+  -- Phase 4: Check (agent — sandboxed)
+  io.stderr:write("==> check\n")
+  rc = phase_check(no_sandbox)
+  if rc ~= 0 then return rc end
+
+  -- Phase 5: Act (deterministic — unsandboxed)
+  io.stderr:write("==> act\n")
+  rc = phase_act(issue.url)
+  if rc ~= 0 then return rc end
+
+  return 0
 end
 
 return {
