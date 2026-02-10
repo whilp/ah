@@ -3,8 +3,12 @@
 local spawn = require("cosmic.child")
 local json = require("cosmic.json")
 local env = require("cosmic.env")
+local cosmo = require("cosmo")
 
-local function get_priority(labels)
+-- Export functions for testing
+local M = {}
+
+function M.get_priority(labels)
   -- Return 0 for p0, 1 for p1, 2 for p2, 3 for no priority
   for _, label in ipairs(labels) do
     if label.name == "p0" then return 0 end
@@ -14,13 +18,21 @@ local function get_priority(labels)
   return 3
 end
 
-local function main()
-  local repo = arg[1]
-  if not repo then
-    io.stderr:write("usage: work-select <owner/repo>\n")
-    os.exit(1)
-  end
-  
+function M.sort_issues(issues)
+  table.sort(issues, function(a, b)
+    local a_priority = M.get_priority(a.labels)
+    local b_priority = M.get_priority(b.labels)
+    
+    if a_priority ~= b_priority then
+      return a_priority < b_priority
+    end
+    
+    -- Sort by creation date (older first)
+    return a.createdAt < b.createdAt
+  end)
+end
+
+function M.fetch_issues(repo)
   -- Call gh to list issues
   local handle, err = spawn.spawn({
     "gh", "issue", "list",
@@ -32,8 +44,7 @@ local function main()
   }, {env = env.all()})
   
   if not handle then
-    io.stderr:write("error: failed to spawn gh: " .. tostring(err) .. "\n")
-    os.exit(1)
+    return nil, "failed to spawn gh: " .. tostring(err)
   end
   
   -- Read output: handle:read() returns (ok, stdout, exit_code_as_string)
@@ -41,44 +52,103 @@ local function main()
   local exit_code = tonumber(exit_str) or 0
   
   if not ok or exit_code ~= 0 then
-    io.stderr:write("error: gh command failed with exit code " .. exit_code .. "\n")
-    os.exit(1)
+    return nil, "gh command failed with exit code " .. exit_code
   end
   
   -- Parse issues
   local success, issues = pcall(json.decode, stdout)
   if not success or type(issues) ~= "table" then
-    io.stderr:write("error: failed to parse JSON response\n")
-    os.exit(1)
+    return nil, "failed to parse JSON response"
   end
   
+  return issues
+end
+
+function M.select_issue(issues)
   if #issues == 0 then
-    os.exit(1)
+    return nil
   end
   
-  -- Sort issues by priority then by creation date
-  table.sort(issues, function(a, b)
-    local a_priority = get_priority(a.labels)
-    local b_priority = get_priority(b.labels)
-    
-    if a_priority ~= b_priority then
-      return a_priority < b_priority
-    end
-    
-    -- Sort by creation date (older first)
-    return a.createdAt < b.createdAt
-  end)
+  M.sort_issues(issues)
   
-  -- Output the first issue
+  -- Return the first issue in the required format
   local selected = issues[1]
-  local output = {
+  return {
     number = selected.number,
     title = selected.title,
     body = selected.body,
     url = selected.url
   }
-  
-  print(json.encode(output))
 end
 
-main()
+function M.test()
+  -- Test get_priority
+  assert(M.get_priority({}) == 3, "no labels should return 3")
+  assert(M.get_priority({{name = "p0"}}) == 0, "p0 should return 0")
+  assert(M.get_priority({{name = "p1"}}) == 1, "p1 should return 1")
+  assert(M.get_priority({{name = "p2"}}) == 2, "p2 should return 2")
+  print("✓ get_priority works correctly")
+  
+  -- Test sort_issues
+  local issues = {
+    {number = 1, labels = {}, createdAt = "2024-01-01T00:00:00Z"},
+    {number = 2, labels = {{name = "p2"}}, createdAt = "2024-01-02T00:00:00Z"},
+    {number = 3, labels = {{name = "p0"}}, createdAt = "2024-01-03T00:00:00Z"},
+    {number = 4, labels = {{name = "p1"}}, createdAt = "2024-01-04T00:00:00Z"}
+  }
+  
+  M.sort_issues(issues)
+  assert(issues[1].number == 3, "p0 issue should be first")
+  assert(issues[2].number == 4, "p1 issue should be second")
+  assert(issues[3].number == 2, "p2 issue should be third")
+  assert(issues[4].number == 1, "unlabeled issue should be last")
+  print("✓ sort_issues works correctly")
+  
+  -- Test select_issue
+  local test_issues = {
+    {number = 42, title = "Test", body = "Body", url = "url1", labels = {{name = "p1"}}, createdAt = "2024-01-01T00:00:00Z", extra = "field"},
+    {number = 43, title = "Higher", body = "Body2", url = "url2", labels = {{name = "p0"}}, createdAt = "2024-01-02T00:00:00Z"}
+  }
+  
+  local selected = M.select_issue(test_issues)
+  assert(selected.number == 43, "should select p0 issue")
+  assert(selected.extra == nil, "should not include extra fields")
+  print("✓ select_issue works correctly")
+  
+  print("\nAll tests passed!")
+  return 0
+end
+
+function M.main(args)
+  -- Check for test mode
+  if args[1] == "--test" then
+    return M.test()
+  end
+  
+  local repo = args and args[1]
+  if not repo then
+    io.stderr:write("usage: work-select <owner/repo>\n")
+    return 1
+  end
+  
+  local issues, err = M.fetch_issues(repo)
+  if not issues then
+    io.stderr:write("error: " .. err .. "\n")
+    return 1
+  end
+  
+  local selected = M.select_issue(issues)
+  if not selected then
+    return 1
+  end
+  
+  print(json.encode(selected))
+  return 0
+end
+
+-- When run as main script, execute main function
+if cosmo.is_main() then
+  os.exit(M.main(arg) or 0)
+end
+
+return M
