@@ -5,6 +5,18 @@ local cio = require("cosmic.io")
 local json = require("cosmic.json")
 local env = require("cosmic.env")
 local getopt = require("cosmic.getopt")
+local unix = require("cosmo.unix")
+local sandbox = require("cosmic.sandbox")
+
+-- Sandbox context for network isolation
+local record SandboxCtx
+  enabled: boolean
+  socket_path: string
+  proxy_pid: number
+  tmpdir: string
+end
+
+local sandbox_ctx: SandboxCtx = nil
 
 local record Label
   name: string
@@ -55,8 +67,77 @@ local function read_prompt(name: string): string
       or cio.slurp("sys/work/" .. name)
 end
 
+-- Start sandbox proxy
+-- Returns sandbox context or nil on error
+local function start_sandbox(): SandboxCtx, string
+  -- Create temp directory for socket
+  local tmpdir = unix.mkdtemp("/tmp/ah-sandbox-XXXXXX")
+  if not tmpdir then
+    return nil, "failed to create temp directory"
+  end
+
+  local socket_path = tmpdir .. "/proxy.sock"
+
+  -- Fork and exec proxy
+  local pid = unix.fork()
+  if pid < 0 then
+    unix.rmrf(tmpdir)
+    return nil, "fork failed"
+  end
+
+  if pid == 0 then
+    -- Child: exec proxy
+    unix.execve(ah_exe(), {ah_exe(), "proxy", socket_path}, env.all() as {string})
+    os.exit(1)  -- exec failed
+  end
+
+  -- Parent: wait for socket to appear
+  local timeout = 50  -- 5 seconds (50 * 100ms)
+  while timeout > 0 do
+    local stat = unix.stat(socket_path)
+    if stat then
+      break
+    end
+    unix.nanosleep(0, 100000000)  -- 100ms
+    timeout = timeout - 1
+  end
+
+  if timeout == 0 then
+    unix.kill(pid, unix.SIGTERM)
+    unix.wait()
+    unix.rmrf(tmpdir)
+    return nil, "proxy socket not ready"
+  end
+
+  return {
+    enabled = true,
+    socket_path = socket_path,
+    proxy_pid = pid,
+    tmpdir = tmpdir,
+  }
+end
+
+-- Stop sandbox proxy and clean up
+local function stop_sandbox(ctx: SandboxCtx)
+  if not ctx then return end
+  if ctx.proxy_pid > 0 then
+    unix.kill(ctx.proxy_pid, unix.SIGTERM)
+    unix.wait()
+  end
+  if ctx.tmpdir then
+    unix.rmrf(ctx.tmpdir)
+  end
+end
+
 local function run(cmd: {string}): boolean, string, integer
-  local handle, spawn_err = spawn.spawn(cmd, {env = env.all() as {string}})
+  -- Build environment, adding sandbox vars if enabled
+  local run_env = env.all()
+  if sandbox_ctx and sandbox_ctx.enabled then
+    run_env.http_proxy = "unix://" .. sandbox_ctx.socket_path
+    run_env.AH_SANDBOX = "1"
+  end
+
+  local handle, spawn_err = spawn.spawn(cmd, {env = run_env as {string}})
   if not handle then return false, spawn_err as string, -1 end
   local ok, stdout, exit_str = handle:read()
   local exit_code = (tonumber(exit_str) or 0) as integer
@@ -551,90 +632,131 @@ local function cmd_act(args: {string}): integer
 end
 
 local function main(args: {string}): integer
-  local subcmd = args[1]
+  -- Parse global options first (--no-sandbox)
+  local no_sandbox = false
+  local filtered_args: {string} = {}
 
-  if subcmd == "plan" then
-    return cmd_plan(slice(args, 2))
-  elseif subcmd == "do" then
-    return cmd_do(slice(args, 2))
-  elseif subcmd == "check" then
-    return phase_check()
-  elseif subcmd == "act" then
-    return cmd_act(slice(args, 2))
-  elseif subcmd == "push" then
-    return phase_push()
-  end
-
-  -- Unified mode: parse options, run all phases
-  local repo: string
-  local issue_number: string
-
-  local longopts = {
-    {name = "help", has_arg = "none", short = "h"},
-    {name = "repo", has_arg = "required", short = "r"},
-    {name = "issue", has_arg = "required", short = "i"},
-  }
-
-  local parser = getopt.new(args, "hr:i:", longopts)
-
-  while true do
-    local opt, optarg = parser:next()
-    if not opt then break end
-    if opt == "h" or opt == "help" then
-      usage()
-      return 0
-    elseif opt == "r" or opt == "repo" then
-      repo = optarg
-    elseif opt == "i" or opt == "issue" then
-      issue_number = optarg
-    elseif opt == "?" then
-      usage()
-      return 1
+  for _, a in ipairs(args) do
+    if a == "--no-sandbox" then
+      no_sandbox = true
+    else
+      table.insert(filtered_args, a)
     end
   end
 
-  if not repo then
-    usage()
-    return 1
+  -- Start sandbox unless disabled
+  if not no_sandbox then
+    local ctx, err = start_sandbox()
+    if not ctx then
+      io.stderr:write("warning: sandbox failed to start: " .. (err or "unknown") .. "\n")
+      io.stderr:write("continuing without sandbox\n")
+    else
+      sandbox_ctx = ctx
+      io.stderr:write("[sandbox] proxy started on " .. ctx.socket_path .. "\n")
+    end
   end
 
-  -- Phase 1: Plan
-  io.stderr:write("==> plan\n")
-  local issue_num: integer = nil
-  if issue_number then
-    issue_num = tonumber(issue_number) as integer
-  end
-  local rc: integer
-  local issue: Issue
-  rc, issue = phase_plan(repo, issue_num)
-  if rc ~= 0 then return rc end
+  -- Wrap execution to ensure sandbox cleanup
+  local function run_main(): integer
+    local subcmd = filtered_args[1]
 
-  if not issue then
-    io.stderr:write("no issues to work on\n")
+    if subcmd == "plan" then
+      return cmd_plan(slice(filtered_args, 2))
+    elseif subcmd == "do" then
+      return cmd_do(slice(filtered_args, 2))
+    elseif subcmd == "check" then
+      return phase_check()
+    elseif subcmd == "act" then
+      return cmd_act(slice(filtered_args, 2))
+    elseif subcmd == "push" then
+      return phase_push()
+    end
+
+    -- Unified mode: parse options, run all phases
+    local repo: string
+    local issue_number: string
+
+    local longopts = {
+      {name = "help", has_arg = "none", short = "h"},
+      {name = "repo", has_arg = "required", short = "r"},
+      {name = "issue", has_arg = "required", short = "i"},
+    }
+
+    local parser = getopt.new(filtered_args, "hr:i:", longopts)
+
+    while true do
+      local opt, optarg = parser:next()
+      if not opt then break end
+      if opt == "h" or opt == "help" then
+        usage()
+        return 0
+      elseif opt == "r" or opt == "repo" then
+        repo = optarg
+      elseif opt == "i" or opt == "issue" then
+        issue_number = optarg
+      elseif opt == "?" then
+        usage()
+        return 1
+      end
+    end
+
+    if not repo then
+      usage()
+      return 1
+    end
+
+    -- Phase 1: Plan
+    io.stderr:write("==> plan\n")
+    local issue_num: integer = nil
+    if issue_number then
+      issue_num = tonumber(issue_number) as integer
+    end
+    local rc: integer
+    local issue: Issue
+    rc, issue = phase_plan(repo, issue_num)
+    if rc ~= 0 then return rc end
+
+    if not issue then
+      io.stderr:write("no issues to work on\n")
+      return 0
+    end
+
+    -- Phase 2: Do
+    io.stderr:write("==> do\n")
+    rc = phase_do(issue.title, tostring(issue.number))
+    if rc ~= 0 then return rc end
+
+    -- Phase 3: Push
+    io.stderr:write("==> push\n")
+    rc = phase_push()
+    if rc ~= 0 then return rc end
+
+    -- Phase 4: Check
+    io.stderr:write("==> check\n")
+    rc = phase_check()
+    if rc ~= 0 then return rc end
+
+    -- Phase 5: Act
+    io.stderr:write("==> act\n")
+    rc = phase_act(issue.url)
+    if rc ~= 0 then return rc end
+
     return 0
   end
 
-  -- Phase 2: Do
-  io.stderr:write("==> do\n")
-  rc = phase_do(issue.title, tostring(issue.number))
-  if rc ~= 0 then return rc end
+  local ok, result = pcall(run_main)
 
-  -- Phase 3: Push
-  io.stderr:write("==> push\n")
-  rc = phase_push()
-  if rc ~= 0 then return rc end
+  -- Always clean up sandbox
+  if sandbox_ctx then
+    io.stderr:write("[sandbox] stopping proxy\n")
+    stop_sandbox(sandbox_ctx)
+    sandbox_ctx = nil
+  end
 
-  -- Phase 4: Check
-  io.stderr:write("==> check\n")
-  rc = phase_check()
-  if rc ~= 0 then return rc end
-
-  -- Phase 5: Act
-  io.stderr:write("==> act\n")
-  rc = phase_act(issue.url)
-  if rc ~= 0 then return rc end
-
-  return 0
+  if not ok then
+    error(result)
+  end
+  return result as integer
 end
 
 return {

@@ -803,6 +803,16 @@ local function main(args: {string}): integer, string
     end
     return work.main(sub_args)
 
+  elseif cmd == "proxy" then
+    -- Internal command: run HTTP CONNECT proxy for sandboxed network access
+    local socket_path = remaining[2]
+    if not socket_path then
+      io.stderr:write("usage: ah proxy <socket-path>\n")
+      return 1
+    end
+    local proxy = require("ah.proxy")
+    return proxy.serve(socket_path)
+
   elseif cmd == "extract" then
     local output_dir = remaining[2]
     if not output_dir then
