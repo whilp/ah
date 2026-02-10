@@ -188,7 +188,7 @@ local function stop_sandbox(ctx: SandboxCtx)
   end
 end
 
-local function run(cmd: {string}): boolean, string, integer
+local function run(cmd: {string}): boolean, string, integer, string
   log("exec: " .. table.concat(cmd, " "))
   local handle, spawn_err = spawn.spawn(cmd, {env = env.all() as {string}})
   if not handle then
@@ -207,7 +207,7 @@ local function run(cmd: {string}): boolean, string, integer
       log("stderr: " .. stderr_out:sub(1, 1000))
     end
   end
-  return ok and exit_code == 0, stdout, exit_code
+  return ok and exit_code == 0, stdout, exit_code, stderr_out
 end
 
 -- Run an ah agent subprocess inside the network sandbox.
@@ -397,6 +397,37 @@ local function transition_to_doing(issue_url: string)
   run({"gh", "issue", "edit", issue_url, "--remove-label", "todo", "--add-label", "doing"})
 end
 
+-- Prompt building for do/check phases
+-- Extracted for testability.
+
+local function build_do_prompt(template: string, title: string, plan_contents: string, branch: string): string
+  return interpolate_prompt(template, {
+    title = title,
+    ["plan.md contents"] = plan_contents,
+    branch = branch,
+  })
+end
+
+local function build_check_prompt(template: string, plan_contents: string, do_contents: string): string
+  return interpolate_prompt(template, {
+    ["plan.md contents"] = plan_contents,
+    ["do.md contents"] = do_contents,
+  })
+end
+
+-- Format error from a failed command, preferring stderr over stdout.
+local function format_run_error(prefix: string, stdout: string, stderr: string): string
+  local detail: string
+  if stderr and stderr ~= "" then
+    detail = stderr
+  elseif stdout and stdout ~= "" then
+    detail = stdout
+  else
+    detail = "no output"
+  end
+  return prefix .. ": " .. detail
+end
+
 -- Branch extraction
 
 local function extract_branch(plan_contents: string, default_number: string): string
@@ -429,8 +460,8 @@ end
 
 local function execute_comment_issue(issue_url: string, body: string): boolean, string
   if not body then return false, "missing body" end
-  local ok, stdout = run({"gh", "issue", "comment", issue_url, "--body", body})
-  if not ok then return false, "gh issue comment failed: " .. (stdout or "no output") end
+  local ok, stdout, _, stderr = run({"gh", "issue", "comment", issue_url, "--body", body})
+  if not ok then return false, format_run_error("gh issue comment failed", stdout, stderr) end
   return true
 end
 
@@ -439,8 +470,8 @@ local function execute_create_pr(branch: string, title: string, body: string): b
   if not valid then return false, verr end
   if not title then return false, "missing title" end
   if not body then return false, "missing body" end
-  local ok, stdout = run({"gh", "pr", "create", "--head", branch, "--title", title, "--body", body})
-  if not ok then return false, "gh pr create failed: " .. (stdout or "no output") end
+  local ok, stdout, _, stderr = run({"gh", "pr", "create", "--head", branch, "--title", title, "--body", body})
+  if not ok then return false, format_run_error("gh pr create failed", stdout, stderr) end
   return true
 end
 
@@ -562,9 +593,7 @@ local function phase_do(no_sandbox: boolean, title: string, number: string): int
 
   local branch = extract_branch(plan_contents, number)
 
-  prompt = prompt:gsub("{title}", title)
-  prompt = prompt:gsub("{plan.md contents}", plan_contents)
-  prompt = prompt:gsub("{branch}", branch)
+  prompt = build_do_prompt(prompt, title, plan_contents, branch)
 
   local ok = sandboxed_agent(no_sandbox, prompt, "o/work/do/session.db")
 
@@ -597,7 +626,11 @@ local function phase_push(): integer
     return 0
   end
 
-  run({"git", "push", "-u", "origin", "HEAD:" .. branch})
+  local push_ok = run({"git", "push", "-u", "origin", "HEAD:" .. branch})
+  if not push_ok then
+    io.stderr:write("error: git push failed for branch " .. branch .. "\n")
+    return 1
+  end
 
   return 0
 end
@@ -623,8 +656,7 @@ local function phase_check(no_sandbox: boolean): integer
     return 1
   end
 
-  prompt = prompt:gsub("{plan.md contents}", plan_contents)
-  prompt = prompt:gsub("{do.md contents}", do_contents)
+  prompt = build_check_prompt(prompt, plan_contents, do_contents)
 
   local ok = sandboxed_agent(no_sandbox, prompt, "o/work/check/session.db")
 
@@ -948,4 +980,7 @@ return {
   ensure_labels = ensure_labels,
   interpolate_prompt = interpolate_prompt,
   plan_diagnostic = plan_diagnostic,
+  build_do_prompt = build_do_prompt,
+  build_check_prompt = build_check_prompt,
+  format_run_error = format_run_error,
 }
