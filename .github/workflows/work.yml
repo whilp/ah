@@ -21,10 +21,7 @@ jobs:
   select:
     runs-on: ubuntu-latest
     outputs:
-      issue_number: ${{ steps.select.outputs.issue_number }}
-      issue_title: ${{ steps.select.outputs.issue_title }}
-      issue_body: ${{ steps.select.outputs.issue_body }}
-      issue_url: ${{ steps.select.outputs.issue_url }}
+      issue: ${{ steps.select.outputs.issue }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
@@ -44,18 +41,11 @@ jobs:
             exit 0
           fi
 
-          echo "issue_number=$(jq -r .number issue.json)" >> "$GITHUB_OUTPUT"
-          echo "issue_title=$(jq -r .title issue.json)" >> "$GITHUB_OUTPUT"
-          echo "issue_url=$(jq -r .url issue.json)" >> "$GITHUB_OUTPUT"
-          {
-            echo 'issue_body<<EOF'
-            jq -r '.body // ""' issue.json
-            echo 'EOF'
-          } >> "$GITHUB_OUTPUT"
+          echo "issue=$(jq -c . issue.json)" >> "$GITHUB_OUTPUT"
 
   plan:
     needs: select
-    if: needs.select.outputs.issue_number != ''
+    if: needs.select.outputs.issue != ''
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -64,7 +54,7 @@ jobs:
       - name: Transition to doing
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh issue edit "${{ needs.select.outputs.issue_url }}" --remove-label todo --add-label doing
+        run: gh issue edit "${{ fromJson(needs.select.outputs.issue).url }}" --remove-label todo --add-label doing
 
       - name: Build ah
         run: make ah
@@ -72,9 +62,9 @@ jobs:
       - name: Run plan phase
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          ISSUE_TITLE: ${{ needs.select.outputs.issue_title }}
-          ISSUE_BODY: ${{ needs.select.outputs.issue_body }}
-          ISSUE_NUMBER: ${{ needs.select.outputs.issue_number }}
+          ISSUE_TITLE: ${{ fromJson(needs.select.outputs.issue).title }}
+          ISSUE_BODY: ${{ fromJson(needs.select.outputs.issue).body }}
+          ISSUE_NUMBER: ${{ fromJson(needs.select.outputs.issue).number }}
         run: bin/work-plan
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -101,8 +91,8 @@ jobs:
       - name: Run do phase
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          ISSUE_TITLE: ${{ needs.select.outputs.issue_title }}
-          ISSUE_NUMBER: ${{ needs.select.outputs.issue_number }}
+          ISSUE_TITLE: ${{ fromJson(needs.select.outputs.issue).title }}
+          ISSUE_NUMBER: ${{ fromJson(needs.select.outputs.issue).number }}
         run: bin/work-do
 
       - name: Push branch
@@ -173,7 +163,7 @@ jobs:
       - name: Execute actions (dry-run)
         env:
           GH_TOKEN: ${{ github.token }}
-          ISSUE_URL: ${{ needs.select.outputs.issue_url }}
+          ISSUE_URL: ${{ fromJson(needs.select.outputs.issue).url }}
         run: bin/work-act
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -183,13 +173,13 @@ jobs:
 
   cleanup:
     needs: [select, plan, do, check, act]
-    if: always() && needs.select.outputs.issue_number != ''
+    if: always() && needs.select.outputs.issue != ''
     runs-on: ubuntu-latest
     steps:
       - name: Update labels
         env:
           GH_TOKEN: ${{ github.token }}
-          ISSUE_URL: ${{ needs.select.outputs.issue_url }}
+          ISSUE_URL: ${{ fromJson(needs.select.outputs.issue).url }}
         run: |
           gh issue edit "$ISSUE_URL" --remove-label doing || true
           if [ "${{ needs.act.result }}" = "success" ]; then
