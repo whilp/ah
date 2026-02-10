@@ -4,9 +4,14 @@ local spawn = require("cosmic.child")
 local json = require("cosmic.json")
 local env = require("cosmic.env")
 local proc = require("cosmic.proc")
+local getopt = require("cosmic.getopt")
 
 -- Export functions for testing
 local M = {}
+
+local function usage()
+  io.stderr:write("usage: work-select --repo <owner/repo> [--issue <number>]\n")
+end
 
 function M.get_priority(labels)
   -- Return 0 for p0, 1 for p1, 2 for p2, 3 for no priority
@@ -108,13 +113,39 @@ function M.fetch_issue(repo, issue_number)
 end
 
 function M.main(args)
-  local repo = args and args[1]
+  local repo = nil
+  local issue_number = nil
+
+  local longopts = {
+    {name = "help", has_arg = "none", short = "h"},
+    {name = "repo", has_arg = "required", short = "r"},
+    {name = "issue", has_arg = "required", short = "i"},
+  }
+
+  local parser = getopt.new(args, "hr:i:", longopts)
+
+  while true do
+    local opt, optarg = parser:next()
+    if not opt then break end
+
+    if opt == "h" or opt == "help" then
+      usage()
+      return 0
+    elseif opt == "r" or opt == "repo" then
+      repo = optarg
+    elseif opt == "i" or opt == "issue" then
+      issue_number = tonumber(optarg)
+    elseif opt == "?" then
+      usage()
+      return 1
+    end
+  end
+
   if not repo then
-    io.stderr:write("usage: work-select <owner/repo> [issue-number]\n")
+    usage()
     return 1
   end
 
-  local issue_number = args[2] and tonumber(args[2])
   local selected, err
 
   if issue_number then

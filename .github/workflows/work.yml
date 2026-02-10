@@ -36,7 +36,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          o/bin/cosmic bin/work-select "$REPO" ${{ inputs.issue }} > issue.json || true
+          args="--repo $REPO"
+          if [ -n "${{ inputs.issue }}" ]; then
+            args="$args --issue ${{ inputs.issue }}"
+          fi
+          o/bin/cosmic bin/work-select $args > issue.json || true
 
           if [ ! -s issue.json ]; then
             echo "No issue selected"
