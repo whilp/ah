@@ -1,0 +1,651 @@
+-- ah/work.tl: unified work command (PDCA loop)
+local spawn = require("cosmic.child")
+local fs = require("cosmic.fs")
+local cio = require("cosmic.io")
+local json = require("cosmic.json")
+local env = require("cosmic.env")
+local getopt = require("cosmic.getopt")
+
+local record Label
+  name: string
+end
+
+local record RawIssue
+  number: integer
+  title: string
+  body: string
+  url: string
+  labels: {Label}
+  createdAt: string
+end
+
+local record Issue
+  number: integer
+  title: string
+  body: string
+  url: string
+end
+
+local record ParsedActions
+  verdict: string
+  actions: {{string:any}}
+  success: boolean
+end
+
+-- Helpers
+
+local function read_file(path: string): string
+  local f = io.open(path, "r")
+  if not f then return nil end
+  local content = f:read("*a")
+  f:close()
+  return content
+end
+
+local function write_file(path: string, content: string): boolean
+  local f = io.open(path, "w")
+  if not f then return false end
+  f:write(content)
+  f:close()
+  return true
+end
+
+local function read_prompt(name: string): string
+  return cio.slurp("/zip/embed/sys/work/" .. name)
+      or cio.slurp("sys/work/" .. name)
+end
+
+local function run(cmd: {string}): boolean, string, integer
+  local handle, spawn_err = spawn.spawn(cmd, {env = env.all() as {string}})
+  if not handle then return false, spawn_err as string, -1 end
+  local ok, stdout, exit_str = handle:read()
+  local exit_code = (tonumber(exit_str) or 0) as integer
+  return ok and exit_code == 0, stdout, exit_code
+end
+
+local function tee(path: string, line: string)
+  print(line)
+  local f = io.open(path, "a")
+  if f then
+    f:write(line .. "\n")
+    f:close()
+  end
+end
+
+local function ah_exe(): string
+  return arg and arg[-1] or "ah"
+end
+
+local function slice(t: {string}, from: integer): {string}
+  local result: {string} = {}
+  for i = from, #t do
+    result[#result + 1] = t[i]
+  end
+  return result
+end
+
+-- Issue selection
+
+local function get_priority(labels: {Label}): integer
+  for _, label in ipairs(labels) do
+    if label.name == "p0" then return 0 end
+    if label.name == "p1" then return 1 end
+    if label.name == "p2" then return 2 end
+  end
+  return 3
+end
+
+local function sort_issues(issues: {RawIssue})
+  table.sort(issues, function(a: RawIssue, b: RawIssue): boolean
+    local a_priority = get_priority(a.labels)
+    local b_priority = get_priority(b.labels)
+    if a_priority ~= b_priority then
+      return a_priority < b_priority
+    end
+    return a.createdAt < b.createdAt
+  end)
+end
+
+local function fetch_issues(repo: string): {RawIssue}, string
+  local ok, stdout = run({
+    "gh", "issue", "list",
+    "--repo", repo,
+    "--label", "todo",
+    "--state", "open",
+    "--json", "number,title,body,url,labels,createdAt",
+    "--limit", "100"
+  })
+  if not ok then return nil, "gh command failed" end
+  local success, issues = pcall(json.decode, stdout)
+  if not success or type(issues) ~= "table" then
+    return nil, "failed to parse JSON"
+  end
+  return issues as {RawIssue}
+end
+
+local function select_issue(issues: {RawIssue}): Issue
+  if #issues == 0 then return nil end
+  sort_issues(issues)
+  local s = issues[1]
+  return {number = s.number, title = s.title, body = s.body, url = s.url}
+end
+
+local function fetch_issue(repo: string, issue_number: integer): Issue, string
+  local ok, stdout = run({
+    "gh", "issue", "view", tostring(issue_number),
+    "--repo", repo,
+    "--json", "number,title,body,url"
+  })
+  if not ok then return nil, "gh command failed" end
+  local success, issue = pcall(json.decode, stdout)
+  if not success or type(issue) ~= "table" then
+    return nil, "failed to parse JSON"
+  end
+  return issue as Issue
+end
+
+local function transition_to_doing(issue_url: string)
+  run({"gh", "issue", "edit", issue_url, "--remove-label", "todo", "--add-label", "doing"})
+end
+
+-- Branch extraction
+
+local function extract_branch(plan_contents: string, default_number: string): string
+  return plan_contents:match("Branch: ([^\n]+)") or ("work/" .. default_number)
+end
+
+-- Actions
+
+local function parse_actions(content: string): ParsedActions, string
+  if not content then return nil, "no content" end
+  local ok, data = pcall(json.decode, content)
+  if not ok or type(data) ~= "table" then
+    return nil, "invalid json"
+  end
+  local d = data as {string:any}
+  return {
+    verdict = (d.verdict or "unknown") as string,
+    actions = (d.actions or {}) as {{string:any}},
+    success = d.verdict == "pass"
+  }
+end
+
+local function validate_branch(branch: string): boolean, string
+  if not branch then return false, "missing branch" end
+  if not (branch as string):match("^work/") then
+    return false, "branch must start with work/"
+  end
+  return true
+end
+
+local function execute_comment_issue(issue_url: string, body: string): boolean, string
+  if not body then return false, "missing body" end
+  local ok = run({"gh", "issue", "comment", issue_url, "--body", body})
+  if not ok then return false, "gh issue comment failed" end
+  return true
+end
+
+local function execute_create_pr(branch: string, title: string, body: string): boolean, string
+  local valid, verr = validate_branch(branch)
+  if not valid then return false, verr end
+  if not title then return false, "missing title" end
+  if not body then return false, "missing body" end
+  local ok = run({"gh", "pr", "create", "--head", branch, "--title", title, "--body", body})
+  if not ok then return false, "gh pr create failed" end
+  return true
+end
+
+local function execute_action(issue_url: string, action: {string:any}, log_fn: function(string)): boolean
+  local action_type = (action.action or "unknown") as string
+  log_fn("Executing: " .. action_type)
+
+  if action_type == "comment_issue" then
+    local ok, err = execute_comment_issue(issue_url, action.body as string)
+    if not ok then
+      log_fn("  Failed: " .. (err or "unknown error"))
+      return false
+    end
+    log_fn("  Success")
+    return true
+
+  elseif action_type == "create_pr" then
+    local ok, err = execute_create_pr(action.branch as string, action.title as string, action.body as string)
+    if not ok then
+      log_fn("  Failed: " .. (err or "unknown error"))
+      return false
+    end
+    log_fn("  Success")
+    return true
+
+  else
+    log_fn("  Skipped: unknown action type")
+    return true
+  end
+end
+
+local function update_labels(issue_url: string, success: boolean)
+  run({"gh", "issue", "edit", issue_url, "--remove-label", "doing"})
+  if success then
+    run({"gh", "issue", "edit", issue_url, "--add-label", "done"})
+  else
+    run({"gh", "issue", "edit", issue_url, "--add-label", "failed"})
+  end
+end
+
+-- Phase runners
+
+local function phase_plan(repo: string, issue_number: integer): integer, Issue
+  -- Select or fetch issue
+  local issue: Issue
+  local err: string
+  if issue_number then
+    issue, err = fetch_issue(repo, issue_number)
+  else
+    local issues: {RawIssue}
+    issues, err = fetch_issues(repo)
+    if issues then
+      issue = select_issue(issues)
+    end
+  end
+
+  if err then
+    io.stderr:write("error: " .. err .. "\n")
+    return 1
+  end
+
+  if not issue then
+    return 0
+  end
+
+  transition_to_doing(issue.url)
+
+  fs.makedirs("o/work/plan")
+  write_file("o/work/plan/issue.json", json.encode(issue) .. "\n")
+
+  local prompt = read_prompt("plan.md")
+  if not prompt then
+    io.stderr:write("error: could not read plan.md prompt\n")
+    return 1
+  end
+
+  prompt = prompt:gsub("{title}", issue.title)
+  prompt = prompt:gsub("{body}", issue.body or "")
+  prompt = prompt:gsub("{issue_number}", tostring(issue.number))
+
+  local ok = run({ah_exe(), "-n", "--db", "o/work/plan/session.db", prompt})
+
+  if not ok then
+    io.stderr:write("error: plan agent failed\n")
+    return 1
+  end
+
+  if not read_file("o/work/plan/plan.md") then
+    io.stderr:write("error: plan.md not created\n")
+    return 1
+  end
+
+  return 0, issue
+end
+
+local function phase_do(title: string, number: string): integer
+  fs.makedirs("o/work/do")
+
+  local plan_contents = read_file("o/work/plan/plan.md")
+  if not plan_contents then
+    io.stderr:write("error: could not read o/work/plan/plan.md\n")
+    return 1
+  end
+
+  local prompt = read_prompt("do.md")
+  if not prompt then
+    io.stderr:write("error: could not read do.md prompt\n")
+    return 1
+  end
+
+  local branch = extract_branch(plan_contents, number)
+
+  prompt = prompt:gsub("{title}", title)
+  prompt = prompt:gsub("{plan.md contents}", plan_contents)
+  prompt = prompt:gsub("{branch}", branch)
+
+  local ok = run({ah_exe(), "-n", "--db", "o/work/do/session.db", prompt})
+
+  if not ok then
+    io.stderr:write("error: do agent failed\n")
+    return 1
+  end
+
+  write_file("o/work/do/branch.txt", branch .. "\n")
+
+  return 0
+end
+
+local function phase_push(): integer
+  local branch_content = read_file("o/work/do/branch.txt")
+  if not branch_content then
+    io.stderr:write("error: could not read o/work/do/branch.txt\n")
+    return 1
+  end
+
+  local branch = branch_content:gsub("%s+$", "")
+
+  local has_parent = run({"git", "rev-parse", "--verify", "HEAD~1"})
+  if not has_parent then
+    return 0
+  end
+
+  local same = run({"git", "diff", "--quiet", "origin/main...HEAD"})
+  if same then
+    return 0
+  end
+
+  run({"git", "push", "-u", "origin", "HEAD:" .. branch})
+
+  return 0
+end
+
+local function phase_check(): integer
+  fs.makedirs("o/work/check")
+
+  local plan_contents = read_file("o/work/plan/plan.md")
+  if not plan_contents then
+    io.stderr:write("error: could not read o/work/plan/plan.md\n")
+    return 1
+  end
+
+  local do_contents = read_file("o/work/do/do.md")
+  if not do_contents then
+    io.stderr:write("error: could not read o/work/do/do.md\n")
+    return 1
+  end
+
+  local prompt = read_prompt("check.md")
+  if not prompt then
+    io.stderr:write("error: could not read check.md prompt\n")
+    return 1
+  end
+
+  prompt = prompt:gsub("{plan.md contents}", plan_contents)
+  prompt = prompt:gsub("{do.md contents}", do_contents)
+
+  local ok = run({ah_exe(), "-n", "--db", "o/work/check/session.db", prompt})
+
+  if not ok then
+    io.stderr:write("error: check agent failed\n")
+    return 1
+  end
+
+  return 0
+end
+
+local function phase_act(issue_url: string): integer
+  fs.makedirs("o/work/act")
+
+  local act_md = "o/work/act/act.md"
+  write_file(act_md, "")
+
+  tee(act_md, "# Act")
+
+  local actions_content = read_file("o/work/check/actions.json")
+  if not actions_content then
+    tee(act_md, "No actions.json found")
+    update_labels(issue_url, false)
+    return 0
+  end
+
+  local ok, actions_data = pcall(json.decode, actions_content)
+  if not ok or type(actions_data) ~= "table" then
+    tee(act_md, "Failed to parse actions.json")
+    update_labels(issue_url, false)
+    return 1
+  end
+
+  local data = actions_data as {string:any}
+  local verdict = (data.verdict or "unknown") as string
+  tee(act_md, "Verdict: " .. verdict)
+  tee(act_md, "")
+  tee(act_md, "## Actions")
+
+  local actions = (data.actions or {}) as {{string:any}}
+  local all_succeeded = true
+  for _, action in ipairs(actions) do
+    local log_fn = function(msg: string) tee(act_md, msg) end
+    local action_ok = execute_action(issue_url, action, log_fn)
+    if not action_ok then all_succeeded = false end
+  end
+
+  local success = verdict == "pass" and all_succeeded
+  write_file("o/work/act/results.json", json.encode({
+    verdict = verdict,
+    success = success
+  }) .. "\n")
+
+  update_labels(issue_url, success)
+
+  return 0
+end
+
+-- CLI
+
+local function usage()
+  io.stderr:write([[usage: ah work [command] [options]
+
+commands:
+  (default)  run all phases: plan, do, push, check, act
+  plan       select issue and create plan
+  do         execute plan
+  check      verify execution
+  act        execute actions
+  push       push work branch
+
+options:
+  -h, --help               show this help
+  -r, --repo <owner/repo>  repository (required)
+  -i, --issue <number>     issue number (optional)
+]])
+end
+
+local function cmd_plan(args: {string}): integer
+  local repo: string
+  local issue_number: integer
+
+  local longopts = {
+    {name = "help", has_arg = "none", short = "h"},
+    {name = "repo", has_arg = "required", short = "r"},
+    {name = "issue", has_arg = "required", short = "i"},
+  }
+
+  local parser = getopt.new(args, "hr:i:", longopts)
+
+  while true do
+    local opt, optarg = parser:next()
+    if not opt then break end
+    if opt == "h" or opt == "help" then
+      io.stderr:write("usage: ah work plan --repo <owner/repo> [--issue <number>]\n")
+      return 0
+    elseif opt == "r" or opt == "repo" then
+      repo = optarg
+    elseif opt == "i" or opt == "issue" then
+      issue_number = tonumber(optarg) as integer
+    elseif opt == "?" then
+      io.stderr:write("usage: ah work plan --repo <owner/repo> [--issue <number>]\n")
+      return 1
+    end
+  end
+
+  if not repo then
+    io.stderr:write("usage: ah work plan --repo <owner/repo> [--issue <number>]\n")
+    return 1
+  end
+
+  local rc = phase_plan(repo, issue_number)
+  return rc
+end
+
+local function cmd_do(args: {string}): integer
+  local title: string
+  local number: string
+
+  local longopts = {
+    {name = "help", has_arg = "none", short = "h"},
+    {name = "title", has_arg = "required", short = "t"},
+    {name = "number", has_arg = "required", short = "n"},
+  }
+
+  local parser = getopt.new(args, "ht:n:", longopts)
+
+  while true do
+    local opt, optarg = parser:next()
+    if not opt then break end
+    if opt == "h" or opt == "help" then
+      io.stderr:write("usage: ah work do --title <title> --number <number>\n")
+      return 0
+    elseif opt == "t" or opt == "title" then
+      title = optarg
+    elseif opt == "n" or opt == "number" then
+      number = optarg
+    elseif opt == "?" then
+      io.stderr:write("usage: ah work do --title <title> --number <number>\n")
+      return 1
+    end
+  end
+
+  if not title or not number then
+    io.stderr:write("usage: ah work do --title <title> --number <number>\n")
+    return 1
+  end
+
+  return phase_do(title, number)
+end
+
+local function cmd_act(args: {string}): integer
+  local issue_url: string
+
+  local longopts = {
+    {name = "help", has_arg = "none", short = "h"},
+    {name = "issue-url", has_arg = "required"},
+  }
+
+  local parser = getopt.new(args, "h", longopts)
+
+  while true do
+    local opt, optarg = parser:next()
+    if not opt then break end
+    if opt == "h" or opt == "help" then
+      io.stderr:write("usage: ah work act --issue-url <url>\n")
+      return 0
+    elseif opt == "issue-url" then
+      issue_url = optarg
+    elseif opt == "?" then
+      io.stderr:write("usage: ah work act --issue-url <url>\n")
+      return 1
+    end
+  end
+
+  if not issue_url then
+    io.stderr:write("usage: ah work act --issue-url <url>\n")
+    return 1
+  end
+
+  return phase_act(issue_url)
+end
+
+local function main(args: {string}): integer
+  local subcmd = args[1]
+
+  if subcmd == "plan" then
+    return cmd_plan(slice(args, 2))
+  elseif subcmd == "do" then
+    return cmd_do(slice(args, 2))
+  elseif subcmd == "check" then
+    return phase_check()
+  elseif subcmd == "act" then
+    return cmd_act(slice(args, 2))
+  elseif subcmd == "push" then
+    return phase_push()
+  end
+
+  -- Unified mode: parse options, run all phases
+  local repo: string
+  local issue_number: string
+
+  local longopts = {
+    {name = "help", has_arg = "none", short = "h"},
+    {name = "repo", has_arg = "required", short = "r"},
+    {name = "issue", has_arg = "required", short = "i"},
+  }
+
+  local parser = getopt.new(args, "hr:i:", longopts)
+
+  while true do
+    local opt, optarg = parser:next()
+    if not opt then break end
+    if opt == "h" or opt == "help" then
+      usage()
+      return 0
+    elseif opt == "r" or opt == "repo" then
+      repo = optarg
+    elseif opt == "i" or opt == "issue" then
+      issue_number = optarg
+    elseif opt == "?" then
+      usage()
+      return 1
+    end
+  end
+
+  if not repo then
+    usage()
+    return 1
+  end
+
+  -- Phase 1: Plan
+  io.stderr:write("==> plan\n")
+  local issue_num: integer = nil
+  if issue_number then
+    issue_num = tonumber(issue_number) as integer
+  end
+  local rc: integer
+  local issue: Issue
+  rc, issue = phase_plan(repo, issue_num)
+  if rc ~= 0 then return rc end
+
+  if not issue then
+    io.stderr:write("no issues to work on\n")
+    return 0
+  end
+
+  -- Phase 2: Do
+  io.stderr:write("==> do\n")
+  rc = phase_do(issue.title, tostring(issue.number))
+  if rc ~= 0 then return rc end
+
+  -- Phase 3: Push
+  io.stderr:write("==> push\n")
+  rc = phase_push()
+  if rc ~= 0 then return rc end
+
+  -- Phase 4: Check
+  io.stderr:write("==> check\n")
+  rc = phase_check()
+  if rc ~= 0 then return rc end
+
+  -- Phase 5: Act
+  io.stderr:write("==> act\n")
+  rc = phase_act(issue.url)
+  if rc ~= 0 then return rc end
+
+  return 0
+end
+
+return {
+  main = main,
+  -- exported for testing
+  get_priority = get_priority,
+  sort_issues = sort_issues,
+  select_issue = select_issue,
+  extract_branch = extract_branch,
+  parse_actions = parse_actions,
+  validate_branch = validate_branch,
+  execute_action = execute_action,
+  slice = slice,
+}
