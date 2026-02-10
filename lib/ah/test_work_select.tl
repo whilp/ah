@@ -1,7 +1,5 @@
 #!/usr/bin/env cosmic
--- test_work_select.tl: tests for work-plan selection logic
-
-local path = require("cosmo.path")
+-- test_work_select.tl: tests for work issue selection logic
 
 local record Label
   name: string
@@ -24,24 +22,22 @@ local record SelectedIssue
   url: string
 end
 
-local record WorkSelect
+local record Work
   get_priority: function({Label}): integer
   sort_issues: function({Issue})
   select_issue: function({Issue}): SelectedIssue
 end
 
--- Load the work-plan module (contains selection logic)
-local script_path = path.join(os.getenv("TEST_BIN") or "bin", "..", "bin", "work-plan")
-local ws = dofile(script_path) as WorkSelect
+local work = require("ah.work") as Work
 
 -- Test get_priority
 local function test_get_priority()
-  assert(ws.get_priority({}) == 3, "no labels should return 3")
-  assert(ws.get_priority({{name = "bug"}}) == 3, "non-priority label should return 3")
-  assert(ws.get_priority({{name = "p0"}}) == 0, "p0 should return 0")
-  assert(ws.get_priority({{name = "p1"}}) == 1, "p1 should return 1")
-  assert(ws.get_priority({{name = "p2"}}) == 2, "p2 should return 2")
-  assert(ws.get_priority({{name = "p0"}, {name = "bug"}}) == 0, "p0 with other labels should return 0")
+  assert(work.get_priority({}) == 3, "no labels should return 3")
+  assert(work.get_priority({{name = "bug"}}) == 3, "non-priority label should return 3")
+  assert(work.get_priority({{name = "p0"}}) == 0, "p0 should return 0")
+  assert(work.get_priority({{name = "p1"}}) == 1, "p1 should return 1")
+  assert(work.get_priority({{name = "p2"}}) == 2, "p2 should return 2")
+  assert(work.get_priority({{name = "p0"}, {name = "bug"}}) == 0, "p0 with other labels should return 0")
   print("✓ get_priority works correctly")
 end
 test_get_priority()
@@ -55,7 +51,7 @@ local function test_priority_sorting()
     {number = 4, labels = {{name = "p1"}}, createdAt = "2024-01-04T00:00:00Z"}
   }
 
-  ws.sort_issues(issues)
+  work.sort_issues(issues)
   assert(issues[1].number == 3, "p0 issue should be first")
   assert(issues[2].number == 4, "p1 issue should be second")
   assert(issues[3].number == 2, "p2 issue should be third")
@@ -72,7 +68,7 @@ local function test_date_sorting()
     {number = 3, labels = {{name = "p1"}}, createdAt = "2024-01-03T00:00:00Z"}
   }
 
-  ws.sort_issues(issues)
+  work.sort_issues(issues)
   assert(issues[1].number == 2, "oldest issue should be first")
   assert(issues[2].number == 3, "middle issue should be second")
   assert(issues[3].number == 1, "newest issue should be last")
@@ -87,7 +83,7 @@ local function test_select_issue()
     {number = 43, title = "Higher", body = "Body2", url = "url2", labels = {{name = "p0"}}, createdAt = "2024-01-02T00:00:00Z"}
   }
 
-  local selected = ws.select_issue(issues)
+  local selected = work.select_issue(issues)
   assert(selected.number == 43, "should select p0 issue")
   assert(selected.title == "Higher", "should include title")
   assert(selected.body == "Body2", "should include body")
@@ -102,7 +98,7 @@ test_select_issue()
 
 -- Test select_issue with empty list
 local function test_empty_issues()
-  local selected = ws.select_issue({})
+  local selected = work.select_issue({})
   assert(selected == nil, "should return nil for empty list")
   print("✓ select_issue handles empty list")
 end

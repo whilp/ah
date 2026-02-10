@@ -155,6 +155,7 @@ commands:
   branch rm @N        delete branch from message N
   show [N]            show message(s)
   rmm N...            remove messages
+  work [cmd]          run work loop (plan/do/check/act)
   embed <dir>         embed files into /zip/embed/
   extract <dir>       extract /zip/embed/ to directory
 
@@ -764,6 +765,14 @@ local function main(args: {string}): integer, string
       io.stderr:write("embed: " .. result.message .. "\n")
       return 1
     end
+
+  elseif cmd == "work" then
+    local work = require("ah.work")
+    local sub_args: {string} = {}
+    for i = 2, #remaining do
+      sub_args[#sub_args + 1] = remaining[i]
+    end
+    return work.main(sub_args)
 
   elseif cmd == "extract" then
     local output_dir = remaining[2]

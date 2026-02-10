@@ -1,14 +1,11 @@
 #!/usr/bin/env cosmic
--- test_work_do.tl: tests for work-do script
+-- test_work_do.tl: tests for work do phase logic
 
-local path = require("cosmo.path")
-
-local record WorkDo
+local record Work
   extract_branch: function(string, string): string
 end
 
-local script_path = path.join(os.getenv("TEST_BIN") or "bin", "..", "bin", "work-do")
-local wd = dofile(script_path) as WorkDo
+local work = require("ah.work") as Work
 
 -- Test extract_branch with explicit branch in plan
 local function test_extract_branch_explicit()
@@ -20,7 +17,7 @@ Branch: feature/custom-branch
 ## Tasks
 - Do something
 ]]
-  local branch = wd.extract_branch(plan, "123")
+  local branch = work.extract_branch(plan, "123")
   assert(branch == "feature/custom-branch", "should extract explicit branch, got: " .. branch)
   print("✓ extract_branch extracts explicit branch from plan")
 end
@@ -34,7 +31,7 @@ local function test_extract_branch_default()
 ## Tasks
 - Do something
 ]]
-  local branch = wd.extract_branch(plan, "456")
+  local branch = work.extract_branch(plan, "456")
   assert(branch == "work/456", "should use default branch, got: " .. branch)
   print("✓ extract_branch falls back to work/<number>")
 end
@@ -51,7 +48,7 @@ Branch: work/issue-789
 
 More text here.
 ]]
-  local branch = wd.extract_branch(plan, "000")
+  local branch = work.extract_branch(plan, "000")
   assert(branch == "work/issue-789", "should find branch in middle, got: " .. branch)
   print("✓ extract_branch finds branch anywhere in plan")
 end
