@@ -4,6 +4,7 @@ local fs = require("cosmic.fs")
 local cio = require("cosmic.io")
 local json = require("cosmic.json")
 local env = require("cosmic.env")
+local fetch = require("cosmic.fetch")
 local getopt = require("cosmic.getopt")
 local unix = require("cosmo.unix")
 local sandbox = require("cosmic.sandbox")
@@ -133,7 +134,12 @@ local function run(cmd: {string}): boolean, string, integer
   -- Build environment, adding sandbox vars if enabled
   local run_env = env.all()
   if sandbox_ctx and sandbox_ctx.enabled then
-    run_env.http_proxy = "unix://" .. sandbox_ctx.socket_path
+    local proxy_url, proxy_err = fetch.unix_proxy(sandbox_ctx.socket_path)
+    if not proxy_url then
+      io.stderr:write("[sandbox] invalid proxy path: " .. (proxy_err or "unknown") .. "\n")
+    else
+      run_env.http_proxy = proxy_url
+    end
     run_env.AH_SANDBOX = "1"
   end
 

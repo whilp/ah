@@ -4,6 +4,21 @@ local fetch = require("cosmic.fetch")
 local unix = require("cosmo.unix")
 local auth = require("ah.auth")
 
+-- Detect proxy from environment (set by work.tl for sandboxed processes)
+local proxy_url: string = nil
+do
+  local http_proxy = os.getenv("http_proxy")
+  if http_proxy and http_proxy:sub(1, 7) == "unix://" then
+    local path = http_proxy:sub(8)
+    local url, err = fetch.unix_proxy(path)
+    if url then
+      proxy_url = url
+    else
+      io.stderr:write("[api] warning: invalid http_proxy: " .. (err or "unknown") .. "\n")
+    end
+  end
+end
+
 -- Tool name mapping for Claude Code compatibility (OAuth mode)
 local CLAUDE_CODE_TOOLS: {string:string} = {
   read = "Read",
@@ -226,6 +241,7 @@ local function stream(messages: {any}, opts: {string:any}, callback: function({s
       method = "POST",
       headers = auth_headers,
       body = body,
+      proxy = proxy_url,
     } as fetch.Opts)
 
     if not stream_result.ok then
