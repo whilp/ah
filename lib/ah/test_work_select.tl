@@ -1,5 +1,5 @@
 #!/usr/bin/env cosmic
--- test_work_select.tl: tests for work-select script
+-- test_work_select.tl: tests for work-plan selection logic
 
 local path = require("cosmo.path")
 
@@ -30,8 +30,8 @@ local record WorkSelect
   select_issue: function({Issue}): SelectedIssue
 end
 
--- Load the work-select module
-local script_path = path.join(os.getenv("TEST_BIN") or "bin", "..", "bin", "work-select")
+-- Load the work-plan module (contains selection logic)
+local script_path = path.join(os.getenv("TEST_BIN") or "bin", "..", "bin", "work-plan")
 local ws = dofile(script_path) as WorkSelect
 
 -- Test get_priority
@@ -108,4 +108,4 @@ local function test_empty_issues()
 end
 test_empty_issues()
 
-print("\nAll work-select tests passed!")
+print("\nAll work-plan selection tests passed!")
