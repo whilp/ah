@@ -134,9 +134,19 @@ local function stop_sandbox(ctx: SandboxCtx)
   end
 end
 
-local function run(cmd: {string}, sandboxed: boolean): boolean, string, integer
+local function run(cmd: {string}): boolean, string, integer
+  local handle, spawn_err = spawn.spawn(cmd, {env = env.all() as {string}})
+  if not handle then return false, spawn_err as string, -1 end
+  local ok, stdout, exit_str = handle:read()
+  local exit_code = (tonumber(exit_str) or 0) as integer
+  return ok and exit_code == 0, stdout, exit_code
+end
+
+-- Run an ah agent subprocess inside the network sandbox.
+-- Only api.anthropic.com is reachable; filesystem is restricted via pledge/unveil.
+local function sandboxed_agent(prompt: string, db: string): boolean, string, integer
   local run_env = env.all()
-  if sandboxed and sandbox_ctx and sandbox_ctx.enabled then
+  if sandbox_ctx and sandbox_ctx.enabled then
     local proxy_url, proxy_err = fetch.unix_proxy(sandbox_ctx.socket_path)
     if not proxy_url then
       io.stderr:write("[sandbox] invalid proxy path: " .. (proxy_err or "unknown") .. "\n")
@@ -149,7 +159,10 @@ local function run(cmd: {string}, sandboxed: boolean): boolean, string, integer
     run_env.AH_SANDBOX = "1"
   end
 
-  local handle, spawn_err = spawn.spawn(cmd, {env = run_env as {string}})
+  local handle, spawn_err = spawn.spawn(
+    {ah_exe(), "-n", "--db", db, prompt},
+    {env = run_env as {string}}
+  )
   if not handle then return false, spawn_err as string, -1 end
   local ok, stdout, exit_str = handle:read()
   local exit_code = (tonumber(exit_str) or 0) as integer
@@ -361,7 +374,7 @@ local function phase_plan(repo: string, issue_number: integer): integer, Issue
   prompt = prompt:gsub("{body}", issue.body or "")
   prompt = prompt:gsub("{issue_number}", tostring(issue.number))
 
-  local ok = run({ah_exe(), "-n", "--db", "o/work/plan/session.db", prompt}, true)
+  local ok = sandboxed_agent(prompt, "o/work/plan/session.db")
 
   if not ok then
     io.stderr:write("error: plan agent failed\n")
@@ -397,7 +410,7 @@ local function phase_do(title: string, number: string): integer
   prompt = prompt:gsub("{plan.md contents}", plan_contents)
   prompt = prompt:gsub("{branch}", branch)
 
-  local ok = run({ah_exe(), "-n", "--db", "o/work/do/session.db", prompt}, true)
+  local ok = sandboxed_agent(prompt, "o/work/do/session.db")
 
   if not ok then
     io.stderr:write("error: do agent failed\n")
@@ -457,7 +470,7 @@ local function phase_check(): integer
   prompt = prompt:gsub("{plan.md contents}", plan_contents)
   prompt = prompt:gsub("{do.md contents}", do_contents)
 
-  local ok = run({ah_exe(), "-n", "--db", "o/work/check/session.db", prompt}, true)
+  local ok = sandboxed_agent(prompt, "o/work/check/session.db")
 
   if not ok then
     io.stderr:write("error: check agent failed\n")
