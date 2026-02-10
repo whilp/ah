@@ -160,6 +160,13 @@ function M.main(args)
   -- Run plan phase
   fs.makedirs("o/work/plan")
 
+  -- Save issue data for downstream phases
+  local issue_f = io.open("o/work/plan/issue.json", "w")
+  if issue_f then
+    issue_f:write(json.encode(issue) .. "\n")
+    issue_f:close()
+  end
+
   local prompt = read_file("sys/work/plan.md")
   if not prompt then
     io.stderr:write("error: could not read sys/work/plan.md\n")

@@ -1,0 +1,140 @@
+#!/usr/bin/env cosmic
+
+local json = require("cosmic.json")
+local proc = require("cosmic.proc")
+local getopt = require("cosmic.getopt")
+
+local M = {}
+
+local function read_file(path)
+  local f = io.open(path, "r")
+  if not f then return nil end
+  local content = f:read("*a")
+  f:close()
+  return content
+end
+
+local function usage()
+  io.stderr:write([[usage: work [command] [options]
+
+commands:
+  (default)  run all phases: plan, do, push, check, act
+  plan       select issue and create plan
+  do         execute plan
+  check      verify execution
+  act        execute actions
+  push       push work branch
+
+options:
+  -h, --help               show this help
+  -r, --repo <owner/repo>  repository (required)
+  -i, --issue <number>     issue number (optional)
+]])
+end
+
+function M.slice(t, from)
+  local result = {}
+  for i = from, #t do
+    result[#result + 1] = t[i]
+  end
+  return result
+end
+
+function M.main(args)
+  local subcmd = args[1]
+
+  -- Dispatch subcommands
+  if subcmd == "plan" then
+    return dofile("bin/work-plan").main(M.slice(args, 2))
+  elseif subcmd == "do" then
+    return dofile("bin/work-do").main(M.slice(args, 2))
+  elseif subcmd == "check" then
+    return dofile("bin/work-check").main()
+  elseif subcmd == "act" then
+    return dofile("bin/work-act").main(M.slice(args, 2))
+  elseif subcmd == "push" then
+    return dofile("bin/work-push").main()
+  end
+
+  -- Unified mode: parse options, run all phases
+  local repo, issue_number
+
+  local longopts = {
+    {name = "help", has_arg = "none", short = "h"},
+    {name = "repo", has_arg = "required", short = "r"},
+    {name = "issue", has_arg = "required", short = "i"},
+  }
+
+  local parser = getopt.new(args, "hr:i:", longopts)
+
+  while true do
+    local opt, optarg = parser:next()
+    if not opt then break end
+    if opt == "h" or opt == "help" then
+      usage()
+      return 0
+    elseif opt == "r" or opt == "repo" then
+      repo = optarg
+    elseif opt == "i" or opt == "issue" then
+      issue_number = optarg
+    elseif opt == "?" then
+      usage()
+      return 1
+    end
+  end
+
+  if not repo then
+    usage()
+    return 1
+  end
+
+  -- Phase 1: Plan
+  io.stderr:write("==> plan\n")
+  local plan_args = {"--repo", repo}
+  if issue_number then
+    plan_args[#plan_args + 1] = "--issue"
+    plan_args[#plan_args + 1] = issue_number
+  end
+  local rc = dofile("bin/work-plan").main(plan_args)
+  if rc ~= 0 then return rc end
+
+  -- Read issue data written by plan phase
+  local issue_content = read_file("o/work/plan/issue.json")
+  if not issue_content then
+    io.stderr:write("error: no issue data from plan phase\n")
+    return 1
+  end
+  local ok, issue = pcall(json.decode, issue_content)
+  if not ok or type(issue) ~= "table" then
+    io.stderr:write("error: invalid issue data\n")
+    return 1
+  end
+
+  -- Phase 2: Do
+  io.stderr:write("==> do\n")
+  rc = dofile("bin/work-do").main({"--title", issue.title, "--number", tostring(issue.number)})
+  if rc ~= 0 then return rc end
+
+  -- Phase 3: Push
+  io.stderr:write("==> push\n")
+  rc = dofile("bin/work-push").main()
+  if rc ~= 0 then return rc end
+
+  -- Phase 4: Check
+  io.stderr:write("==> check\n")
+  rc = dofile("bin/work-check").main()
+  if rc ~= 0 then return rc end
+
+  -- Phase 5: Act
+  io.stderr:write("==> act\n")
+  rc = dofile("bin/work-act").main({"--issue-url", issue.url})
+  if rc ~= 0 then return rc end
+
+  return 0
+end
+
+if proc.is_main() then
+  os.exit(M.main(arg) or 0)
+end
+
+return M
