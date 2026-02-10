@@ -5,7 +5,7 @@ local unix = require("cosmo.unix")
 local net = require("cosmic.net")
 
 local record M
-  serve: function(string): number
+  serve: function(string): integer
   -- exported for testing
   parse_connect: function(string): string, string
   resolvehost: function(string): string
@@ -141,7 +141,7 @@ end
 
 -- Run proxy server on Unix socket
 -- Returns only on error
-function M.serve(socket_path: string): number
+function M.serve(socket_path: string): integer
   unix.unlink(socket_path)
 
   local server_fd = unix.socket(unix.AF_UNIX, unix.SOCK_STREAM, 0)

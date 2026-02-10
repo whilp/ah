@@ -68,6 +68,10 @@ local function read_prompt(name: string): string
       or cio.slurp("sys/work/" .. name)
 end
 
+local function ah_exe(): string
+  return arg and arg[-1] or "ah"
+end
+
 -- Start sandbox proxy
 -- Returns sandbox context or nil on error
 local function start_sandbox(): SandboxCtx, string
@@ -161,10 +165,6 @@ local function tee(path: string, line: string)
     f:write(line .. "\n")
     f:close()
   end
-end
-
-local function ah_exe(): string
-  return arg and arg[-1] or "ah"
 end
 
 local function slice(t: {string}, from: integer): {string}
