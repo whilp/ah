@@ -148,8 +148,8 @@ jobs:
       - name: Execute actions (dry-run)
         env:
           GH_TOKEN: ${{ github.token }}
-          ISSUE_URL: ${{ fromJson(needs.select.outputs.issue).url }}
-        run: bin/work-act
+        run: bin/work-act \
+          --issue-url "${{ fromJson(needs.select.outputs.issue).url }}"
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:

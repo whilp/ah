@@ -3,8 +3,13 @@
 local fs = require("cosmic.fs")
 local json = require("cosmic.json")
 local proc = require("cosmic.proc")
+local getopt = require("cosmic.getopt")
 
 local M = {}
+
+local function usage()
+  io.stderr:write("usage: work-act --issue-url <url>\n")
+end
 
 local function read_file(path)
   local f = io.open(path, "r")
@@ -31,7 +36,36 @@ local function tee(path, line)
   end
 end
 
-function M.main()
+function M.main(args)
+  local issue_url
+
+  local longopts = {
+    {name = "help", has_arg = "none", short = "h"},
+    {name = "issue-url", has_arg = "required"},
+  }
+
+  local parser = getopt.new(args, "h", longopts)
+
+  while true do
+    local opt, optarg = parser:next()
+    if not opt then break end
+
+    if opt == "h" or opt == "help" then
+      usage()
+      return 0
+    elseif opt == "issue-url" then
+      issue_url = optarg
+    elseif opt == "?" then
+      usage()
+      return 1
+    end
+  end
+
+  if not issue_url then
+    usage()
+    return 1
+  end
+
   fs.makedirs("o/work/act")
 
   local act_md = "o/work/act/act.md"
@@ -76,7 +110,7 @@ function M.main()
 end
 
 if proc.is_main() then
-  os.exit(M.main() or 0)
+  os.exit(M.main(arg) or 0)
 end
 
 return M
