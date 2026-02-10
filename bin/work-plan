@@ -14,7 +14,7 @@ prompt="${prompt//\{title\}/$ISSUE_TITLE}"
 prompt="${prompt//\{body\}/$ISSUE_BODY}"
 prompt="${prompt//\{issue_number\}/$ISSUE_NUMBER}"
 
-o/bin/ah -n --db .ah/plan.db "$prompt"
+o/bin/ah -n --db o/work/plan/session.db "$prompt"
 
 # Verify output
 test -f o/work/plan/plan.md

@@ -64,9 +64,7 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: plan
-          path: |
-            .ah/plan.db
-            o/work/plan/
+          path: o/work/plan/
 
   do:
     needs: [select, plan]
@@ -97,9 +95,7 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: do
-          path: |
-            .ah/do.db
-            o/work/do/
+          path: o/work/do/
 
   check:
     needs: [select, plan, do]
@@ -136,9 +132,7 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: check
-          path: |
-            .ah/check.db
-            o/work/check/
+          path: o/work/check/
 
   act:
     needs: [select, plan, do, check]
