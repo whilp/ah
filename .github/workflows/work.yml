@@ -9,6 +9,14 @@ on:
         description: 'Issue number (skip selection)'
         type: number
         required: false
+      prompt:
+        description: 'Run a predetermined prompt instead of picking an issue'
+        type: choice
+        required: false
+        default: ''
+        options:
+          - ''
+          - update-docs
 
 concurrency:
   group: work
@@ -36,7 +44,10 @@ jobs:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
         run: |
           issue="${{ inputs.issue }}"
-          o/bin/ah work --repo "$REPO" ${issue:+--issue "$issue"}
+          prompt="${{ inputs.prompt }}"
+          o/bin/ah work --repo "$REPO" \
+            ${issue:+--issue "$issue"} \
+            ${prompt:+--prompt "$prompt"}
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
