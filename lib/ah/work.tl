@@ -260,14 +260,13 @@ local function create_issue_from_prompt(repo: string, prompt_name: string): inte
     "--title", "work: " .. prompt_name,
     "--body", body,
     "--label", "todo",
-    "--json", "number",
   })
   if not ok then return nil, "gh issue create failed" end
-  local success, data = pcall(json.decode, stdout)
-  if not success or type(data) ~= "table" then
-    return nil, "failed to parse issue JSON"
+  local number = tonumber(stdout:match("/issues/(%d+)"))
+  if not number then
+    return nil, "failed to parse issue number from: " .. stdout
   end
-  return (data as {string:any}).number as integer
+  return number as integer
 end
 
 local function transition_to_doing(issue_url: string)
