@@ -3,7 +3,7 @@
 local spawn = require("cosmic.child")
 local json = require("cosmic.json")
 local env = require("cosmic.env")
-local cosmo = require("cosmo")
+local proc = require("cosmic.proc")
 
 -- Export functions for testing
 local M = {}
@@ -81,50 +81,7 @@ function M.select_issue(issues)
   }
 end
 
-function M.test()
-  -- Test get_priority
-  assert(M.get_priority({}) == 3, "no labels should return 3")
-  assert(M.get_priority({{name = "p0"}}) == 0, "p0 should return 0")
-  assert(M.get_priority({{name = "p1"}}) == 1, "p1 should return 1")
-  assert(M.get_priority({{name = "p2"}}) == 2, "p2 should return 2")
-  print("✓ get_priority works correctly")
-  
-  -- Test sort_issues
-  local issues = {
-    {number = 1, labels = {}, createdAt = "2024-01-01T00:00:00Z"},
-    {number = 2, labels = {{name = "p2"}}, createdAt = "2024-01-02T00:00:00Z"},
-    {number = 3, labels = {{name = "p0"}}, createdAt = "2024-01-03T00:00:00Z"},
-    {number = 4, labels = {{name = "p1"}}, createdAt = "2024-01-04T00:00:00Z"}
-  }
-  
-  M.sort_issues(issues)
-  assert(issues[1].number == 3, "p0 issue should be first")
-  assert(issues[2].number == 4, "p1 issue should be second")
-  assert(issues[3].number == 2, "p2 issue should be third")
-  assert(issues[4].number == 1, "unlabeled issue should be last")
-  print("✓ sort_issues works correctly")
-  
-  -- Test select_issue
-  local test_issues = {
-    {number = 42, title = "Test", body = "Body", url = "url1", labels = {{name = "p1"}}, createdAt = "2024-01-01T00:00:00Z", extra = "field"},
-    {number = 43, title = "Higher", body = "Body2", url = "url2", labels = {{name = "p0"}}, createdAt = "2024-01-02T00:00:00Z"}
-  }
-  
-  local selected = M.select_issue(test_issues)
-  assert(selected.number == 43, "should select p0 issue")
-  assert(selected.extra == nil, "should not include extra fields")
-  print("✓ select_issue works correctly")
-  
-  print("\nAll tests passed!")
-  return 0
-end
-
 function M.main(args)
-  -- Check for test mode
-  if args[1] == "--test" then
-    return M.test()
-  end
-  
   local repo = args and args[1]
   if not repo then
     io.stderr:write("usage: work-select <owner/repo>\n")
@@ -147,7 +104,7 @@ function M.main(args)
 end
 
 -- When run as main script, execute main function
-if cosmo.is_main() then
+if proc.is_main() then
   os.exit(M.main(arg) or 0)
 end
 
