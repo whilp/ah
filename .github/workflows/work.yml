@@ -26,6 +26,11 @@ env:
   REPO: ${{ github.repository }}
   PATH: o/bin:${{ github.workspace }}/o/bin:/usr/local/bin:/usr/bin:/bin
 
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
 jobs:
   work:
     runs-on: ubuntu-latest
