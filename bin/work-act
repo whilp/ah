@@ -58,6 +58,59 @@ local function run(cmd)
   return ok and tonumber(exit_str) == 0
 end
 
+function M.validate_branch(branch)
+  if not branch then return false, "missing branch" end
+  if not branch:match("^work/") then
+    return false, "branch must start with work/"
+  end
+  return true
+end
+
+function M.execute_comment_issue(issue_url, body)
+  if not body then return false, "missing body" end
+  local ok = run({"gh", "issue", "comment", issue_url, "--body", body})
+  if not ok then return false, "gh issue comment failed" end
+  return true
+end
+
+function M.execute_create_pr(branch, title, body)
+  local valid, err = M.validate_branch(branch)
+  if not valid then return false, err end
+  if not title then return false, "missing title" end
+  if not body then return false, "missing body" end
+  local ok = run({"gh", "pr", "create", "--head", branch, "--title", title, "--body", body})
+  if not ok then return false, "gh pr create failed" end
+  return true
+end
+
+function M.execute_action(issue_url, action, log_fn)
+  local action_type = action.action or "unknown"
+  log_fn("Executing: " .. action_type)
+
+  if action_type == "comment_issue" then
+    local ok, err = M.execute_comment_issue(issue_url, action.body)
+    if not ok then
+      log_fn("  Failed: " .. (err or "unknown error"))
+      return false
+    end
+    log_fn("  Success")
+    return true
+
+  elseif action_type == "create_pr" then
+    local ok, err = M.execute_create_pr(action.branch, action.title, action.body)
+    if not ok then
+      log_fn("  Failed: " .. (err or "unknown error"))
+      return false
+    end
+    log_fn("  Success")
+    return true
+
+  else
+    log_fn("  Skipped: unknown action type")
+    return true
+  end
+end
+
 function M.update_labels(issue_url, success)
   run({"gh", "issue", "edit", issue_url, "--remove-label", "doing"})
   if success then
@@ -124,17 +177,14 @@ function M.main(args)
   tee(act_md, "## Actions")
 
   local actions = actions_data.actions or {}
+  local all_succeeded = true
   for _, action in ipairs(actions) do
-    local action_type = action.action or "unknown"
-    tee(act_md, "Would execute: " .. action_type)
-    local f = io.open(act_md, "a")
-    if f then
-      f:write("  Payload: " .. json.encode(action) .. "\n")
-      f:close()
-    end
+    local log_fn = function(msg) tee(act_md, msg) end
+    local ok = M.execute_action(issue_url, action, log_fn)
+    if not ok then all_succeeded = false end
   end
 
-  local success = verdict == "pass"
+  local success = verdict == "pass" and all_succeeded
   write_file("o/work/act/results.json", json.encode({
     verdict = verdict,
     success = success

@@ -11,6 +11,10 @@ end
 
 local record WorkAct
   parse_actions: function(string): ParsedActions, string
+  validate_branch: function(string): boolean, string
+  execute_comment_issue: function(string, string): boolean, string
+  execute_create_pr: function(string, string, string): boolean, string
+  execute_action: function(string, {string:any}, function(string)): boolean
 end
 
 local script_path = path.join(os.getenv("TEST_BIN") or "bin", "..", "bin", "work-act")
@@ -77,5 +81,55 @@ local function test_parse_empty_actions()
   print("✓ parse_actions defaults missing actions to empty")
 end
 test_parse_empty_actions()
+
+-- Test validate_branch with valid branch
+local function test_validate_branch_valid()
+  local ok, err = wa.validate_branch("work/123-fix-bug")
+  assert(ok == true, "should accept work/ prefix")
+  assert(err == nil, "should not have error")
+  print("✓ validate_branch accepts work/ prefix")
+end
+test_validate_branch_valid()
+
+-- Test validate_branch with invalid branch
+local function test_validate_branch_invalid()
+  local ok, err = wa.validate_branch("main")
+  assert(ok == false, "should reject non-work branch")
+  assert(err == "branch must start with work/", "should return error")
+  print("✓ validate_branch rejects non-work/ prefix")
+end
+test_validate_branch_invalid()
+
+-- Test validate_branch with feature branch
+local function test_validate_branch_feature()
+  local ok, err = wa.validate_branch("feature/new-thing")
+  assert(ok == false, "should reject feature/ prefix")
+  assert(err == "branch must start with work/", "should return error")
+  print("✓ validate_branch rejects feature/ prefix")
+end
+test_validate_branch_feature()
+
+-- Test validate_branch with nil
+local function test_validate_branch_nil()
+  local ok, err = wa.validate_branch(nil)
+  assert(ok == false, "should reject nil branch")
+  assert(err == "missing branch", "should return missing error")
+  print("✓ validate_branch rejects nil branch")
+end
+test_validate_branch_nil()
+
+-- Test execute_action with unknown action type
+local function test_execute_action_unknown()
+  local logs = {}
+  local log_fn = function(msg: string) table.insert(logs, msg) end
+  local action = {action = "unknown_action"}
+  local ok = wa.execute_action("https://example.com", action, log_fn)
+  assert(ok == true, "unknown action should succeed (skip)")
+  assert(#logs == 2, "should have 2 log entries")
+  assert(logs[1] == "Executing: unknown_action", "should log action type")
+  assert(logs[2] == "  Skipped: unknown action type", "should log skip")
+  print("✓ execute_action skips unknown action types")
+end
+test_execute_action_unknown()
 
 print("\nAll work-act tests passed!")
