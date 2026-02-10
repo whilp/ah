@@ -4,7 +4,13 @@
 local unix = require("cosmo.unix")
 local net = require("cosmic.net")
 
-local M = {}
+local record M
+  serve: function(string): number
+  -- exported for testing
+  parse_connect: function(string): string, string
+  resolvehost: function(string): string
+  is_allowed: function(string): boolean
+end
 
 local ALLOWLIST: {string:boolean} = {
   ["api.anthropic.com:443"] = true,
@@ -174,6 +180,13 @@ function M.serve(socket_path: string): number
       end
     end
   end
+end
+
+-- exported for testing
+M.parse_connect = parse_connect
+M.resolvehost = resolvehost
+M.is_allowed = function(dest: string): boolean
+  return ALLOWLIST[dest] or false
 end
 
 return M
