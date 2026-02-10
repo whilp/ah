@@ -1,0 +1,207 @@
+#!/usr/bin/env cosmic
+-- ah-proxy: HTTP CONNECT proxy with destination allowlist
+-- Listens on Unix domain socket, forwards only to allowed destinations
+
+local unix = require("cosmo.unix")
+local net = require("cosmic.net")
+local getopt = require("cosmic.getopt")
+local proc = require("cosmic.proc")
+
+local ALLOWLIST = {
+  ["api.anthropic.com:443"] = true,
+}
+
+-- DNS cache (hardcoded for now, could use getaddrinfo)
+local DNS_CACHE = {
+  ["api.anthropic.com"] = "160.79.104.11",
+}
+
+local function log(...)
+  io.stderr:write(table.concat({...}, "\t") .. "\n")
+end
+
+local function parse_connect(request)
+  local host, port = request:match("CONNECT%s+([^:%s]+):(%d+)")
+  return host, port
+end
+
+local function relay(client_fd, upstream_fd)
+  local BUFSIZ = 65536
+
+  -- Set non-blocking
+  unix.fcntl(client_fd, unix.F_SETFL, unix.O_NONBLOCK)
+  unix.fcntl(upstream_fd, unix.F_SETFL, unix.O_NONBLOCK)
+
+  while true do
+    -- Poll both fds
+    local fds = {
+      [client_fd] = net.POLLIN,
+      [upstream_fd] = net.POLLIN,
+    }
+
+    local revents, err = net.poll(fds, 30000)  -- 30s timeout
+    if not revents then
+      log("poll error:", err)
+      break
+    end
+
+    -- Check for hangup/error
+    local client_ev = revents[client_fd] or 0
+    local upstream_ev = revents[upstream_fd] or 0
+
+    if client_ev & (net.POLLERR | net.POLLHUP | net.POLLNVAL) ~= 0 then
+      break
+    end
+    if upstream_ev & (net.POLLERR | net.POLLHUP | net.POLLNVAL) ~= 0 then
+      break
+    end
+
+    -- Client -> upstream
+    if client_ev & net.POLLIN ~= 0 then
+      local data = unix.read(client_fd, BUFSIZ)
+      if not data or data == "" then break end
+      unix.write(upstream_fd, data)
+    end
+
+    -- Upstream -> client
+    if upstream_ev & net.POLLIN ~= 0 then
+      local data = unix.read(upstream_fd, BUFSIZ)
+      if not data or data == "" then break end
+      unix.write(client_fd, data)
+    end
+  end
+end
+
+local function handle_client(client_fd)
+  -- Read CONNECT request
+  local request = unix.read(client_fd, 4096)
+  if not request then
+    log("failed to read request")
+    return
+  end
+
+  local host, port = parse_connect(request)
+  if not host then
+    log("bad request:", request:sub(1, 50))
+    unix.write(client_fd, "HTTP/1.1 400 Bad Request\r\n\r\nOnly CONNECT supported\r\n")
+    return
+  end
+
+  local dest = host .. ":" .. port
+  log("CONNECT", dest)
+
+  -- Check allowlist
+  if not ALLOWLIST[dest] then
+    log("BLOCKED", dest)
+    unix.write(client_fd, "HTTP/1.1 403 Forbidden\r\n\r\nDestination not allowed: " .. dest .. "\r\n")
+    return
+  end
+
+  -- Resolve DNS
+  local ip_str = DNS_CACHE[host]
+  if not ip_str then
+    log("DNS failed:", host)
+    unix.write(client_fd, "HTTP/1.1 502 Bad Gateway\r\n\r\nDNS resolution failed\r\n")
+    return
+  end
+
+  local ip = net.parseip(ip_str)
+  if not ip then
+    log("invalid IP:", ip_str)
+    unix.write(client_fd, "HTTP/1.1 502 Bad Gateway\r\n\r\nInvalid IP\r\n")
+    return
+  end
+
+  -- Connect to upstream
+  local upstream_fd = unix.socket(unix.AF_INET, unix.SOCK_STREAM, 0)
+  if not upstream_fd or upstream_fd < 0 then
+    log("socket failed")
+    unix.write(client_fd, "HTTP/1.1 502 Bad Gateway\r\n\r\nSocket creation failed\r\n")
+    return
+  end
+
+  local ok = unix.connect(upstream_fd, ip, tonumber(port))
+  if not ok then
+    log("connect failed:", host, port)
+    unix.close(upstream_fd)
+    unix.write(client_fd, "HTTP/1.1 502 Bad Gateway\r\n\r\nConnection failed\r\n")
+    return
+  end
+
+  log("ALLOWED", dest)
+  unix.write(client_fd, "HTTP/1.1 200 Connection Established\r\n\r\n")
+
+  -- Relay traffic
+  relay(client_fd, upstream_fd)
+  unix.close(upstream_fd)
+end
+
+local function usage()
+  io.stderr:write("usage: ah-proxy [--socket <path>] [--port <port>]\n")
+end
+
+local function main(args)
+  local socket_path = "/tmp/ah-proxy.sock"
+  local tcp_port = nil
+
+  local longopts = {
+    {name = "help", has_arg = "none", short = "h"},
+    {name = "socket", has_arg = "required", short = "s"},
+    {name = "port", has_arg = "required", short = "p"},
+  }
+
+  local parser = getopt.new(args, "hs:p:", longopts)
+  while true do
+    local opt, optarg = parser:next()
+    if not opt then break end
+    if opt == "h" or opt == "help" then
+      usage()
+      return 0
+    elseif opt == "s" or opt == "socket" then
+      socket_path = optarg
+    elseif opt == "p" or opt == "port" then
+      tcp_port = tonumber(optarg)
+    end
+  end
+
+  local server_fd
+  if tcp_port then
+    -- TCP mode (for testing)
+    server_fd = unix.socket(unix.AF_INET, unix.SOCK_STREAM, 0)
+    unix.setsockopt(server_fd, unix.SOL_SOCKET, unix.SO_REUSEADDR, 1)
+    unix.bind(server_fd, 0, tcp_port)
+    log("listening on TCP port", tcp_port)
+  else
+    -- Unix socket mode (production)
+    unix.unlink(socket_path)
+    server_fd = unix.socket(unix.AF_UNIX, unix.SOCK_STREAM, 0)
+    unix.bind(server_fd, socket_path)
+    unix.chmod(socket_path, tonumber("666", 8))
+    log("listening on", socket_path)
+  end
+
+  unix.listen(server_fd, 128)
+
+  -- Accept loop
+  while true do
+    local client_fd = unix.accept(server_fd, 0)
+    if client_fd and client_fd >= 0 then
+      -- Fork to handle client (simple approach)
+      local pid = unix.fork()
+      if pid == 0 then
+        -- Child
+        unix.close(server_fd)
+        handle_client(client_fd)
+        unix.close(client_fd)
+        os.exit(0)
+      else
+        -- Parent
+        unix.close(client_fd)
+      end
+    end
+  end
+end
+
+if proc.is_main() then
+  os.exit(main(arg) or 0)
+end

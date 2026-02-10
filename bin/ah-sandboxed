@@ -1,0 +1,143 @@
+#!/usr/bin/env cosmic
+-- ah-sandboxed: Run ah in a sandboxed environment
+-- - Starts proxy on Unix socket
+-- - Runs ah in PID namespace (can't see/kill proxy)
+-- - Sets http_proxy to route through proxy
+-- - Applies pledge/unveil inside ah
+
+local unix = require("cosmo.unix")
+local spawn = require("cosmic.child")
+local env = require("cosmic.env")
+local proc = require("cosmic.proc")
+local getopt = require("cosmic.getopt")
+local fs = require("cosmic.fs")
+
+local M = {}
+
+local PROXY_SOCKET = "/tmp/ah-proxy.sock"
+local PROXY_BIN = "bin/ah-proxy"
+local AH_BIN = "o/bin/ah"
+
+local function log(...)
+  io.stderr:write("[sandbox] " .. table.concat({...}, " ") .. "\n")
+end
+
+local function wait_for_socket(path, timeout_ms)
+  local start = os.time()
+  local timeout_s = timeout_ms / 1000
+  while os.time() - start < timeout_s do
+    local stat = unix.stat(path)
+    if stat then
+      return true
+    end
+    unix.nanosleep(0, 50000000)  -- 50ms
+  end
+  return false
+end
+
+function M.main(args)
+  local sandbox_enabled = true
+  local ah_args = {}
+
+  -- Parse our args, pass rest to ah
+  local i = 1
+  while i <= #args do
+    local arg = args[i]
+    if arg == "--no-sandbox" then
+      sandbox_enabled = false
+    elseif arg == "--" then
+      -- Rest goes to ah
+      for j = i + 1, #args do
+        table.insert(ah_args, args[j])
+      end
+      break
+    else
+      table.insert(ah_args, arg)
+    end
+    i = i + 1
+  end
+
+  if not sandbox_enabled then
+    -- Just run ah directly
+    log("sandbox disabled, running ah directly")
+    local ah_cmd = {AH_BIN}
+    for _, a in ipairs(ah_args) do
+      table.insert(ah_cmd, a)
+    end
+    local handle = spawn.spawn(ah_cmd, {env = env.all()})
+    if not handle then
+      io.stderr:write("error: failed to spawn ah\n")
+      return 1
+    end
+    local ok, _, exit_str = handle:read()
+    return tonumber(exit_str) or 1
+  end
+
+  -- Start proxy
+  log("starting proxy on", PROXY_SOCKET)
+  unix.unlink(PROXY_SOCKET)
+
+  local proxy_handle = spawn.spawn({
+    "o/bin/cosmic", PROXY_BIN, "--socket", PROXY_SOCKET
+  }, {env = env.all()})
+
+  if not proxy_handle then
+    io.stderr:write("error: failed to start proxy\n")
+    return 1
+  end
+
+  -- Wait for socket to appear
+  if not wait_for_socket(PROXY_SOCKET, 5000) then
+    io.stderr:write("error: proxy socket not ready\n")
+    proxy_handle:kill(unix.SIGTERM)
+    return 1
+  end
+  log("proxy ready")
+
+  -- Build ah command with unshare for PID namespace
+  -- --pid: new PID namespace
+  -- --fork: fork after unshare (required for PID namespace)
+  -- --map-root-user: map current user to root in namespace (for unprivileged)
+  local ah_cmd = {
+    "unshare", "--pid", "--fork", "--map-root-user",
+    AH_BIN
+  }
+  for _, a in ipairs(ah_args) do
+    table.insert(ah_cmd, a)
+  end
+
+  -- Set up environment with proxy
+  local ah_env = env.all()
+  -- TODO: once cosmopolitan supports unix:// proxy scheme:
+  -- ah_env.http_proxy = "unix://" .. PROXY_SOCKET
+  -- ah_env.https_proxy = "unix://" .. PROXY_SOCKET
+  -- For now, we can't actually use the proxy until lfetch.c is patched
+
+  log("running ah in PID namespace:", table.concat(ah_cmd, " "))
+  local ah_handle = spawn.spawn(ah_cmd, {env = ah_env})
+
+  if not ah_handle then
+    io.stderr:write("error: failed to spawn ah\n")
+    proxy_handle:kill(unix.SIGTERM)
+    return 1
+  end
+
+  -- Wait for ah to complete
+  local ok, _, exit_str = ah_handle:read()
+  local exit_code = tonumber(exit_str) or 0
+
+  -- Clean up proxy
+  log("stopping proxy")
+  proxy_handle:kill(unix.SIGTERM)
+  proxy_handle:read()  -- wait for exit
+  unix.unlink(PROXY_SOCKET)
+
+  log("ah exited with code", exit_code)
+  return exit_code
+end
+
+if proc.is_main() then
+  os.exit(M.main(arg) or 0)
+end
+
+return M
