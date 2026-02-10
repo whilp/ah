@@ -17,8 +17,6 @@ local record SandboxCtx
   tmpdir: string
 end
 
-local sandbox_ctx: SandboxCtx = nil
-
 local record Label
   name: string
 end
@@ -144,10 +142,10 @@ end
 
 -- Run an ah agent subprocess inside the network sandbox.
 -- Only api.anthropic.com is reachable; filesystem is restricted via pledge/unveil.
-local function sandboxed_agent(prompt: string, db: string): boolean, string, integer
+local function sandboxed_agent(ctx: SandboxCtx, prompt: string, db: string): boolean, string, integer
   local run_env = env.all()
-  if sandbox_ctx and sandbox_ctx.enabled then
-    local proxy_url, proxy_err = fetch.unix_proxy(sandbox_ctx.socket_path)
+  if ctx and ctx.enabled then
+    local proxy_url, proxy_err = fetch.unix_proxy(ctx.socket_path)
     if not proxy_url then
       io.stderr:write("[sandbox] invalid proxy path: " .. (proxy_err or "unknown") .. "\n")
       return false, "invalid proxy path: " .. (proxy_err or "unknown"), 1
@@ -336,7 +334,7 @@ end
 
 -- Phase runners
 
-local function phase_plan(repo: string, issue_number: integer): integer, Issue
+local function phase_plan(ctx: SandboxCtx, repo: string, issue_number: integer): integer, Issue
   -- Select or fetch issue
   local issue: Issue
   local err: string
@@ -374,7 +372,7 @@ local function phase_plan(repo: string, issue_number: integer): integer, Issue
   prompt = prompt:gsub("{body}", issue.body or "")
   prompt = prompt:gsub("{issue_number}", tostring(issue.number))
 
-  local ok = sandboxed_agent(prompt, "o/work/plan/session.db")
+  local ok = sandboxed_agent(ctx, prompt, "o/work/plan/session.db")
 
   if not ok then
     io.stderr:write("error: plan agent failed\n")
@@ -389,7 +387,7 @@ local function phase_plan(repo: string, issue_number: integer): integer, Issue
   return 0, issue
 end
 
-local function phase_do(title: string, number: string): integer
+local function phase_do(ctx: SandboxCtx, title: string, number: string): integer
   fs.makedirs("o/work/do")
 
   local plan_contents = read_file("o/work/plan/plan.md")
@@ -410,7 +408,7 @@ local function phase_do(title: string, number: string): integer
   prompt = prompt:gsub("{plan.md contents}", plan_contents)
   prompt = prompt:gsub("{branch}", branch)
 
-  local ok = sandboxed_agent(prompt, "o/work/do/session.db")
+  local ok = sandboxed_agent(ctx, prompt, "o/work/do/session.db")
 
   if not ok then
     io.stderr:write("error: do agent failed\n")
@@ -446,7 +444,7 @@ local function phase_push(): integer
   return 0
 end
 
-local function phase_check(): integer
+local function phase_check(ctx: SandboxCtx): integer
   fs.makedirs("o/work/check")
 
   local plan_contents = read_file("o/work/plan/plan.md")
@@ -470,7 +468,7 @@ local function phase_check(): integer
   prompt = prompt:gsub("{plan.md contents}", plan_contents)
   prompt = prompt:gsub("{do.md contents}", do_contents)
 
-  local ok = sandboxed_agent(prompt, "o/work/check/session.db")
+  local ok = sandboxed_agent(ctx, prompt, "o/work/check/session.db")
 
   if not ok then
     io.stderr:write("error: check agent failed\n")
@@ -547,7 +545,7 @@ options:
 ]])
 end
 
-local function cmd_plan(args: {string}): integer
+local function cmd_plan(ctx: SandboxCtx, args: {string}): integer
   local repo: string
   local issue_number: integer
 
@@ -580,11 +578,11 @@ local function cmd_plan(args: {string}): integer
     return 1
   end
 
-  local rc = phase_plan(repo, issue_number)
+  local rc = phase_plan(ctx, repo, issue_number)
   return rc
 end
 
-local function cmd_do(args: {string}): integer
+local function cmd_do(ctx: SandboxCtx, args: {string}): integer
   local title: string
   local number: string
 
@@ -617,7 +615,7 @@ local function cmd_do(args: {string}): integer
     return 1
   end
 
-  return phase_do(title, number)
+  return phase_do(ctx, title, number)
 end
 
 local function cmd_act(args: {string}): integer
@@ -669,14 +667,15 @@ local function main(args: {string}): integer
   end
 
   -- Start sandbox unless disabled
+  local ctx: SandboxCtx = nil
   if not no_sandbox then
-    local ctx, err = start_sandbox()
-    if not ctx then
+    local sctx, err = start_sandbox()
+    if not sctx then
       io.stderr:write("error: sandbox failed to start: " .. (err or "unknown") .. "\n")
       io.stderr:write("use --no-sandbox to run without network isolation\n")
       return 1
     end
-    sandbox_ctx = ctx
+    ctx = sctx
     io.stderr:write("[sandbox] proxy started on " .. ctx.socket_path .. "\n")
   end
 
@@ -685,11 +684,11 @@ local function main(args: {string}): integer
     local subcmd = filtered_args[1]
 
     if subcmd == "plan" then
-      return cmd_plan(slice(filtered_args, 2))
+      return cmd_plan(ctx, slice(filtered_args, 2))
     elseif subcmd == "do" then
-      return cmd_do(slice(filtered_args, 2))
+      return cmd_do(ctx, slice(filtered_args, 2))
     elseif subcmd == "check" then
-      return phase_check()
+      return phase_check(ctx)
     elseif subcmd == "act" then
       return cmd_act(slice(filtered_args, 2))
     elseif subcmd == "push" then
@@ -737,7 +736,7 @@ local function main(args: {string}): integer
     end
     local rc: integer
     local issue: Issue
-    rc, issue = phase_plan(repo, issue_num)
+    rc, issue = phase_plan(ctx, repo, issue_num)
     if rc ~= 0 then return rc end
 
     if not issue then
@@ -747,7 +746,7 @@ local function main(args: {string}): integer
 
     -- Phase 2: Do
     io.stderr:write("==> do\n")
-    rc = phase_do(issue.title, tostring(issue.number))
+    rc = phase_do(ctx, issue.title, tostring(issue.number))
     if rc ~= 0 then return rc end
 
     -- Phase 3: Push
@@ -757,7 +756,7 @@ local function main(args: {string}): integer
 
     -- Phase 4: Check
     io.stderr:write("==> check\n")
-    rc = phase_check()
+    rc = phase_check(ctx)
     if rc ~= 0 then return rc end
 
     -- Phase 5: Act
@@ -771,10 +770,9 @@ local function main(args: {string}): integer
   local ok, result = pcall(run_main)
 
   -- Always clean up sandbox
-  if sandbox_ctx then
+  if ctx then
     io.stderr:write("[sandbox] stopping proxy\n")
-    stop_sandbox(sandbox_ctx)
-    sandbox_ctx = nil
+    stop_sandbox(ctx)
   end
 
   if not ok then
