@@ -61,7 +61,7 @@ test_extract_tool_calls_mixed()
 local function test_build_request_default_model()
   local req = api.build_request({}, {}, false)
   assert(req.model == api.DEFAULT_MODEL, "should use default model")
-  assert(req.model == "claude-sonnet-4-20250514", "default model should be sonnet")
+  assert(req.model == "claude-sonnet-4-5-20250929", "default model should be sonnet")
 end
 test_build_request_default_model()
 
@@ -212,11 +212,11 @@ test_extract_retry_delay()
 
 local function test_resolve_model()
   -- Aliases should resolve to full names
-  assert(api.resolve_model("sonnet") == "claude-sonnet-4-20250514", "sonnet alias")
-  assert(api.resolve_model("opus") == "claude-opus-4-20250514", "opus alias")
-  assert(api.resolve_model("haiku") == "claude-haiku-3-20250314", "haiku alias")
+  assert(api.resolve_model("sonnet") == "claude-sonnet-4-5-20250929", "sonnet alias")
+  assert(api.resolve_model("opus") == "claude-opus-4-5-20251101", "opus alias")
+  assert(api.resolve_model("haiku") == "claude-haiku-4-5-20251001", "haiku alias")
   -- Full names should pass through
-  assert(api.resolve_model("claude-sonnet-4-20250514") == "claude-sonnet-4-20250514", "full name passthrough")
+  assert(api.resolve_model("claude-sonnet-4-5-20250929") == "claude-sonnet-4-5-20250929", "full name passthrough")
   -- Unknown names should pass through
   assert(api.resolve_model("custom-model") == "custom-model", "unknown passthrough")
   -- Nil should return nil
