@@ -642,13 +642,16 @@ local function cmd_act(args: {string}): integer
 end
 
 local function main(args: {string}): integer
-  -- Parse global options first (--no-sandbox)
+  -- Parse global options first (--no-sandbox, --help)
   local no_sandbox = false
   local filtered_args: {string} = {}
 
   for _, a in ipairs(args) do
     if a == "--no-sandbox" then
       no_sandbox = true
+    elseif a == "-h" or a == "--help" then
+      usage()
+      return 0
     else
       table.insert(filtered_args, a)
     end
@@ -658,12 +661,12 @@ local function main(args: {string}): integer
   if not no_sandbox then
     local ctx, err = start_sandbox()
     if not ctx then
-      io.stderr:write("warning: sandbox failed to start: " .. (err or "unknown") .. "\n")
-      io.stderr:write("continuing without sandbox\n")
-    else
-      sandbox_ctx = ctx
-      io.stderr:write("[sandbox] proxy started on " .. ctx.socket_path .. "\n")
+      io.stderr:write("error: sandbox failed to start: " .. (err or "unknown") .. "\n")
+      io.stderr:write("use --no-sandbox to run without network isolation\n")
+      return 1
     end
+    sandbox_ctx = ctx
+    io.stderr:write("[sandbox] proxy started on " .. ctx.socket_path .. "\n")
   end
 
   -- Wrap execution to ensure sandbox cleanup

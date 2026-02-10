@@ -59,6 +59,11 @@ local function relay(client_fd: number, upstream_fd: number)
     local client_ev = revents[client_fd] or 0
     local upstream_ev = revents[upstream_fd] or 0
 
+    -- Timeout: no activity on either fd
+    if client_ev == 0 and upstream_ev == 0 then
+      break
+    end
+
     if client_ev & (net.POLLERR | net.POLLHUP | net.POLLNVAL) ~= 0 then
       break
     end
@@ -94,12 +99,13 @@ local function handle_client(client_fd: number)
     return
   end
 
+  host = host:lower()
   local dest = host .. ":" .. port
   log("CONNECT", dest)
 
   if not ALLOWLIST[dest] then
     log("BLOCKED", dest)
-    unix.write(client_fd, "HTTP/1.1 403 Forbidden\r\n\r\nDestination not allowed: " .. dest .. "\r\n")
+    unix.write(client_fd, "HTTP/1.1 403 Forbidden\r\n\r\n")
     return
   end
 

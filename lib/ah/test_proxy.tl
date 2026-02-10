@@ -127,4 +127,29 @@ local function test_resolvehost_unknown()
 end
 test_resolvehost_unknown()
 
+-- parse_connect: host is returned as-is (caller normalizes)
+local function test_parse_connect_uppercase()
+  local host, port = proxy.parse_connect("CONNECT API.ANTHROPIC.COM:443 HTTP/1.1\r\n\r\n")
+  assert(host == "API.ANTHROPIC.COM", "host should preserve case from parse, got: " .. tostring(host))
+  assert(port == "443", "port should be 443")
+  print("✓ parse_connect: preserves uppercase (caller normalizes)")
+end
+test_parse_connect_uppercase()
+
+-- parse_connect: IP literal
+local function test_parse_connect_ip_literal()
+  local host, port = proxy.parse_connect("CONNECT 160.79.104.11:443 HTTP/1.1\r\n\r\n")
+  assert(host == "160.79.104.11", "should parse IP literal")
+  assert(port == "443", "port should be 443")
+  print("✓ parse_connect: IP literal")
+end
+test_parse_connect_ip_literal()
+
+-- is_allowed: IP literal is not in allowlist (only hostname entries)
+local function test_is_allowed_ip_literal()
+  assert(proxy.is_allowed("160.79.104.11:443") == false, "IP literal should be blocked")
+  print("✓ is_allowed: blocks IP literal")
+end
+test_is_allowed_ip_literal()
+
 print("\nall proxy tests passed")
