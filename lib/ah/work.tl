@@ -7,7 +7,7 @@ local env = require("cosmic.env")
 local fetch = require("cosmic.fetch")
 local getopt = require("cosmic.getopt")
 local unix = require("cosmo.unix")
-local sandbox = require("cosmic.sandbox")
+
 
 -- Sandbox context for network isolation
 local record SandboxCtx
