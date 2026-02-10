@@ -75,6 +75,43 @@ local function read_prompt_template(name: string): string
       or cio.slurp("sys/work/prompts/" .. name .. ".md")
 end
 
+-- Interpolate template variables safely.
+-- Uses function replacement to avoid gsub interpreting % in values as capture references.
+local function interpolate_prompt(template: string, vars: {string:string}): string
+  for key, value in pairs(vars) do
+    template = template:gsub("{" .. key .. "}", function(): string return value end)
+  end
+  return template
+end
+
+-- Diagnostic: inspect plan directory and report what was (or wasn't) created.
+-- Returns a human-readable message explaining why plan.md may be missing.
+local function plan_diagnostic(plan_dir: string): string
+  local parts: {string} = {}
+
+  local plan = read_file(plan_dir .. "/plan.md")
+  if plan then
+    table.insert(parts, "plan.md found (" .. #plan .. " bytes)")
+    return table.concat(parts, "; ")
+  end
+
+  table.insert(parts, "plan.md not found")
+
+  local update = read_file(plan_dir .. "/update.md")
+  if update then
+    table.insert(parts, "update.md found (bail condition): " .. update:sub(1, 200))
+  end
+
+  local issue = read_file(plan_dir .. "/issue.json")
+  if issue then
+    table.insert(parts, "issue.json present")
+  else
+    table.insert(parts, "issue.json missing")
+  end
+
+  return table.concat(parts, "; ")
+end
+
 local function ah_exe(): string
   return arg and arg[-1] or "ah"
 end
@@ -205,6 +242,7 @@ local function sandboxed_agent(no_sandbox: boolean, prompt: string, db: string):
     run_env.AH_SANDBOX = "1"
   end
 
+  log("spawning agent: db=" .. db .. " prompt_len=" .. #prompt)
   local handle, spawn_err = spawn.spawn(
     {ah_exe(), "-n", "--db", db, prompt},
     {env = run_env as {string}}
@@ -216,12 +254,29 @@ local function sandboxed_agent(no_sandbox: boolean, prompt: string, db: string):
     end
     return false, spawn_err as string, -1
   end
+  local stderr_out = handle.stderr:read()
   local ok, stdout, exit_str = handle:read()
   local exit_code = (tonumber(exit_str) or 0) as integer
 
   if ctx then
     io.stderr:write("[sandbox] stopping proxy\n")
     stop_sandbox(ctx)
+  end
+
+  -- Log agent subprocess results for debugging
+  log("agent exited: ok=" .. tostring(ok) .. " exit_code=" .. tostring(exit_code))
+  if stderr_out and stderr_out ~= "" then
+    -- Log last 2000 chars of stderr to avoid flooding
+    local stderr_tail = stderr_out
+    if #stderr_tail > 2000 then
+      stderr_tail = "...(" .. #stderr_out .. " bytes total)\n" .. stderr_out:sub(-2000)
+    end
+    log("agent stderr:\n" .. stderr_tail)
+  end
+  if stdout and stdout ~= "" then
+    local stdout_preview = stdout:sub(1, 500)
+    if #stdout > 500 then stdout_preview = stdout_preview .. "..." end
+    log("agent stdout: " .. stdout_preview)
   end
 
   return ok and exit_code == 0, stdout, exit_code
@@ -463,19 +518,27 @@ local function phase_plan(no_sandbox: boolean, repo: string, issue_number: integ
     return 1
   end
 
-  prompt = prompt:gsub("{title}", issue.title)
-  prompt = prompt:gsub("{body}", issue.body or "")
-  prompt = prompt:gsub("{issue_number}", tostring(issue.number))
+  prompt = interpolate_prompt(prompt, {
+    title = issue.title,
+    body = issue.body or "",
+    issue_number = tostring(issue.number),
+  })
+
+  log("plan prompt interpolated (" .. #prompt .. " bytes) for issue #" .. tostring(issue.number))
 
   local ok = sandboxed_agent(no_sandbox, prompt, "o/work/plan/session.db")
 
   if not ok then
     io.stderr:write("error: plan agent failed\n")
+    local diag = plan_diagnostic("o/work/plan")
+    log("plan diagnostic: " .. diag)
     return 1
   end
 
   if not read_file("o/work/plan/plan.md") then
+    local diag = plan_diagnostic("o/work/plan")
     io.stderr:write("error: plan.md not created\n")
+    log("plan diagnostic: " .. diag)
     return 1
   end
 
@@ -883,4 +946,6 @@ return {
   slice = slice,
   required_labels = required_labels,
   ensure_labels = ensure_labels,
+  interpolate_prompt = interpolate_prompt,
+  plan_diagnostic = plan_diagnostic,
 }
