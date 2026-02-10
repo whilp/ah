@@ -663,25 +663,238 @@ o/work/
     └── results.json
 ```
 
-## Implementation plan
+## Implementation phases
 
-Work is split into small PRs, each independently shippable:
+Work is ordered so each phase produces something testable. Later phases depend
+on earlier ones, but each is a standalone PR.
 
-1. **Prompts**: Add `sys/work/{select,plan,do,check}.md` with the phase prompt
-   templates. These can be tested manually: `ah --db /tmp/test.db "$(cat sys/work/plan.md)"`.
+### Phase 1: Prompt templates
 
-2. **Workflow skeleton**: Add `.github/workflows/work.yml` with the job
-   structure, artifact passing, and label management. Start with the act phase
-   as a no-op that just logs the actions.
+**PR**: Add `sys/work/{plan,do,check}.md`
 
-3. **Act script**: Implement the deterministic action executor as a shell script
-   or Teal module that reads `actions.json` and calls `gh`.
+Write the three phase prompt templates. No workflow, no automation -- just files
+in the repo that can be tested manually.
 
-4. **Integration**: Wire up secrets (API key), test on a real issue, iterate on
-   prompts based on results.
+**Files**:
+```
+sys/work/
+├── plan.md
+├── do.md
+└── check.md
+```
 
-5. **Self-improvement**: Once the loop can process simple issues (typo fixes,
-   doc updates), create issues for enhancing the loop itself.
+**Validation**: Run each prompt locally against a sample issue:
+```bash
+# test plan prompt against a real issue
+export ISSUE_TITLE="fix: handle empty response"
+export ISSUE_BODY="The API client crashes on empty response."
+export ISSUE_NUMBER=1
+
+prompt=$(cat sys/work/plan.md)
+prompt="${prompt//\{title\}/$ISSUE_TITLE}"
+prompt="${prompt//\{body\}/$ISSUE_BODY}"
+prompt="${prompt//\{issue_number\}/$ISSUE_NUMBER}"
+
+mkdir -p o/work/plan
+ah -n --db /tmp/plan-test.db "$prompt"
+cat o/work/plan/plan.md
+```
+
+This tests that the prompt produces well-structured output, the bail mechanism
+works, and the output paths are correct -- all without any CI infrastructure.
+
+**No `select.md`**: Issue selection is simple enough to do in shell (see
+phase 3). An ah invocation for selection adds latency and cost with no benefit.
+
+---
+
+### Phase 2: Issue selection and label management
+
+**PR**: Add shell helper for issue selection + label lifecycle
+
+Implement the `select` logic as a shell script that the workflow and local
+testing can both call. This is pure `gh` CLI -- no ah invocation.
+
+**Files**:
+```
+bin/work-select     # select highest priority todo issue, output JSON
+```
+
+**Script behavior**:
+```bash
+#!/bin/bash
+# bin/work-select: select highest priority open todo issue
+# Outputs JSON: {"number":N,"title":"...","body":"...","url":"..."}
+# Exit 0 with JSON on stdout if found, exit 1 if no issues.
+
+set -euo pipefail
+
+repo="${1:?usage: work-select <owner/repo>}"
+
+gh issue list --repo "$repo" --label todo --state open \
+  --json number,title,body,url,labels,createdAt --limit 100 \
+| jq -e '
+  sort_by(
+    (.labels | map(.name) |
+      if any(. == "p0") then 0
+      elif any(. == "p1") then 1
+      elif any(. == "p2") then 2
+      else 3 end),
+    .createdAt
+  ) | first
+'
+```
+
+**Validation**: Run against the repo with some test issues labeled `todo`:
+```bash
+bin/work-select whilp/ah
+```
+
+**Label helpers** (in the workflow directly, not a separate script):
+```bash
+# transition: todo -> doing
+gh issue edit "$url" --remove-label todo --add-label doing
+
+# transition: doing -> done | failed
+gh issue edit "$url" --remove-label doing --add-label done
+gh issue edit "$url" --remove-label doing --add-label failed
+```
+
+---
+
+### Phase 3: Workflow skeleton
+
+**PR**: Add `.github/workflows/work.yml`
+
+The workflow file with all five jobs wired together. The plan/do/check phases
+invoke `ah`. The act phase is a **dry-run stub** that logs actions without
+executing them.
+
+**Files**:
+```
+.github/workflows/work.yml
+```
+
+**Key decisions for this phase**:
+
+1. **Getting `ah` on the runner**: The prerelease workflow already publishes `ah`
+   as a GitHub release. The work workflow downloads it:
+   ```yaml
+   - name: Install ah
+     run: |
+       tag=$(gh release list --limit 1 --json tagName -q '.[0].tagName')
+       gh release download "$tag" --pattern 'ah' --dir /usr/local/bin
+       chmod +x /usr/local/bin/ah
+     env:
+       GH_TOKEN: ${{ github.token }}
+   ```
+
+2. **Secrets**: `ANTHROPIC_API_KEY` must be added as a repository secret.
+
+3. **Artifact passing**: Each phase uploads its output directory and db file.
+   Subsequent phases download what they need.
+
+4. **Act stub**: The act job reads `actions.json` and logs what it *would* do,
+   but doesn't execute anything:
+   ```bash
+   echo "=== DRY RUN ==="
+   jq -c '.actions[]' o/work/check/actions.json | while read -r action; do
+     echo "would execute: $(echo "$action" | jq -r .action)"
+   done
+   ```
+
+**Validation**: Trigger the workflow manually (`workflow_dispatch`) with a test
+issue number. Verify:
+- Select job finds the issue and sets outputs
+- Plan job produces `o/work/plan/plan.md`
+- Do job produces `o/work/do/do.md`
+- Check job produces `o/work/check/actions.json`
+- Act job logs the dry-run actions
+- All artifacts are uploaded and downloadable
+- Labels transition correctly (todo -> doing -> done/failed)
+
+**Concurrency**: Add a concurrency group so only one work workflow runs at a
+time:
+```yaml
+concurrency:
+  group: work
+  cancel-in-progress: false
+```
+
+---
+
+### Phase 4: Act phase
+
+**PR**: Replace the dry-run stub with real action execution
+
+Implement the two action handlers: `comment_issue` and `create_pr`. The act
+job reads `actions.json` and executes each action.
+
+**Files**:
+```
+bin/work-act        # action executor script
+```
+
+**Safety checks before going live**:
+- `create_pr` only pushes branches prefixed with `work/`
+- `comment_issue` posts only to the issue being worked on
+- `git push` never uses `--force`
+- Label transitions are idempotent (re-running doesn't break state)
+
+**Validation**: Run the full workflow on a real issue. Verify:
+- Issue comment is posted with the check verdict
+- Branch is pushed (if changes were made)
+- PR is created (if verdict is pass)
+- Labels end up in the right state
+
+---
+
+### Phase 5: Hardening
+
+**PR(s)**: Address operational concerns discovered during phase 4
+
+Likely topics (create issues for each, let the loop work on them):
+
+- **Timeout tuning**: Adjust `--max-tokens` and `timeout-minutes` per phase
+  based on observed usage
+- **Error reporting**: Post a comment on the issue when a phase fails, not just
+  the `failed` label. Include which phase failed and a link to the workflow run.
+- **Dirty-tree guard**: After plan and check phases, run `git diff --exit-code`
+  to detect if ah modified files it shouldn't have. Fail the phase if dirty.
+- **Prompt iteration**: Refine prompts based on observed output quality. This
+  is the main ongoing work.
+- **Cost controls**: Add `--max-tokens` budgets per phase. Plan and check
+  should be cheaper than do.
+- **Concurrency safety**: Ensure two workflow runs can't pick the same issue
+  (the `doing` label + concurrency group should prevent this, but verify).
+
+---
+
+### Phase 6: Self-improvement
+
+Once phases 1-5 are done, the loop can work on itself. Create issues for:
+
+- Improving its own prompts (e.g., "plan phase should include test strategy")
+- Adding new action types (e.g., `request_review`, `add_label`)
+- Fixing bugs it encounters in its own operation
+- Enhancing ah itself (new tools, better loop detection, etc.)
+
+This is the steady state: humans create issues, the loop picks them up and
+produces PRs, humans review and merge.
+
+---
+
+### Dependency graph
+
+```
+Phase 1: prompts ──────────────────┐
+                                   ├──→ Phase 3: workflow ──→ Phase 4: act ──→ Phase 5
+Phase 2: select + labels ──────────┘                                            │
+                                                                                ▼
+                                                                         Phase 6: self-improve
+```
+
+Phases 1 and 2 are independent and can be done in parallel.
 
 ## Differences from the reference implementation
 
