@@ -29,6 +29,18 @@ $(cosmic):
 	@echo "$(cosmic_sha)  $@" | sha256sum -c - >/dev/null
 	@chmod +x $@
 
+# ah from release (for CI workflows)
+ah_release := $(o)/bin/ah-release
+.PHONY: ah-release
+ah-release: $(ah_release)
+$(ah_release):
+	@mkdir -p $(@D)
+	@tag=$$(gh release list --limit 1 --json tagName -q '.[0].tagName') && \
+	echo "==> fetching ah $$tag" && \
+	gh release download "$$tag" --pattern 'ah' --dir $(@D) && \
+	mv $(@D)/ah $@ && \
+	chmod +x $@
+
 reporter := $(cosmic) lib/build/reporter.tl
 
 # ah module
