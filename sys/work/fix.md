@@ -20,7 +20,7 @@ You are fixing issues found during review. Follow the plan and address the feedb
 
 ## Output
 
-Write `o/work/do/do.md`:
+Write `o/work/fix/do.md`:
 
     # Fix: {title}
 
@@ -36,6 +36,6 @@ Write `o/work/do/do.md`:
     ## Notes
     <issues encountered>
 
-Write `o/work/do/update.md`: 2-4 line summary.
+Write `o/work/fix/update.md`: 2-4 line summary.
 
 Fix only the issues identified in the review. Do not add unrequested changes.
