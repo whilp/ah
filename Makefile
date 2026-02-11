@@ -45,7 +45,7 @@ TL_PATH := lib/?.tl;lib/?/init.tl;/zip/.lua/?.tl;/zip/.lua/?/init.tl;/zip/.lua/t
 # compile .tl to .lua
 $(o)/%.lua: %.tl $(cosmic)
 	@mkdir -p $(@D)
-	@$(cosmic) --compile $< > $@
+	@TL_PATH='$(TL_PATH)' $(cosmic) --compile $< > $@
 
 # tests
 all_tested := $(patsubst %,$(o)/%.test.ok,$(ah_tests))

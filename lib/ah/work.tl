@@ -1,22 +1,12 @@
 -- ah/work.tl: unified work command (PDCA loop)
-local spawn = require("cosmic.child")
+--
+-- Orchestrates phase runners and CLI dispatch.
+-- Helpers live in work_util, work_issue, work_action, work_prompt, work_sandbox.
 local fs = require("cosmic.fs")
-local cio = require("cosmic.io")
 local json = require("cosmic.json")
-local env = require("cosmic.env")
-local fetch = require("cosmic.fetch")
 local getopt = require("cosmic.getopt")
-local unix = require("cosmo.unix")
 
-
--- Sandbox context for network isolation
-local record SandboxCtx
-  enabled: boolean
-  socket_path: string
-  proxy_pid: number
-  tmpdir: string
-end
-
+-- Local record types for the orchestrator
 local record Label
   name: string
 end
@@ -37,6 +27,48 @@ local record Issue
   url: string
 end
 
+local record AgentLimits
+  max_tokens: integer
+  timeout_sec: integer
+end
+
+-- Submodule interfaces
+local record Util
+  log: function(string)
+  read_file: function(string): string
+  write_file: function(string, string): boolean
+  ah_exe: function(): string
+  run: function({string}): boolean, string, integer, string
+  tee: function(string, string)
+  slice: function({string}, integer): {string}
+  now_sec: function(): number
+  extract_branch: function(string, string): string
+  format_protect_dirs: function({string}): string
+  format_run_error: function(string, string, string): string
+  setup_git_env: function({string:string})
+end
+
+local record IssueMod
+  get_priority: function({Label}): integer
+  sort_issues: function({RawIssue})
+  fetch_issues: function(string): {RawIssue}, string
+  select_issue: function({RawIssue}): Issue
+  fetch_issue: function(string, integer): Issue, string
+  create_issue_from_prompt: function(string, string, function(string): string): integer, string
+  transition_to_doing: function(string)
+  update_labels: function(string, boolean)
+  required_labels: {string}
+  ensure_labels: function(string): boolean, string
+end
+
+local record ActionMod
+  parse_actions: function(string): ParsedActions, string
+  validate_branch: function(string): boolean, string
+  issue_number_from_url: function(string): string
+  build_pr_body: function(string, string): string
+  execute_action: function(string, {string:any}, function(string)): boolean
+end
+
 local record ParsedActions
   verdict: string
   actions: {{string:any}}
@@ -53,623 +85,36 @@ local record FrictionIssues
   issues: {FrictionIssue}
 end
 
--- Helpers
-
-local function log(msg: string)
-  io.stderr:write("[work] " .. msg .. "\n")
+local record PromptMod
+  read_prompt: function(string): string
+  read_prompt_template: function(string): string
+  interpolate_prompt: function(string, {string:string}): string
+  plan_diagnostic: function(string): string
+  build_do_prompt: function(string, string, string, string): string
+  build_check_prompt: function(string, string, string): string
+  build_fix_prompt: function(string, string, string, string, string): string
+  build_friction_prompt: function(string, string): string
+  make_friction_prompt: function(string): string
 end
 
-local function read_file(path: string): string
-  local f = io.open(path, "r")
-  if not f then return nil end
-  local content = f:read("*a")
-  f:close()
-  return content
+local record SandboxMod
+  overall_timeout_sec: number
+  plan_limits: AgentLimits
+  do_limits: AgentLimits
+  check_limits: AgentLimits
+  fix_limits: AgentLimits
+  friction_limits: AgentLimits
+  sandboxed_agent: function(boolean, string, string, {string}, string, AgentLimits, string): boolean, string, integer
+  build_agent_args: function(string, string, string, boolean, AgentLimits, string): {string}
 end
 
--- Format a list of directories for AH_PROTECT_DIRS env var (colon-separated).
--- Returns nil when there are no directories to protect.
-local function format_protect_dirs(dirs: {string}): string
-  if not dirs or #dirs == 0 then return nil end
-  return table.concat(dirs, ":")
-end
+local util = require("ah.work_util") as Util
+local issue_mod = require("ah.work_issue") as IssueMod
+local action = require("ah.work_action") as ActionMod
+local prompt = require("ah.work_prompt") as PromptMod
+local sandbox = require("ah.work_sandbox") as SandboxMod
 
--- Configure git identity env vars in the given environment table.
--- Uses GITHUB_ACTOR when available (GitHub Actions), otherwise falls back
--- to defaults. Does not overwrite values that are already set.
-local function setup_git_env(run_env: {string:string})
-  local actor = run_env.GITHUB_ACTOR
-  local name = actor or "ah-agent"
-  local email = actor and (actor .. "@users.noreply.github.com") or "ah-agent@localhost"
-
-  if not run_env.GIT_AUTHOR_NAME then run_env.GIT_AUTHOR_NAME = name end
-  if not run_env.GIT_AUTHOR_EMAIL then run_env.GIT_AUTHOR_EMAIL = email end
-  if not run_env.GIT_COMMITTER_NAME then run_env.GIT_COMMITTER_NAME = name end
-  if not run_env.GIT_COMMITTER_EMAIL then run_env.GIT_COMMITTER_EMAIL = email end
-end
-
-local function write_file(path: string, content: string): boolean
-  local f = io.open(path, "w")
-  if not f then return false end
-  f:write(content)
-  f:close()
-  return true
-end
-
-local function read_prompt(name: string): string
-  return cio.slurp("/zip/embed/sys/work/" .. name)
-      or cio.slurp("sys/work/" .. name)
-end
-
-local function read_prompt_template(name: string): string
-  return cio.slurp("/zip/embed/sys/work/prompts/" .. name .. ".md")
-      or cio.slurp("sys/work/prompts/" .. name .. ".md")
-end
-
--- Interpolate template variables safely.
--- Uses function replacement to avoid gsub interpreting % in values as capture references.
-local function interpolate_prompt(template: string, vars: {string:string}): string
-  for key, value in pairs(vars) do
-    template = template:gsub("{" .. key .. "}", function(): string return value end)
-  end
-  return template
-end
-
--- Diagnostic: inspect plan directory and report what was (or wasn't) created.
--- Returns a human-readable message explaining why plan.md may be missing.
-local function plan_diagnostic(plan_dir: string): string
-  local parts: {string} = {}
-
-  local plan = read_file(plan_dir .. "/plan.md")
-  if plan then
-    table.insert(parts, "plan.md found (" .. #plan .. " bytes)")
-    return table.concat(parts, "; ")
-  end
-
-  table.insert(parts, "plan.md not found")
-
-  local update = read_file(plan_dir .. "/update.md")
-  if update then
-    table.insert(parts, "update.md found (bail condition): " .. update:sub(1, 200))
-  end
-
-  local issue = read_file(plan_dir .. "/issue.json")
-  if issue then
-    table.insert(parts, "issue.json present")
-  else
-    table.insert(parts, "issue.json missing")
-  end
-
-  return table.concat(parts, "; ")
-end
-
-local function ah_exe(): string
-  return arg and arg[-1] or "ah"
-end
-
--- Start sandbox proxy
--- Returns sandbox context or nil on error
-local function start_sandbox(): SandboxCtx, string
-  log("starting sandbox...")
-  -- Create temp directory for socket
-  local tmpdir = unix.mkdtemp("/tmp/ah-sandbox-XXXXXX")
-  if not tmpdir then
-    log("failed to create temp directory for sandbox")
-    return nil, "failed to create temp directory"
-  end
-  log("sandbox tmpdir: " .. tmpdir)
-
-  local socket_path = tmpdir .. "/proxy.sock"
-
-  -- Fork and exec proxy
-  local exe = ah_exe()
-  log("forking proxy: " .. exe .. " proxy " .. socket_path)
-  local pid = unix.fork()
-  if pid < 0 then
-    log("fork failed")
-    unix.rmrf(tmpdir)
-    return nil, "fork failed"
-  end
-
-  if pid == 0 then
-    -- Child: exec proxy
-    unix.execve(exe, {exe, "proxy", socket_path}, env.all() as {string})
-    os.exit(1)  -- exec failed
-  end
-
-  log("proxy forked with pid: " .. tostring(pid))
-
-  -- Parent: wait for socket to appear
-  local timeout = 50  -- 5 seconds (50 * 100ms)
-  while timeout > 0 do
-    local stat = unix.stat(socket_path)
-    if stat then
-      break
-    end
-    unix.nanosleep(0, 100000000)  -- 100ms
-    timeout = timeout - 1
-  end
-
-  if timeout == 0 then
-    log("proxy socket not ready after 5s, killing pid " .. tostring(pid))
-    unix.kill(pid, unix.SIGTERM)
-    unix.wait()
-    unix.rmrf(tmpdir)
-    return nil, "proxy socket not ready"
-  end
-
-  log("sandbox ready, socket: " .. socket_path)
-  return {
-    enabled = true,
-    socket_path = socket_path,
-    proxy_pid = pid,
-    tmpdir = tmpdir,
-  }
-end
-
--- Stop sandbox proxy and clean up
-local function stop_sandbox(ctx: SandboxCtx)
-  if not ctx then return end
-  if ctx.proxy_pid > 0 then
-    unix.kill(ctx.proxy_pid, unix.SIGTERM)
-    unix.wait()
-  end
-  if ctx.tmpdir then
-    unix.rmrf(ctx.tmpdir)
-  end
-end
-
-local function run(cmd: {string}): boolean, string, integer, string
-  log("exec: " .. table.concat(cmd, " "))
-  local handle, spawn_err = spawn.spawn(cmd, {env = env.all() as {string}})
-  if not handle then
-    log("spawn failed: " .. (spawn_err or "unknown"))
-    return false, spawn_err as string, -1
-  end
-  local stderr_out = handle.stderr:read()
-  local ok, stdout, exit_str = handle:read()
-  local exit_code = (tonumber(exit_str) or 0) as integer
-  if not (ok and exit_code == 0) then
-    log("command failed (exit " .. tostring(exit_code) .. ")")
-    if stdout and stdout ~= "" then
-      log("stdout: " .. stdout:sub(1, 500))
-    end
-    if stderr_out and stderr_out ~= "" then
-      log("stderr: " .. stderr_out:sub(1, 1000))
-    end
-  end
-  return ok and exit_code == 0, stdout, exit_code, stderr_out
-end
-
-local record AgentLimits
-  max_tokens: integer   -- token budget passed via --max-tokens
-  timeout_sec: integer  -- wall-clock timeout via timeout(1) wrapper
-end
-
--- Build the argv for an agent subprocess.
--- Exported for testing.
-local function build_agent_args(exe: string, db: string, prompt: string, new_session: boolean, limits: AgentLimits, model: string): {string}
-  local args: {string} = {}
-
-  -- Wall-clock timeout wrapper
-  if limits and limits.timeout_sec and limits.timeout_sec > 0 then
-    table.insert(args, "timeout")
-    table.insert(args, tostring(limits.timeout_sec))
-  end
-
-  table.insert(args, exe)
-
-  if new_session then
-    table.insert(args, "-n")
-  end
-
-  -- Model selection
-  if model then
-    table.insert(args, "-m")
-    table.insert(args, model)
-  end
-
-  -- Token budget
-  if limits and limits.max_tokens and limits.max_tokens > 0 then
-    table.insert(args, "--max-tokens")
-    table.insert(args, tostring(limits.max_tokens))
-  end
-
-  table.insert(args, "--db")
-  table.insert(args, db)
-  table.insert(args, prompt)
-
-  return args
-end
-
--- Spawn an ah agent subprocess and wait for completion.
--- When new_session is true, passes -n to start a fresh session.
--- When false, continues the most recent session in the db.
-local function spawn_agent(run_env: {string:string}, db: string, prompt: string, new_session: boolean, limits: AgentLimits, model: string): boolean, string, integer
-  local args = build_agent_args(ah_exe(), db, prompt, new_session, limits, model)
-
-  log("spawning agent: db=" .. db .. " prompt_len=" .. #prompt .. " new=" .. tostring(new_session))
-  local handle, spawn_err = spawn.spawn(args, {env = run_env as {string}})
-  if not handle then
-    return false, spawn_err as string, -1
-  end
-  local stderr_out = handle.stderr:read()
-  local ok, stdout, exit_str = handle:read()
-  local exit_code = (tonumber(exit_str) or 0) as integer
-
-  -- Detect timeout(1) exit code
-  if exit_code == 124 then
-    log("agent timed out (wall-clock limit)")
-  end
-
-  -- Log agent subprocess results for debugging
-  log("agent exited: ok=" .. tostring(ok) .. " exit_code=" .. tostring(exit_code))
-  if stderr_out and stderr_out ~= "" then
-    local stderr_tail = stderr_out
-    if #stderr_tail > 2000 then
-      stderr_tail = "...(" .. #stderr_out .. " bytes total)\n" .. stderr_out:sub(-2000)
-    end
-    log("agent stderr:\n" .. stderr_tail)
-  end
-  if stdout and stdout ~= "" then
-    local stdout_preview = stdout:sub(1, 500)
-    if #stdout > 500 then stdout_preview = stdout_preview .. "..." end
-    log("agent stdout: " .. stdout_preview)
-  end
-
-  return ok and exit_code == 0, stdout, exit_code
-end
-
--- Run an ah agent subprocess inside the network sandbox.
--- Only api.anthropic.com is reachable; filesystem is restricted via pledge/unveil.
--- The sandbox is started and stopped around each agent invocation so that
--- only agent actions run inside the sandbox; all other (deterministic) work
--- executes without network isolation overhead.
--- If friction_prompt is provided, it is sent as a follow-up message in the
--- same session after the main prompt completes.
--- Overall deadline for unified work run (seconds)
-local overall_timeout_sec = 1200  -- 20 minutes
-
-local function now_sec(): number
-  local s, ns = unix.clock_gettime(unix.CLOCK_MONOTONIC)
-  return s + ns / 1e9
-end
-
--- Per-phase limits
-local plan_limits: AgentLimits  = {max_tokens = 50000,  timeout_sec = 180}
-local do_limits: AgentLimits    = {max_tokens = 100000, timeout_sec = 300}
-local check_limits: AgentLimits = {max_tokens = 50000,  timeout_sec = 180}
-local fix_limits: AgentLimits   = {max_tokens = 100000, timeout_sec = 300}
-local friction_limits: AgentLimits = {max_tokens = 10000, timeout_sec = 60}
 local analyze_limits: AgentLimits = {max_tokens = 50000, timeout_sec = 180}
-
-local function sandboxed_agent(no_sandbox: boolean, prompt: string, db: string, protect_dirs?: {string}, friction_prompt?: string, limits?: AgentLimits, model?: string): boolean, string, integer
-  local ctx: SandboxCtx = nil
-  if not no_sandbox then
-    local sctx, err = start_sandbox()
-    if not sctx then
-      io.stderr:write("error: sandbox failed to start: " .. (err or "unknown") .. "\n")
-      return false, "sandbox failed to start: " .. (err or "unknown"), 1
-    end
-    ctx = sctx
-    io.stderr:write("[sandbox] proxy started on " .. ctx.socket_path .. "\n")
-  end
-
-  local run_env = env.all()
-  setup_git_env(run_env)
-  if ctx and ctx.enabled then
-    local proxy_url, proxy_err = fetch.unix_proxy(ctx.socket_path)
-    if not proxy_url then
-      io.stderr:write("[sandbox] invalid proxy path: " .. (proxy_err or "unknown") .. "\n")
-      stop_sandbox(ctx)
-      return false, "invalid proxy path: " .. (proxy_err or "unknown"), 1
-    end
-    run_env.http_proxy = proxy_url
-    run_env.HTTP_PROXY = proxy_url
-    run_env.https_proxy = proxy_url
-    run_env.HTTPS_PROXY = proxy_url
-    run_env.AH_SANDBOX = "1"
-    local protect = format_protect_dirs(protect_dirs)
-    if protect then
-      run_env.AH_PROTECT_DIRS = protect
-    end
-  end
-
-  -- Main prompt: new session
-  local ok, stdout, exit_code = spawn_agent(run_env, db, prompt, true, limits, model)
-
-  if not ok then
-    if ctx then
-      io.stderr:write("[sandbox] stopping proxy\n")
-      stop_sandbox(ctx)
-    end
-    return false, stdout, exit_code
-  end
-
-  -- Friction follow-up: same session (no -n)
-  if friction_prompt then
-    log("sending friction follow-up to same session")
-    spawn_agent(run_env, db, friction_prompt, false, friction_limits, model)
-  end
-
-  if ctx then
-    io.stderr:write("[sandbox] stopping proxy\n")
-    stop_sandbox(ctx)
-  end
-
-  return ok and exit_code == 0, stdout, exit_code
-end
-
-local function tee(path: string, line: string)
-  print(line)
-  local f = io.open(path, "a")
-  if f then
-    f:write(line .. "\n")
-    f:close()
-  end
-end
-
-local function slice(t: {string}, from: integer): {string}
-  local result: {string} = {}
-  for i = from, #t do
-    result[#result + 1] = t[i]
-  end
-  return result
-end
-
--- Labels used throughout the PDCA workflow
-local required_labels: {string} = {"todo", "doing", "done", "failed", "friction"}
-
-local function ensure_labels(repo: string): boolean, string
-  for _, label in ipairs(required_labels) do
-    run({"gh", "label", "create", label, "--repo", repo, "--force"})
-  end
-  return true
-end
-
--- Issue selection
-
-local function get_priority(labels: {Label}): integer
-  for _, label in ipairs(labels) do
-    if label.name == "p0" then return 0 end
-    if label.name == "p1" then return 1 end
-    if label.name == "p2" then return 2 end
-  end
-  return 3
-end
-
-local function sort_issues(issues: {RawIssue})
-  table.sort(issues, function(a: RawIssue, b: RawIssue): boolean
-    local a_priority = get_priority(a.labels)
-    local b_priority = get_priority(b.labels)
-    if a_priority ~= b_priority then
-      return a_priority < b_priority
-    end
-    return a.createdAt < b.createdAt
-  end)
-end
-
-local function fetch_issues(repo: string): {RawIssue}, string
-  local ok, stdout = run({
-    "gh", "issue", "list",
-    "--repo", repo,
-    "--label", "todo",
-    "--state", "open",
-    "--json", "number,title,body,url,labels,createdAt",
-    "--limit", "100"
-  })
-  if not ok then return nil, "gh issue list failed: " .. (stdout or "no output") end
-  local success, issues = pcall(json.decode, stdout)
-  if not success or type(issues) ~= "table" then
-    return nil, "failed to parse JSON from gh issue list: " .. (stdout or ""):sub(1, 200)
-  end
-  return issues as {RawIssue}
-end
-
-local function select_issue(issues: {RawIssue}): Issue
-  if #issues == 0 then return nil end
-  sort_issues(issues)
-  local s = issues[1]
-  return {number = s.number, title = s.title, body = s.body, url = s.url}
-end
-
-local function fetch_issue(repo: string, issue_number: integer): Issue, string
-  local ok, stdout = run({
-    "gh", "issue", "view", tostring(issue_number),
-    "--repo", repo,
-    "--json", "number,title,body,url"
-  })
-  if not ok then return nil, "gh issue view failed: " .. (stdout or "no output") end
-  local success, issue = pcall(json.decode, stdout)
-  if not success or type(issue) ~= "table" then
-    return nil, "failed to parse JSON from gh issue view: " .. (stdout or ""):sub(1, 200)
-  end
-  return issue as Issue
-end
-
-local function create_issue_from_prompt(repo: string, prompt_name: string): integer, string
-  local body = read_prompt_template(prompt_name)
-  if not body then
-    return nil, "unknown prompt: " .. prompt_name
-  end
-  log("creating issue from prompt: " .. prompt_name .. " (body length: " .. #body .. ")")
-  local ok, stdout = run({
-    "gh", "issue", "create",
-    "--repo", repo,
-    "--title", "work: " .. prompt_name,
-    "--body", body,
-    "--label", "todo",
-  })
-  if not ok then
-    return nil, "gh issue create failed: " .. (stdout or "no output")
-  end
-  local number = tonumber(stdout:match("/issues/(%d+)"))
-  if not number then
-    return nil, "failed to parse issue number from: " .. (stdout or ""):sub(1, 200)
-  end
-  return number as integer
-end
-
-local function transition_to_doing(issue_url: string)
-  log("transitioning issue to doing: " .. issue_url)
-  run({"gh", "issue", "edit", issue_url, "--remove-label", "todo", "--add-label", "doing"})
-end
-
--- Prompt building for do/check phases
--- Extracted for testability.
-
-local function build_do_prompt(template: string, title: string, plan_contents: string, branch: string): string
-  return interpolate_prompt(template, {
-    title = title,
-    ["plan.md contents"] = plan_contents,
-    branch = branch,
-  })
-end
-
-local function build_check_prompt(template: string, plan_contents: string, do_contents: string): string
-  return interpolate_prompt(template, {
-    ["plan.md contents"] = plan_contents,
-    ["do.md contents"] = do_contents,
-  })
-end
-
-local function build_fix_prompt(template: string, title: string, plan_contents: string, check_contents: string, branch: string): string
-  return interpolate_prompt(template, {
-    title = title,
-    ["plan.md contents"] = plan_contents,
-    ["check.md contents"] = check_contents,
-    branch = branch,
-  })
-end
-
-local function build_friction_prompt(template: string, friction_path: string): string
-  return interpolate_prompt(template, {
-    friction_path = friction_path,
-  })
-end
-
--- Format error from a failed command, preferring stderr over stdout.
-local function format_run_error(prefix: string, stdout: string, stderr: string): string
-  local detail: string
-  if stderr and stderr ~= "" then
-    detail = stderr
-  elseif stdout and stdout ~= "" then
-    detail = stdout
-  else
-    detail = "no output"
-  end
-  return prefix .. ": " .. detail
-end
-
--- Branch extraction
-
-local function extract_branch(plan_contents: string, default_number: string): string
-  return plan_contents:match("Branch: ([^\n]+)") or ("work/" .. default_number)
-end
-
--- Actions
-
-local function parse_actions(content: string): ParsedActions, string
-  if not content then return nil, "no content" end
-  local ok, data = pcall(json.decode, content)
-  if not ok or type(data) ~= "table" then
-    return nil, "invalid json"
-  end
-  local d = data as {string:any}
-  return {
-    verdict = (d.verdict or "unknown") as string,
-    actions = (d.actions or {}) as {{string:any}},
-    success = d.verdict == "pass"
-  }
-end
-
-local function validate_branch(branch: string): boolean, string
-  if not branch then return false, "missing branch" end
-  if not (branch as string):match("^work/") then
-    return false, "branch must start with work/"
-  end
-  return true
-end
-
-local function execute_comment_issue(issue_url: string, body: string): boolean, string
-  if not body then return false, "missing body" end
-  local ok, stdout, _, stderr = run({"gh", "issue", "comment", issue_url, "--body", body})
-  if not ok then return false, format_run_error("gh issue comment failed", stdout, stderr) end
-  return true
-end
-
-local function execute_create_pr(branch: string, title: string, body: string): boolean, string
-  local valid, verr = validate_branch(branch)
-  if not valid then return false, verr end
-  if not title then return false, "missing title" end
-  if not body then return false, "missing body" end
-  local ok, stdout, _, stderr = run({"gh", "pr", "create", "--head", branch, "--title", title, "--body", body})
-  if not ok then return false, format_run_error("gh pr create failed", stdout, stderr) end
-  return true
-end
-
-local function issue_number_from_url(url: string): string
-  if not url then return nil end
-  return url:match("/issues/(%d+)")
-end
-
-local function build_pr_body(body: string, issue_url: string): string
-  body = body or ""
-  local num = issue_number_from_url(issue_url)
-  if num then
-    local ref = "Closes #" .. num
-    if not body:find(ref, 1, true) then
-      body = body .. "\n\n" .. ref
-    end
-  end
-  return body
-end
-
-local function execute_action(issue_url: string, action: {string:any}, log_fn: function(string)): boolean
-  local action_type = (action.action or "unknown") as string
-  log_fn("Executing: " .. action_type)
-
-  if action_type == "comment_issue" then
-    local ok, err = execute_comment_issue(issue_url, action.body as string)
-    if not ok then
-      log_fn("  Failed: " .. (err or "unknown error"))
-      return false
-    end
-    log_fn("  Success")
-    return true
-
-  elseif action_type == "create_pr" then
-    local body = build_pr_body(action.body as string, issue_url)
-    local ok, err = execute_create_pr(action.branch as string, action.title as string, body)
-    if not ok then
-      log_fn("  Failed: " .. (err or "unknown error"))
-      return false
-    end
-    log_fn("  Success")
-    return true
-
-  else
-    log_fn("  Skipped: unknown action type")
-    return true
-  end
-end
-
-local function update_labels(issue_url: string, success: boolean)
-  log("updating labels for: " .. issue_url .. " (success: " .. tostring(success) .. ")")
-  run({"gh", "issue", "edit", issue_url, "--remove-label", "doing"})
-  if success then
-    run({"gh", "issue", "edit", issue_url, "--add-label", "done"})
-  else
-    run({"gh", "issue", "edit", issue_url, "--add-label", "failed"})
-  end
-end
-
--- Build friction follow-up prompt for a given phase output directory.
-local function make_friction_prompt(phase_dir: string): string
-  local template = read_prompt("friction.md")
-  if not template then return nil end
-  return build_friction_prompt(template, phase_dir .. "/friction.md")
-end
 
 -- Friction issue parsing/validation
 
@@ -706,12 +151,12 @@ local function phase_plan(no_sandbox: boolean, repo: string, issue_number: integ
   local issue: Issue
   local err: string
   if issue_number then
-    issue, err = fetch_issue(repo, issue_number)
+    issue, err = issue_mod.fetch_issue(repo, issue_number)
   else
     local issues: {RawIssue}
-    issues, err = fetch_issues(repo)
+    issues, err = issue_mod.fetch_issues(repo)
     if issues then
-      issue = select_issue(issues)
+      issue = issue_mod.select_issue(issues)
     end
   end
 
@@ -724,39 +169,39 @@ local function phase_plan(no_sandbox: boolean, repo: string, issue_number: integ
     return 0
   end
 
-  transition_to_doing(issue.url)
+  issue_mod.transition_to_doing(issue.url)
 
   fs.makedirs("o/work/plan")
-  write_file("o/work/plan/issue.json", json.encode(issue) .. "\n")
+  util.write_file("o/work/plan/issue.json", json.encode(issue) .. "\n")
 
-  local prompt = read_prompt("plan.md")
-  if not prompt then
+  local tpl = prompt.read_prompt("plan.md")
+  if not tpl then
     io.stderr:write("error: could not read plan.md prompt\n")
     return 1
   end
 
-  prompt = interpolate_prompt(prompt, {
+  tpl = prompt.interpolate_prompt(tpl, {
     title = issue.title,
     body = issue.body or "",
     issue_number = tostring(issue.number),
   })
 
-  log("plan prompt interpolated (" .. #prompt .. " bytes) for issue #" .. tostring(issue.number))
+  util.log("plan prompt interpolated (" .. #tpl .. " bytes) for issue #" .. tostring(issue.number))
 
-  local friction = make_friction_prompt("o/work/plan")
-  local ok = sandboxed_agent(no_sandbox, prompt, "o/work/plan/session.db", nil, friction, plan_limits, model)
+  local friction = prompt.make_friction_prompt("o/work/plan")
+  local ok = sandbox.sandboxed_agent(no_sandbox, tpl, "o/work/plan/session.db", nil, friction, sandbox.plan_limits, model)
 
   if not ok then
     io.stderr:write("error: plan agent failed\n")
-    local diag = plan_diagnostic("o/work/plan")
-    log("plan diagnostic: " .. diag)
+    local diag = prompt.plan_diagnostic("o/work/plan")
+    util.log("plan diagnostic: " .. diag)
     return 1
   end
 
-  if not read_file("o/work/plan/plan.md") then
-    local diag = plan_diagnostic("o/work/plan")
+  if not util.read_file("o/work/plan/plan.md") then
+    local diag = prompt.plan_diagnostic("o/work/plan")
     io.stderr:write("error: plan.md not created\n")
-    log("plan diagnostic: " .. diag)
+    util.log("plan diagnostic: " .. diag)
     return 1
   end
 
@@ -766,31 +211,31 @@ end
 local function phase_do(no_sandbox: boolean, title: string, number: string, model: string): integer
   fs.makedirs("o/work/do")
 
-  local plan_contents = read_file("o/work/plan/plan.md")
+  local plan_contents = util.read_file("o/work/plan/plan.md")
   if not plan_contents then
     io.stderr:write("error: could not read o/work/plan/plan.md\n")
     return 1
   end
 
-  local prompt = read_prompt("do.md")
-  if not prompt then
+  local tpl = prompt.read_prompt("do.md")
+  if not tpl then
     io.stderr:write("error: could not read do.md prompt\n")
     return 1
   end
 
-  local branch = extract_branch(plan_contents, number)
+  local branch = util.extract_branch(plan_contents, number)
 
-  prompt = build_do_prompt(prompt, title, plan_contents, branch)
+  tpl = prompt.build_do_prompt(tpl, title, plan_contents, branch)
 
-  local friction = make_friction_prompt("o/work/do")
-  local ok = sandboxed_agent(no_sandbox, prompt, "o/work/do/session.db", {"o/work/plan"}, friction, do_limits, model)
+  local friction = prompt.make_friction_prompt("o/work/do")
+  local ok = sandbox.sandboxed_agent(no_sandbox, tpl, "o/work/do/session.db", {"o/work/plan"}, friction, sandbox.do_limits, model)
 
   if not ok then
     io.stderr:write("error: do agent failed\n")
     return 1
   end
 
-  write_file("o/work/do/branch.txt", branch .. "\n")
+  util.write_file("o/work/do/branch.txt", branch .. "\n")
 
   return 0
 end
@@ -798,7 +243,7 @@ end
 local function phase_push(work_dir: string): integer
   work_dir = work_dir or "o/work/do"
   local branch_file = work_dir .. "/branch.txt"
-  local branch_content = read_file(branch_file)
+  local branch_content = util.read_file(branch_file)
   if not branch_content then
     io.stderr:write("error: could not read " .. branch_file .. "\n")
     return 1
@@ -806,17 +251,17 @@ local function phase_push(work_dir: string): integer
 
   local branch = branch_content:gsub("%s+$", "")
 
-  local has_parent = run({"git", "rev-parse", "--verify", "HEAD~1"})
+  local has_parent = util.run({"git", "rev-parse", "--verify", "HEAD~1"})
   if not has_parent then
     return 0
   end
 
-  local same = run({"git", "diff", "--quiet", "origin/main...HEAD"})
+  local same = util.run({"git", "diff", "--quiet", "origin/main...HEAD"})
   if same then
     return 0
   end
 
-  local push_ok = run({"git", "push", "-u", "origin", "HEAD:" .. branch})
+  local push_ok = util.run({"git", "push", "-u", "origin", "HEAD:" .. branch})
   if not push_ok then
     io.stderr:write("error: git push failed for branch " .. branch .. "\n")
     return 1
@@ -829,34 +274,34 @@ local function phase_check(no_sandbox: boolean, model: string, do_dir: string): 
   do_dir = do_dir or "o/work/do"
   fs.makedirs("o/work/check")
 
-  local plan_contents = read_file("o/work/plan/plan.md")
+  local plan_contents = util.read_file("o/work/plan/plan.md")
   if not plan_contents then
     io.stderr:write("error: could not read o/work/plan/plan.md\n")
     return 1
   end
 
   local do_md = do_dir .. "/do.md"
-  local do_contents = read_file(do_md)
+  local do_contents = util.read_file(do_md)
   if not do_contents then
     io.stderr:write("error: could not read " .. do_md .. "\n")
     return 1
   end
 
-  local prompt = read_prompt("check.md")
-  if not prompt then
+  local tpl = prompt.read_prompt("check.md")
+  if not tpl then
     io.stderr:write("error: could not read check.md prompt\n")
     return 1
   end
 
-  prompt = build_check_prompt(prompt, plan_contents, do_contents)
+  tpl = prompt.build_check_prompt(tpl, plan_contents, do_contents)
 
   local protect_dirs: {string} = {"o/work/plan", "o/work/do"}
   if do_dir ~= "o/work/do" then
     table.insert(protect_dirs, do_dir)
   end
 
-  local friction = make_friction_prompt("o/work/check")
-  local ok = sandboxed_agent(no_sandbox, prompt, "o/work/check/session.db", protect_dirs, friction, check_limits, model)
+  local friction = prompt.make_friction_prompt("o/work/check")
+  local ok = sandbox.sandboxed_agent(no_sandbox, tpl, "o/work/check/session.db", protect_dirs, friction, sandbox.check_limits, model)
 
   if not ok then
     io.stderr:write("error: check agent failed\n")
@@ -867,7 +312,7 @@ local function phase_check(no_sandbox: boolean, model: string, do_dir: string): 
 end
 
 local function read_check_verdict(): string
-  local content = read_file("o/work/check/actions.json")
+  local content = util.read_file("o/work/check/actions.json")
   if not content then return nil end
   local ok, data = pcall(json.decode, content)
   if not ok or type(data) ~= "table" then return nil end
@@ -877,37 +322,37 @@ end
 local function phase_fix(no_sandbox: boolean, title: string, number: string, model: string): integer
   fs.makedirs("o/work/fix")
 
-  local plan_contents = read_file("o/work/plan/plan.md")
+  local plan_contents = util.read_file("o/work/plan/plan.md")
   if not plan_contents then
     io.stderr:write("error: could not read o/work/plan/plan.md\n")
     return 1
   end
 
-  local check_contents = read_file("o/work/check/check.md")
+  local check_contents = util.read_file("o/work/check/check.md")
   if not check_contents then
     io.stderr:write("error: could not read o/work/check/check.md\n")
     return 1
   end
 
-  local prompt = read_prompt("fix.md")
-  if not prompt then
+  local tpl = prompt.read_prompt("fix.md")
+  if not tpl then
     io.stderr:write("error: could not read fix.md prompt\n")
     return 1
   end
 
-  local branch = extract_branch(plan_contents, number)
+  local branch = util.extract_branch(plan_contents, number)
 
-  prompt = build_fix_prompt(prompt, title, plan_contents, check_contents, branch)
+  tpl = prompt.build_fix_prompt(tpl, title, plan_contents, check_contents, branch)
 
-  local friction = make_friction_prompt("o/work/fix")
-  local ok = sandboxed_agent(no_sandbox, prompt, "o/work/fix/session.db", {"o/work/plan", "o/work/do"}, friction, fix_limits, model)
+  local friction = prompt.make_friction_prompt("o/work/fix")
+  local ok = sandbox.sandboxed_agent(no_sandbox, tpl, "o/work/fix/session.db", {"o/work/plan", "o/work/do"}, friction, sandbox.fix_limits, model)
 
   if not ok then
     io.stderr:write("error: fix agent failed\n")
     return 1
   end
 
-  write_file("o/work/fix/branch.txt", branch .. "\n")
+  util.write_file("o/work/fix/branch.txt", branch .. "\n")
 
   return 0
 end
@@ -916,45 +361,45 @@ local function phase_act(issue_url: string): integer
   fs.makedirs("o/work/act")
 
   local act_md = "o/work/act/act.md"
-  write_file(act_md, "")
+  util.write_file(act_md, "")
 
-  tee(act_md, "# Act")
+  util.tee(act_md, "# Act")
 
-  local actions_content = read_file("o/work/check/actions.json")
+  local actions_content = util.read_file("o/work/check/actions.json")
   if not actions_content then
-    tee(act_md, "No actions.json found")
-    update_labels(issue_url, false)
+    util.tee(act_md, "No actions.json found")
+    issue_mod.update_labels(issue_url, false)
     return 0
   end
 
   local ok, actions_data = pcall(json.decode, actions_content)
   if not ok or type(actions_data) ~= "table" then
-    tee(act_md, "Failed to parse actions.json")
-    update_labels(issue_url, false)
+    util.tee(act_md, "Failed to parse actions.json")
+    issue_mod.update_labels(issue_url, false)
     return 1
   end
 
   local data = actions_data as {string:any}
   local verdict = (data.verdict or "unknown") as string
-  tee(act_md, "Verdict: " .. verdict)
-  tee(act_md, "")
-  tee(act_md, "## Actions")
+  util.tee(act_md, "Verdict: " .. verdict)
+  util.tee(act_md, "")
+  util.tee(act_md, "## Actions")
 
   local actions = (data.actions or {}) as {{string:any}}
   local all_succeeded = true
-  for _, action in ipairs(actions) do
-    local log_fn = function(msg: string) tee(act_md, msg) end
-    local action_ok = execute_action(issue_url, action, log_fn)
+  for _, act in ipairs(actions) do
+    local log_fn = function(msg: string) util.tee(act_md, msg) end
+    local action_ok = action.execute_action(issue_url, act, log_fn)
     if not action_ok then all_succeeded = false end
   end
 
   local success = verdict == "pass" and all_succeeded
-  write_file("o/work/act/results.json", json.encode({
+  util.write_file("o/work/act/results.json", json.encode({
     verdict = verdict,
     success = success
   }) .. "\n")
 
-  update_labels(issue_url, success)
+  issue_mod.update_labels(issue_url, success)
 
   return 0
 end
@@ -964,20 +409,20 @@ end
 local function phase_analyze(no_sandbox: boolean, repo: string, model: string): integer
   fs.makedirs("o/work/analyze")
 
-  local prompt = read_prompt("analyze.md")
-  if not prompt then
+  local tpl = prompt.read_prompt("analyze.md")
+  if not tpl then
     io.stderr:write("error: could not read analyze.md prompt\n")
     return 1
   end
 
-  prompt = interpolate_prompt(prompt, {
+  tpl = prompt.interpolate_prompt(tpl, {
     repo = repo,
   })
 
   -- Protect all existing phase output directories (read-only)
   local protect_dirs: {string} = {"o/work/plan", "o/work/do", "o/work/check", "o/work/fix", "o/work/act"}
 
-  local ok = sandboxed_agent(no_sandbox, prompt, "o/work/analyze/session.db", protect_dirs, nil, analyze_limits, model)
+  local ok = sandbox.sandboxed_agent(no_sandbox, tpl, "o/work/analyze/session.db", protect_dirs, nil, analyze_limits, model)
 
   if not ok then
     io.stderr:write("error: analyze agent failed\n")
@@ -990,20 +435,20 @@ end
 -- File friction issues deterministically from analyze output
 
 local function file_friction_issues(repo: string): integer
-  local content = read_file("o/work/analyze/issues.json")
+  local content = util.read_file("o/work/analyze/issues.json")
   if not content then
-    log("no issues.json found in analyze output")
+    util.log("no issues.json found in analyze output")
     return 0
   end
 
   local parsed, err = parse_friction_issues(content)
   if not parsed then
-    log("failed to parse issues.json: " .. (err or "unknown"))
+    util.log("failed to parse issues.json: " .. (err or "unknown"))
     return 1
   end
 
   if #parsed.issues == 0 then
-    log("no friction issues to file")
+    util.log("no friction issues to file")
     return 0
   end
 
@@ -1014,7 +459,7 @@ local function file_friction_issues(repo: string): integer
 
     local valid, verr = validate_friction_issue(issue)
     if not valid then
-      log("skipping invalid friction issue: " .. (verr or "unknown"))
+      util.log("skipping invalid friction issue: " .. (verr or "unknown"))
     else
       local cmd: {string} = {"gh", "issue", "create", "--repo", repo, "--title", issue.title, "--body", issue.body}
       for _, label in ipairs(issue.labels) do
@@ -1022,17 +467,17 @@ local function file_friction_issues(repo: string): integer
         table.insert(cmd, label)
       end
 
-      local ok = run(cmd)
+      local ok = util.run(cmd)
       if ok then
         filed = filed + 1
-        log("filed friction issue: " .. issue.title)
+        util.log("filed friction issue: " .. issue.title)
       else
-        log("failed to file friction issue: " .. issue.title)
+        util.log("failed to file friction issue: " .. issue.title)
       end
     end
   end
 
-  log("filed " .. tostring(filed) .. " friction issues")
+  util.log("filed " .. tostring(filed) .. " friction issues")
   return 0
 end
 
@@ -1226,17 +671,17 @@ local function main(args: {string}): integer
   local subcmd = filtered_args[1]
 
   if subcmd == "plan" then
-    return cmd_plan(no_sandbox, slice(filtered_args, 2), model)
+    return cmd_plan(no_sandbox, util.slice(filtered_args, 2), model)
   elseif subcmd == "do" then
-    return cmd_do(no_sandbox, slice(filtered_args, 2), model)
+    return cmd_do(no_sandbox, util.slice(filtered_args, 2), model)
   elseif subcmd == "check" then
     return phase_check(no_sandbox, model, "o/work/do")
   elseif subcmd == "act" then
-    return cmd_act(slice(filtered_args, 2))
+    return cmd_act(util.slice(filtered_args, 2))
   elseif subcmd == "push" then
     return phase_push("o/work/do")
   elseif subcmd == "analyze" then
-    return cmd_analyze(no_sandbox, slice(filtered_args, 2), model)
+    return cmd_analyze(no_sandbox, util.slice(filtered_args, 2), model)
   end
 
   -- Unified mode: parse options, run all phases
@@ -1280,7 +725,7 @@ local function main(args: {string}): integer
   end
 
   -- Ensure required labels exist in the repository
-  ensure_labels(repo)
+  issue_mod.ensure_labels(repo)
 
   -- Create issue from prompt template if specified
   if prompt_name then
@@ -1288,7 +733,7 @@ local function main(args: {string}): integer
       io.stderr:write("error: --prompt and --issue are mutually exclusive\n")
       return 1
     end
-    local num, err = create_issue_from_prompt(repo, prompt_name)
+    local num, err = issue_mod.create_issue_from_prompt(repo, prompt_name, prompt.read_prompt_template)
     if not num then
       io.stderr:write("error: " .. (err or "unknown") .. "\n")
       return 1
@@ -1297,11 +742,11 @@ local function main(args: {string}): integer
     io.stderr:write("created issue #" .. issue_number .. " from prompt: " .. prompt_name .. "\n")
   end
 
-  local start_time = now_sec()
-  local deadline = start_time + overall_timeout_sec
+  local start_time = util.now_sec()
+  local deadline = start_time + sandbox.overall_timeout_sec
 
   local function check_deadline(phase: string): boolean
-    if now_sec() > deadline then
+    if util.now_sec() > deadline then
       io.stderr:write("error: overall timeout exceeded before " .. phase .. " phase\n")
       return false
     end
@@ -1393,7 +838,7 @@ local function main(args: {string}): integer
   end
 
   -- Phase 6: Analyze friction (always runs when work was attempted)
-  if read_file("o/work/plan/issue.json") then
+  if util.read_file("o/work/plan/issue.json") then
     io.stderr:write("==> analyze\n")
     local analyze_rc = phase_analyze(no_sandbox, repo, model)
     if analyze_rc == 0 then
@@ -1406,29 +851,29 @@ end
 
 return {
   main = main,
-  -- exported for testing
-  get_priority = get_priority,
-  sort_issues = sort_issues,
-  select_issue = select_issue,
-  extract_branch = extract_branch,
-  parse_actions = parse_actions,
-  validate_branch = validate_branch,
-  execute_action = execute_action,
-  slice = slice,
-  required_labels = required_labels,
-  ensure_labels = ensure_labels,
-  interpolate_prompt = interpolate_prompt,
-  plan_diagnostic = plan_diagnostic,
-  build_do_prompt = build_do_prompt,
-  build_check_prompt = build_check_prompt,
-  issue_number_from_url = issue_number_from_url,
-  build_pr_body = build_pr_body,
-  format_run_error = format_run_error,
-  format_protect_dirs = format_protect_dirs,
-  build_fix_prompt = build_fix_prompt,
-  build_friction_prompt = build_friction_prompt,
-  build_agent_args = build_agent_args,
-  setup_git_env = setup_git_env,
+  -- re-exported from submodules for backward compatibility
+  get_priority = issue_mod.get_priority,
+  sort_issues = issue_mod.sort_issues,
+  select_issue = issue_mod.select_issue,
+  extract_branch = util.extract_branch,
+  parse_actions = action.parse_actions,
+  validate_branch = action.validate_branch,
+  execute_action = action.execute_action,
+  slice = util.slice,
+  required_labels = issue_mod.required_labels,
+  ensure_labels = issue_mod.ensure_labels,
+  interpolate_prompt = prompt.interpolate_prompt,
+  plan_diagnostic = prompt.plan_diagnostic,
+  build_do_prompt = prompt.build_do_prompt,
+  build_check_prompt = prompt.build_check_prompt,
+  issue_number_from_url = action.issue_number_from_url,
+  build_pr_body = action.build_pr_body,
+  format_run_error = util.format_run_error,
+  format_protect_dirs = util.format_protect_dirs,
+  build_fix_prompt = prompt.build_fix_prompt,
+  build_friction_prompt = prompt.build_friction_prompt,
+  build_agent_args = sandbox.build_agent_args,
+  setup_git_env = util.setup_git_env,
   parse_friction_issues = parse_friction_issues,
   validate_friction_issue = validate_friction_issue,
 }
