@@ -681,6 +681,29 @@ local function test_unknown_tool_no_details()
 end
 test_unknown_tool_no_details()
 
+-- Test that bash tool preserves literal newlines in command strings.
+-- Regression: old code used sh -c %q double-wrapping which turned
+-- newlines into line-continuations, mangling multi-line commands
+-- (e.g. git commit messages with heredocs).
+local function test_bash_newline_in_command()
+  local cmd = "echo first\necho second"
+  local result, is_error = tools.execute_tool("bash", {command = cmd})
+  assert(not is_error, "multiline command should succeed: " .. result)
+  assert(result:match("first\nsecond"), "should run both echo commands: " .. result)
+  print("✓ bash tool preserves literal newlines in commands")
+end
+test_bash_newline_in_command()
+
+-- Test that bash tool supports bash-specific syntax (brace expansion).
+-- Regression: old code used sh which lacks brace expansion.
+local function test_bash_brace_expansion()
+  local result, is_error = tools.execute_tool("bash", {command = "echo {a,b,c}"})
+  assert(not is_error, "bash should succeed")
+  assert(result:match("a b c"), "brace expansion should work (bash feature): " .. result)
+  print("✓ bash tool supports bash features (brace expansion)")
+end
+test_bash_brace_expansion()
+
 -- Test abort_running_tools with no running processes (should be a no-op)
 local function test_abort_no_processes()
   -- Should not error when nothing is running

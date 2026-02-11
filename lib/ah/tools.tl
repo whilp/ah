@@ -288,12 +288,14 @@ local bash_tool: Tool = {
     local timeout_ms = (input.timeout as integer) or 120000
     local timeout_sec = math.ceil(timeout_ms / 1000)
 
-    -- Wrap command with timeout
-    local wrapped = string.format("timeout %d sh -c %q", timeout_sec, command)
-
-    -- Pass current environment to the child process
-    -- env.all() returns an array of "key=value" strings
-    local handle, err = child.spawn({"sh", "-c", wrapped}, {env = env.all() as {string}})
+    -- Spawn directly: timeout -> shell -> command
+    -- No double-wrapping (old: sh -c "timeout N sh -c %q") which corrupted
+    -- newlines via %q escaping (backslash-newline becomes line continuation).
+    local shell = os.getenv("AH_SHELL") or "bash"
+    local handle, err = child.spawn(
+      {"timeout", tostring(timeout_sec), shell, "-c", command},
+      {env = env.all() as {string}}
+    )
     if not handle then
       return "error: failed to spawn: " .. tostring(err), true, nil
     end
