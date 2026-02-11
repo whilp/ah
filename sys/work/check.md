@@ -55,6 +55,7 @@ Write `o/work/check/actions.json`:
 Action rules:
 - Always include `comment_issue` with verdict, summary, and any friction items
 - Include `create_pr` only when verdict is "pass" and changes were committed
+- PR `body` must include `Closes #<issue_number>` so the issue is closed when the PR merges
 - `friction` array: one short string per friction item, or empty array if none
 
 Write `o/work/check/update.md`: 2-4 line summary.
