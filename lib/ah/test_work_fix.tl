@@ -20,7 +20,7 @@ end
 local record Work
   build_fix_prompt: function(string, string, string, string, string): string
   build_friction_prompt: function(string, string): string
-  build_agent_args: function(string, string, string, boolean, AgentLimits): {string}
+  build_agent_args: function(string, string, string, boolean, AgentLimits, string): {string}
   parse_actions: function(string): ParsedActions, string
   interpolate_prompt: function(string, {string:string}): string
 end
@@ -144,5 +144,39 @@ local function test_agent_args_both_limits()
   print("ok build_agent_args with both limits")
 end
 test_agent_args_both_limits()
+
+-- Test: build_agent_args with model
+local function test_agent_args_model()
+  local args = work.build_agent_args("ah", "test.db", "hello", true, nil, "opus")
+  local joined = table.concat(args, " ")
+  assert(joined:find("-m opus"), "should have -m opus, got: " .. joined)
+  assert(args[1] == "ah")
+  assert(args[#args] == "hello", "prompt should be last arg, got: " .. args[#args])
+  print("ok build_agent_args with model")
+end
+test_agent_args_model()
+
+-- Test: build_agent_args with model and limits
+local function test_agent_args_model_and_limits()
+  local limits: AgentLimits = {max_tokens = 50000, timeout_sec = 180}
+  local args = work.build_agent_args("ah", "test.db", "hello", true, limits, "haiku")
+  local joined = table.concat(args, " ")
+  assert(args[1] == "timeout", "should start with timeout, got: " .. args[1])
+  assert(args[2] == "180", "timeout value, got: " .. args[2])
+  assert(joined:find("-m haiku"), "should have -m haiku, got: " .. joined)
+  assert(joined:find("--max%-tokens 50000"), "should have --max-tokens, got: " .. joined)
+  assert(args[#args] == "hello", "prompt last, got: " .. args[#args])
+  print("ok build_agent_args with model and limits")
+end
+test_agent_args_model_and_limits()
+
+-- Test: build_agent_args without model (nil) doesn't add -m
+local function test_agent_args_no_model()
+  local args = work.build_agent_args("ah", "test.db", "hello", true, nil, nil)
+  local joined = table.concat(args, " ")
+  assert(not joined:find("-m "), "should not have -m when model is nil, got: " .. joined)
+  print("ok build_agent_args without model omits -m")
+end
+test_agent_args_no_model()
 
 print("\nAll work-fix tests passed!")
