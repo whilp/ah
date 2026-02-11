@@ -231,4 +231,42 @@ local function test_parse_args_work_with_issue()
 end
 test_parse_args_work_with_issue()
 
+-- Sandbox protect-dirs parsing
+
+local record InitSandbox
+  parse_protect_dirs: function(string): {string}
+end
+local init_sandbox = require("ah.init") as InitSandbox
+
+local function test_parse_protect_dirs_single()
+  local dirs = init_sandbox.parse_protect_dirs("o/work/plan")
+  assert(#dirs == 1, "should have 1 dir, got: " .. #dirs)
+  assert(dirs[1] == "o/work/plan", "dir should match, got: " .. dirs[1])
+  print("✓ parse_protect_dirs handles single dir")
+end
+test_parse_protect_dirs_single()
+
+local function test_parse_protect_dirs_multiple()
+  local dirs = init_sandbox.parse_protect_dirs("o/work/plan:o/work/do")
+  assert(#dirs == 2, "should have 2 dirs, got: " .. #dirs)
+  assert(dirs[1] == "o/work/plan", "first dir, got: " .. dirs[1])
+  assert(dirs[2] == "o/work/do", "second dir, got: " .. dirs[2])
+  print("✓ parse_protect_dirs handles multiple dirs")
+end
+test_parse_protect_dirs_multiple()
+
+local function test_parse_protect_dirs_nil()
+  local dirs = init_sandbox.parse_protect_dirs(nil)
+  assert(#dirs == 0, "nil should return empty table, got: " .. #dirs)
+  print("✓ parse_protect_dirs returns empty for nil")
+end
+test_parse_protect_dirs_nil()
+
+local function test_parse_protect_dirs_empty()
+  local dirs = init_sandbox.parse_protect_dirs("")
+  assert(#dirs == 0, "empty string should return empty table, got: " .. #dirs)
+  print("✓ parse_protect_dirs returns empty for empty string")
+end
+test_parse_protect_dirs_empty()
+
 print("all init tests passed")
