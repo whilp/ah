@@ -12,9 +12,15 @@ local record ParsedActions
   success: boolean
 end
 
+local record AgentLimits
+  max_tokens: integer
+  timeout_sec: integer
+end
+
 local record Work
   build_fix_prompt: function(string, string, string, string, string): string
   build_friction_prompt: function(string, string): string
+  build_agent_args: function(string, string, string, boolean, AgentLimits): {string}
   parse_actions: function(string): ParsedActions, string
   interpolate_prompt: function(string, {string:string}): string
 end
@@ -74,5 +80,69 @@ local function test_build_friction_prompt_phases()
   print("ok build_friction_prompt works for all phase paths")
 end
 test_build_friction_prompt_phases()
+
+-- Test: build_agent_args with new session, no limits
+local function test_agent_args_basic()
+  local args = work.build_agent_args("ah", "test.db", "hello", true, nil)
+  assert(args[1] == "ah", "exe should be ah, got: " .. args[1])
+  assert(args[2] == "-n", "should have -n for new session, got: " .. args[2])
+  assert(args[3] == "--db", "should have --db, got: " .. args[3])
+  assert(args[4] == "test.db", "should have db path, got: " .. args[4])
+  assert(args[5] == "hello", "should have prompt, got: " .. args[5])
+  assert(#args == 5, "should have 5 args, got: " .. #args)
+  print("ok build_agent_args basic new session")
+end
+test_agent_args_basic()
+
+-- Test: build_agent_args continue session (no -n)
+local function test_agent_args_continue()
+  local args = work.build_agent_args("ah", "test.db", "hello", false, nil)
+  assert(args[1] == "ah", "exe should be ah")
+  assert(args[2] == "--db", "should have --db without -n, got: " .. args[2])
+  assert(args[3] == "test.db")
+  assert(args[4] == "hello")
+  assert(#args == 4, "should have 4 args, got: " .. #args)
+  print("ok build_agent_args continue session")
+end
+test_agent_args_continue()
+
+-- Test: build_agent_args with max_tokens
+local function test_agent_args_max_tokens()
+  local limits: AgentLimits = {max_tokens = 50000, timeout_sec = 0}
+  local args = work.build_agent_args("ah", "test.db", "hello", true, limits)
+  -- Should be: ah -n --max-tokens 50000 --db test.db hello
+  local joined = table.concat(args, " ")
+  assert(joined:find("--max%-tokens 50000"), "should have --max-tokens 50000, got: " .. joined)
+  assert(args[1] == "ah")
+  assert(args[#args] == "hello", "prompt should be last arg, got: " .. args[#args])
+  print("ok build_agent_args with max_tokens")
+end
+test_agent_args_max_tokens()
+
+-- Test: build_agent_args with timeout wraps in timeout command
+local function test_agent_args_timeout()
+  local limits: AgentLimits = {max_tokens = 0, timeout_sec = 300}
+  local args = work.build_agent_args("ah", "test.db", "hello", true, limits)
+  -- Should be: timeout 300 ah -n --db test.db hello
+  assert(args[1] == "timeout", "should start with timeout, got: " .. args[1])
+  assert(args[2] == "300", "should have timeout seconds, got: " .. args[2])
+  assert(args[3] == "ah", "exe should follow timeout, got: " .. args[3])
+  assert(args[#args] == "hello", "prompt should be last, got: " .. args[#args])
+  print("ok build_agent_args with timeout")
+end
+test_agent_args_timeout()
+
+-- Test: build_agent_args with both limits
+local function test_agent_args_both_limits()
+  local limits: AgentLimits = {max_tokens = 100000, timeout_sec = 300}
+  local args = work.build_agent_args("ah", "test.db", "hello", true, limits)
+  local joined = table.concat(args, " ")
+  assert(args[1] == "timeout", "should start with timeout, got: " .. args[1])
+  assert(args[2] == "300", "timeout value, got: " .. args[2])
+  assert(joined:find("--max%-tokens 100000"), "should have --max-tokens, got: " .. joined)
+  assert(args[#args] == "hello", "prompt last, got: " .. args[#args])
+  print("ok build_agent_args with both limits")
+end
+test_agent_args_both_limits()
 
 print("\nAll work-fix tests passed!")

@@ -217,16 +217,46 @@ local function run(cmd: {string}): boolean, string, integer, string
   return ok and exit_code == 0, stdout, exit_code, stderr_out
 end
 
+local record AgentLimits
+  max_tokens: integer   -- token budget passed via --max-tokens
+  timeout_sec: integer  -- wall-clock timeout via timeout(1) wrapper
+end
+
+-- Build the argv for an agent subprocess.
+-- Exported for testing.
+local function build_agent_args(exe: string, db: string, prompt: string, new_session: boolean, limits: AgentLimits): {string}
+  local args: {string} = {}
+
+  -- Wall-clock timeout wrapper
+  if limits and limits.timeout_sec and limits.timeout_sec > 0 then
+    table.insert(args, "timeout")
+    table.insert(args, tostring(limits.timeout_sec))
+  end
+
+  table.insert(args, exe)
+
+  if new_session then
+    table.insert(args, "-n")
+  end
+
+  -- Token budget
+  if limits and limits.max_tokens and limits.max_tokens > 0 then
+    table.insert(args, "--max-tokens")
+    table.insert(args, tostring(limits.max_tokens))
+  end
+
+  table.insert(args, "--db")
+  table.insert(args, db)
+  table.insert(args, prompt)
+
+  return args
+end
+
 -- Spawn an ah agent subprocess and wait for completion.
 -- When new_session is true, passes -n to start a fresh session.
 -- When false, continues the most recent session in the db.
-local function spawn_agent(run_env: {string:string}, db: string, prompt: string, new_session: boolean): boolean, string, integer
-  local args: {string}
-  if new_session then
-    args = {ah_exe(), "-n", "--db", db, prompt}
-  else
-    args = {ah_exe(), "--db", db, prompt}
-  end
+local function spawn_agent(run_env: {string:string}, db: string, prompt: string, new_session: boolean, limits: AgentLimits): boolean, string, integer
+  local args = build_agent_args(ah_exe(), db, prompt, new_session, limits)
 
   log("spawning agent: db=" .. db .. " prompt_len=" .. #prompt .. " new=" .. tostring(new_session))
   local handle, spawn_err = spawn.spawn(args, {env = run_env as {string}})
@@ -236,6 +266,11 @@ local function spawn_agent(run_env: {string:string}, db: string, prompt: string,
   local stderr_out = handle.stderr:read()
   local ok, stdout, exit_str = handle:read()
   local exit_code = (tonumber(exit_str) or 0) as integer
+
+  -- Detect timeout(1) exit code
+  if exit_code == 124 then
+    log("agent timed out (wall-clock limit)")
+  end
 
   -- Log agent subprocess results for debugging
   log("agent exited: ok=" .. tostring(ok) .. " exit_code=" .. tostring(exit_code))
@@ -262,7 +297,22 @@ end
 -- executes without network isolation overhead.
 -- If friction_prompt is provided, it is sent as a follow-up message in the
 -- same session after the main prompt completes.
-local function sandboxed_agent(no_sandbox: boolean, prompt: string, db: string, protect_dirs?: {string}, friction_prompt?: string): boolean, string, integer
+-- Overall deadline for unified work run (seconds)
+local overall_timeout_sec = 1200  -- 20 minutes
+
+local function now_sec(): number
+  local s, ns = unix.clock_gettime(unix.CLOCK_MONOTONIC)
+  return s + ns / 1e9
+end
+
+-- Per-phase limits
+local plan_limits: AgentLimits  = {max_tokens = 50000,  timeout_sec = 180}
+local do_limits: AgentLimits    = {max_tokens = 100000, timeout_sec = 300}
+local check_limits: AgentLimits = {max_tokens = 50000,  timeout_sec = 180}
+local fix_limits: AgentLimits   = {max_tokens = 100000, timeout_sec = 300}
+local friction_limits: AgentLimits = {max_tokens = 10000, timeout_sec = 60}
+
+local function sandboxed_agent(no_sandbox: boolean, prompt: string, db: string, protect_dirs?: {string}, friction_prompt?: string, limits?: AgentLimits): boolean, string, integer
   local ctx: SandboxCtx = nil
   if not no_sandbox then
     local sctx, err = start_sandbox()
@@ -294,7 +344,7 @@ local function sandboxed_agent(no_sandbox: boolean, prompt: string, db: string, 
   end
 
   -- Main prompt: new session
-  local ok, stdout, exit_code = spawn_agent(run_env, db, prompt, true)
+  local ok, stdout, exit_code = spawn_agent(run_env, db, prompt, true, limits)
 
   if not ok then
     if ctx then
@@ -307,7 +357,7 @@ local function sandboxed_agent(no_sandbox: boolean, prompt: string, db: string, 
   -- Friction follow-up: same session (no -n)
   if friction_prompt then
     log("sending friction follow-up to same session")
-    spawn_agent(run_env, db, friction_prompt, false)
+    spawn_agent(run_env, db, friction_prompt, false, friction_limits)
   end
 
   if ctx then
@@ -616,7 +666,7 @@ local function phase_plan(no_sandbox: boolean, repo: string, issue_number: integ
   log("plan prompt interpolated (" .. #prompt .. " bytes) for issue #" .. tostring(issue.number))
 
   local friction = make_friction_prompt("o/work/plan")
-  local ok = sandboxed_agent(no_sandbox, prompt, "o/work/plan/session.db", nil, friction)
+  local ok = sandboxed_agent(no_sandbox, prompt, "o/work/plan/session.db", nil, friction, plan_limits)
 
   if not ok then
     io.stderr:write("error: plan agent failed\n")
@@ -655,7 +705,7 @@ local function phase_do(no_sandbox: boolean, title: string, number: string): int
   prompt = build_do_prompt(prompt, title, plan_contents, branch)
 
   local friction = make_friction_prompt("o/work/do")
-  local ok = sandboxed_agent(no_sandbox, prompt, "o/work/do/session.db", {"o/work/plan"}, friction)
+  local ok = sandboxed_agent(no_sandbox, prompt, "o/work/do/session.db", {"o/work/plan"}, friction, do_limits)
 
   if not ok then
     io.stderr:write("error: do agent failed\n")
@@ -719,7 +769,7 @@ local function phase_check(no_sandbox: boolean): integer
   prompt = build_check_prompt(prompt, plan_contents, do_contents)
 
   local friction = make_friction_prompt("o/work/check")
-  local ok = sandboxed_agent(no_sandbox, prompt, "o/work/check/session.db", {"o/work/plan", "o/work/do"}, friction)
+  local ok = sandboxed_agent(no_sandbox, prompt, "o/work/check/session.db", {"o/work/plan", "o/work/do"}, friction, check_limits)
 
   if not ok then
     io.stderr:write("error: check agent failed\n")
@@ -763,7 +813,7 @@ local function phase_fix(no_sandbox: boolean, title: string, number: string): in
   prompt = build_fix_prompt(prompt, title, plan_contents, check_contents, branch)
 
   local friction = make_friction_prompt("o/work/do")
-  local ok = sandboxed_agent(no_sandbox, prompt, "o/work/do/session.db", {"o/work/plan"}, friction)
+  local ok = sandboxed_agent(no_sandbox, prompt, "o/work/do/session.db", {"o/work/plan"}, friction, fix_limits)
 
   if not ok then
     io.stderr:write("error: fix agent failed\n")
@@ -1033,6 +1083,17 @@ local function main(args: {string}): integer
     io.stderr:write("created issue #" .. issue_number .. " from prompt: " .. prompt_name .. "\n")
   end
 
+  local start_time = now_sec()
+  local deadline = start_time + overall_timeout_sec
+
+  local function check_deadline(phase: string): boolean
+    if now_sec() > deadline then
+      io.stderr:write("error: overall timeout exceeded before " .. phase .. " phase\n")
+      return false
+    end
+    return true
+  end
+
   -- Phase 1: Plan (agent — sandboxed)
   io.stderr:write("==> plan\n")
   local issue_num: integer = nil
@@ -1053,16 +1114,19 @@ local function main(args: {string}): integer
   local issue_number_str = tostring(issue.number)
 
   -- Phase 2: Do (agent — sandboxed)
+  if not check_deadline("do") then return 1 end
   io.stderr:write("==> do\n")
   rc = phase_do(no_sandbox, issue.title, issue_number_str)
   if rc ~= 0 then return rc end
 
   -- Phase 3: Push (deterministic — unsandboxed)
+  if not check_deadline("push") then return 1 end
   io.stderr:write("==> push\n")
   rc = phase_push()
   if rc ~= 0 then return rc end
 
   -- Phase 4: Check (agent — sandboxed)
+  if not check_deadline("check") then return 1 end
   io.stderr:write("==> check\n")
   rc = phase_check(no_sandbox)
   if rc ~= 0 then return rc end
@@ -1071,15 +1135,18 @@ local function main(args: {string}): integer
   for attempt = 1, max_fix_retries do
     local verdict = read_check_verdict()
     if verdict ~= "needs-fixes" then break end
+    if not check_deadline("fix") then break end
 
     io.stderr:write("==> fix (attempt " .. tostring(attempt) .. "/" .. tostring(max_fix_retries) .. ")\n")
     rc = phase_fix(no_sandbox, issue.title, issue_number_str)
     if rc ~= 0 then break end
 
+    if not check_deadline("push") then break end
     io.stderr:write("==> push\n")
     rc = phase_push()
     if rc ~= 0 then break end
 
+    if not check_deadline("check") then break end
     io.stderr:write("==> check\n")
     rc = phase_check(no_sandbox)
     if rc ~= 0 then break end
@@ -1114,4 +1181,5 @@ return {
   format_protect_dirs = format_protect_dirs,
   build_fix_prompt = build_fix_prompt,
   build_friction_prompt = build_friction_prompt,
+  build_agent_args = build_agent_args,
 }
