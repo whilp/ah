@@ -12,6 +12,7 @@ local record Work
   validate_branch: function(string): boolean, string
   execute_action: function(string, {string:any}, function(string)): boolean
   issue_number_from_url: function(string): string
+  build_pr_body: function(string, string): string
 end
 
 local work = require("ah.work") as Work
@@ -159,5 +160,37 @@ local function test_issue_number_from_url_no_match()
   print("✓ issue_number_from_url returns nil for non-matching URL")
 end
 test_issue_number_from_url_no_match()
+
+-- Test build_pr_body appends issue ref
+local function test_build_pr_body_appends()
+  local body = work.build_pr_body("Some description", "https://api.github.com/repos/o/r/issues/42")
+  assert(body == "Some description\n\nCloses #42", "should append ref, got: " .. body)
+  print("✓ build_pr_body appends Closes #N")
+end
+test_build_pr_body_appends()
+
+-- Test build_pr_body does not duplicate existing ref
+local function test_build_pr_body_no_duplicate()
+  local body = work.build_pr_body("Fix bug\n\nCloses #42", "https://api.github.com/repos/o/r/issues/42")
+  assert(body == "Fix bug\n\nCloses #42", "should not duplicate ref, got: " .. body)
+  print("✓ build_pr_body skips when ref already present")
+end
+test_build_pr_body_no_duplicate()
+
+-- Test build_pr_body with nil body
+local function test_build_pr_body_nil()
+  local body = work.build_pr_body(nil, "https://api.github.com/repos/o/r/issues/5")
+  assert(body == "\n\nCloses #5", "should handle nil body, got: " .. body)
+  print("✓ build_pr_body handles nil body")
+end
+test_build_pr_body_nil()
+
+-- Test build_pr_body with no issue in url
+local function test_build_pr_body_no_issue()
+  local body = work.build_pr_body("Some text", "https://example.com/foo")
+  assert(body == "Some text", "should not modify body without issue, got: " .. body)
+  print("✓ build_pr_body leaves body unchanged when no issue number")
+end
+test_build_pr_body_no_issue()
 
 print("\nAll work-act tests passed!")

@@ -581,6 +581,18 @@ local function issue_number_from_url(url: string): string
   return url:match("/issues/(%d+)")
 end
 
+local function build_pr_body(body: string, issue_url: string): string
+  body = body or ""
+  local num = issue_number_from_url(issue_url)
+  if num then
+    local ref = "Closes #" .. num
+    if not body:find(ref, 1, true) then
+      body = body .. "\n\n" .. ref
+    end
+  end
+  return body
+end
+
 local function execute_action(issue_url: string, action: {string:any}, log_fn: function(string)): boolean
   local action_type = (action.action or "unknown") as string
   log_fn("Executing: " .. action_type)
@@ -595,14 +607,7 @@ local function execute_action(issue_url: string, action: {string:any}, log_fn: f
     return true
 
   elseif action_type == "create_pr" then
-    local body = action.body as string or ""
-    local num = issue_number_from_url(issue_url)
-    if num then
-      local ref = "Closes #" .. num
-      if not body:find(ref, 1, true) then
-        body = body .. "\n\n" .. ref
-      end
-    end
+    local body = build_pr_body(action.body as string, issue_url)
     local ok, err = execute_create_pr(action.branch as string, action.title as string, body)
     if not ok then
       log_fn("  Failed: " .. (err or "unknown error"))
@@ -1191,6 +1196,7 @@ return {
   build_do_prompt = build_do_prompt,
   build_check_prompt = build_check_prompt,
   issue_number_from_url = issue_number_from_url,
+  build_pr_body = build_pr_body,
   format_run_error = format_run_error,
   format_protect_dirs = format_protect_dirs,
   build_fix_prompt = build_fix_prompt,
