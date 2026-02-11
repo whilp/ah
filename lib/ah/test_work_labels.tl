@@ -11,7 +11,7 @@ local work = require("ah.work") as Work
 -- Test that required_labels exists and contains expected labels
 local function test_required_labels()
   assert(work.required_labels ~= nil, "required_labels should be exported")
-  local expected = {"todo", "doing", "done", "failed"}
+  local expected = {"todo", "doing", "done", "failed", "friction"}
   local found: {string:boolean} = {}
   for _, label in ipairs(work.required_labels) do
     found[label] = true
