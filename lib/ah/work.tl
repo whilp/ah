@@ -64,6 +64,20 @@ local function format_protect_dirs(dirs: {string}): string
   return table.concat(dirs, ":")
 end
 
+-- Configure git identity env vars in the given environment table.
+-- Uses GITHUB_ACTOR when available (GitHub Actions), otherwise falls back
+-- to defaults. Does not overwrite values that are already set.
+local function setup_git_env(run_env: {string:string})
+  local actor = run_env.GITHUB_ACTOR
+  local name = actor or "ah-agent"
+  local email = actor and (actor .. "@users.noreply.github.com") or "ah-agent@localhost"
+
+  if not run_env.GIT_AUTHOR_NAME then run_env.GIT_AUTHOR_NAME = name end
+  if not run_env.GIT_AUTHOR_EMAIL then run_env.GIT_AUTHOR_EMAIL = email end
+  if not run_env.GIT_COMMITTER_NAME then run_env.GIT_COMMITTER_NAME = name end
+  if not run_env.GIT_COMMITTER_EMAIL then run_env.GIT_COMMITTER_EMAIL = email end
+end
+
 local function write_file(path: string, content: string): boolean
   local f = io.open(path, "w")
   if not f then return false end
@@ -325,6 +339,7 @@ local function sandboxed_agent(no_sandbox: boolean, prompt: string, db: string, 
   end
 
   local run_env = env.all()
+  setup_git_env(run_env)
   if ctx and ctx.enabled then
     local proxy_url, proxy_err = fetch.unix_proxy(ctx.socket_path)
     if not proxy_url then
@@ -1182,4 +1197,5 @@ return {
   build_fix_prompt = build_fix_prompt,
   build_friction_prompt = build_friction_prompt,
   build_agent_args = build_agent_args,
+  setup_git_env = setup_git_env,
 }

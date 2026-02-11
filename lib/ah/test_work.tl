@@ -4,6 +4,7 @@
 local record Work
   main: function({string}): integer
   slice: function({string}, integer): {string}
+  setup_git_env: function({string:string})
 end
 
 local work = require("ah.work") as Work
@@ -100,5 +101,44 @@ local function test_act_no_args()
   print("✓ act without --issue-url returns 1")
 end
 test_act_no_args()
+
+-- Test setup_git_env sets defaults when no GITHUB_ACTOR
+local function test_setup_git_env_defaults()
+  local e: {string:string} = {}
+  work.setup_git_env(e)
+  assert(e.GIT_AUTHOR_NAME == "ah-agent", "should default author name, got: " .. tostring(e.GIT_AUTHOR_NAME))
+  assert(e.GIT_AUTHOR_EMAIL == "ah-agent@localhost", "should default author email, got: " .. tostring(e.GIT_AUTHOR_EMAIL))
+  assert(e.GIT_COMMITTER_NAME == "ah-agent", "should default committer name, got: " .. tostring(e.GIT_COMMITTER_NAME))
+  assert(e.GIT_COMMITTER_EMAIL == "ah-agent@localhost", "should default committer email, got: " .. tostring(e.GIT_COMMITTER_EMAIL))
+  print("✓ setup_git_env sets defaults")
+end
+test_setup_git_env_defaults()
+
+-- Test setup_git_env uses GITHUB_ACTOR when available
+local function test_setup_git_env_github_actor()
+  local e: {string:string} = {GITHUB_ACTOR = "octocat"}
+  work.setup_git_env(e)
+  assert(e.GIT_AUTHOR_NAME == "octocat", "should use GITHUB_ACTOR for name, got: " .. tostring(e.GIT_AUTHOR_NAME))
+  assert(e.GIT_AUTHOR_EMAIL == "octocat@users.noreply.github.com", "should derive email, got: " .. tostring(e.GIT_AUTHOR_EMAIL))
+  assert(e.GIT_COMMITTER_NAME == "octocat", "should use GITHUB_ACTOR for committer, got: " .. tostring(e.GIT_COMMITTER_NAME))
+  assert(e.GIT_COMMITTER_EMAIL == "octocat@users.noreply.github.com", "should derive committer email, got: " .. tostring(e.GIT_COMMITTER_EMAIL))
+  print("✓ setup_git_env uses GITHUB_ACTOR")
+end
+test_setup_git_env_github_actor()
+
+-- Test setup_git_env does not overwrite already-set values
+local function test_setup_git_env_no_overwrite()
+  local e: {string:string} = {
+    GIT_AUTHOR_NAME = "custom",
+    GIT_AUTHOR_EMAIL = "custom@example.com",
+    GIT_COMMITTER_NAME = "custom",
+    GIT_COMMITTER_EMAIL = "custom@example.com",
+  }
+  work.setup_git_env(e)
+  assert(e.GIT_AUTHOR_NAME == "custom", "should not overwrite existing name")
+  assert(e.GIT_AUTHOR_EMAIL == "custom@example.com", "should not overwrite existing email")
+  print("✓ setup_git_env preserves existing values")
+end
+test_setup_git_env_no_overwrite()
 
 print("\nAll work tests passed!")
