@@ -81,6 +81,36 @@ local function test_build_friction_prompt_phases()
 end
 test_build_friction_prompt_phases()
 
+-- Test: fix.md prompt writes artifacts to o/work/fix/, not o/work/do/
+local function test_fix_prompt_uses_fix_directory()
+  local f = io.open("sys/work/fix.md", "r")
+  assert(f, "should be able to read sys/work/fix.md")
+  local content = f:read("*a")
+  f:close()
+  -- fix prompt must write to o/work/fix/ so it doesn't overwrite do phase artifacts
+  assert(content:find("o/work/fix/do.md", 1, true),
+    "fix prompt should write to o/work/fix/do.md")
+  assert(content:find("o/work/fix/update.md", 1, true),
+    "fix prompt should write to o/work/fix/update.md")
+  -- must not reference o/work/do/ for output paths
+  assert(not content:find("o/work/do/do.md", 1, true),
+    "fix prompt must not write to o/work/do/do.md (would overwrite do phase artifacts)")
+  assert(not content:find("o/work/do/update.md", 1, true),
+    "fix prompt must not write to o/work/do/update.md (would overwrite do phase artifacts)")
+  print("ok fix.md prompt writes to o/work/fix/ directory")
+end
+test_fix_prompt_uses_fix_directory()
+
+-- Test: build_friction_prompt works for fix phase path
+local function test_build_friction_prompt_fix_phase()
+  local template = "Write `{friction_path}`"
+  local result = work.build_friction_prompt(template, "o/work/fix/friction.md")
+  assert(result == "Write `o/work/fix/friction.md`",
+    "should interpolate o/work/fix/friction.md, got: " .. tostring(result))
+  print("ok build_friction_prompt works for fix phase path")
+end
+test_build_friction_prompt_fix_phase()
+
 -- Test: build_agent_args with new session, no limits
 local function test_agent_args_basic()
   local args = work.build_agent_args("ah", "test.db", "hello", true, nil, nil)

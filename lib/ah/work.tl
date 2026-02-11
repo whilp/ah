@@ -738,10 +738,12 @@ local function phase_do(no_sandbox: boolean, title: string, number: string, mode
   return 0
 end
 
-local function phase_push(): integer
-  local branch_content = read_file("o/work/do/branch.txt")
+local function phase_push(work_dir: string): integer
+  work_dir = work_dir or "o/work/do"
+  local branch_file = work_dir .. "/branch.txt"
+  local branch_content = read_file(branch_file)
   if not branch_content then
-    io.stderr:write("error: could not read o/work/do/branch.txt\n")
+    io.stderr:write("error: could not read " .. branch_file .. "\n")
     return 1
   end
 
@@ -766,7 +768,8 @@ local function phase_push(): integer
   return 0
 end
 
-local function phase_check(no_sandbox: boolean, model: string): integer
+local function phase_check(no_sandbox: boolean, model: string, do_dir: string): integer
+  do_dir = do_dir or "o/work/do"
   fs.makedirs("o/work/check")
 
   local plan_contents = read_file("o/work/plan/plan.md")
@@ -775,9 +778,10 @@ local function phase_check(no_sandbox: boolean, model: string): integer
     return 1
   end
 
-  local do_contents = read_file("o/work/do/do.md")
+  local do_md = do_dir .. "/do.md"
+  local do_contents = read_file(do_md)
   if not do_contents then
-    io.stderr:write("error: could not read o/work/do/do.md\n")
+    io.stderr:write("error: could not read " .. do_md .. "\n")
     return 1
   end
 
@@ -789,8 +793,13 @@ local function phase_check(no_sandbox: boolean, model: string): integer
 
   prompt = build_check_prompt(prompt, plan_contents, do_contents)
 
+  local protect_dirs: {string} = {"o/work/plan", "o/work/do"}
+  if do_dir ~= "o/work/do" then
+    table.insert(protect_dirs, do_dir)
+  end
+
   local friction = make_friction_prompt("o/work/check")
-  local ok = sandboxed_agent(no_sandbox, prompt, "o/work/check/session.db", {"o/work/plan", "o/work/do"}, friction, check_limits, model)
+  local ok = sandboxed_agent(no_sandbox, prompt, "o/work/check/session.db", protect_dirs, friction, check_limits, model)
 
   if not ok then
     io.stderr:write("error: check agent failed\n")
@@ -809,7 +818,7 @@ local function read_check_verdict(): string
 end
 
 local function phase_fix(no_sandbox: boolean, title: string, number: string, model: string): integer
-  fs.makedirs("o/work/do")
+  fs.makedirs("o/work/fix")
 
   local plan_contents = read_file("o/work/plan/plan.md")
   if not plan_contents then
@@ -833,15 +842,15 @@ local function phase_fix(no_sandbox: boolean, title: string, number: string, mod
 
   prompt = build_fix_prompt(prompt, title, plan_contents, check_contents, branch)
 
-  local friction = make_friction_prompt("o/work/do")
-  local ok = sandboxed_agent(no_sandbox, prompt, "o/work/do/session.db", {"o/work/plan"}, friction, fix_limits, model)
+  local friction = make_friction_prompt("o/work/fix")
+  local ok = sandboxed_agent(no_sandbox, prompt, "o/work/fix/session.db", {"o/work/plan", "o/work/do"}, friction, fix_limits, model)
 
   if not ok then
     io.stderr:write("error: fix agent failed\n")
     return 1
   end
 
-  write_file("o/work/do/branch.txt", branch .. "\n")
+  write_file("o/work/fix/branch.txt", branch .. "\n")
 
   return 0
 end
@@ -1050,11 +1059,11 @@ local function main(args: {string}): integer
   elseif subcmd == "do" then
     return cmd_do(no_sandbox, slice(filtered_args, 2), model)
   elseif subcmd == "check" then
-    return phase_check(no_sandbox, model)
+    return phase_check(no_sandbox, model, "o/work/do")
   elseif subcmd == "act" then
     return cmd_act(slice(filtered_args, 2))
   elseif subcmd == "push" then
-    return phase_push()
+    return phase_push("o/work/do")
   end
 
   -- Unified mode: parse options, run all phases
@@ -1154,13 +1163,13 @@ local function main(args: {string}): integer
   -- Phase 3: Push (deterministic — unsandboxed)
   if not check_deadline("push") then return 1 end
   io.stderr:write("==> push\n")
-  rc = phase_push()
+  rc = phase_push("o/work/do")
   if rc ~= 0 then return rc end
 
   -- Phase 4: Check (agent — sandboxed)
   if not check_deadline("check") then return 1 end
   io.stderr:write("==> check\n")
-  rc = phase_check(no_sandbox, model)
+  rc = phase_check(no_sandbox, model, "o/work/do")
   if rc ~= 0 then return rc end
 
   -- Retry loop: if check returns needs-fixes, run fix/push/check
@@ -1175,12 +1184,12 @@ local function main(args: {string}): integer
 
     if not check_deadline("push") then break end
     io.stderr:write("==> push\n")
-    rc = phase_push()
+    rc = phase_push("o/work/fix")
     if rc ~= 0 then break end
 
     if not check_deadline("check") then break end
     io.stderr:write("==> check\n")
-    rc = phase_check(no_sandbox, model)
+    rc = phase_check(no_sandbox, model, "o/work/fix")
     if rc ~= 0 then break end
   end
 
