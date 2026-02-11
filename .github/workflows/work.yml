@@ -17,6 +17,16 @@ on:
         options:
           - ''
           - update-docs
+      model:
+        description: 'Model alias (sonnet, opus, haiku)'
+        type: choice
+        required: false
+        default: ''
+        options:
+          - ''
+          - sonnet
+          - opus
+          - haiku
 
 concurrency:
   group: work
@@ -50,9 +60,11 @@ jobs:
         run: |
           issue="${{ inputs.issue }}"
           prompt="${{ inputs.prompt }}"
+          model="${{ inputs.model }}"
           o/bin/ah work --repo "$REPO" \
             ${issue:+--issue "$issue"} \
-            ${prompt:+--prompt "$prompt"}
+            ${prompt:+--prompt "$prompt"} \
+            ${model:+--model "$model"}
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()

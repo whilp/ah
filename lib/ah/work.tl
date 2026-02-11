@@ -224,7 +224,7 @@ end
 
 -- Build the argv for an agent subprocess.
 -- Exported for testing.
-local function build_agent_args(exe: string, db: string, prompt: string, new_session: boolean, limits: AgentLimits): {string}
+local function build_agent_args(exe: string, db: string, prompt: string, new_session: boolean, limits: AgentLimits, model: string): {string}
   local args: {string} = {}
 
   -- Wall-clock timeout wrapper
@@ -237,6 +237,12 @@ local function build_agent_args(exe: string, db: string, prompt: string, new_ses
 
   if new_session then
     table.insert(args, "-n")
+  end
+
+  -- Model selection
+  if model then
+    table.insert(args, "-m")
+    table.insert(args, model)
   end
 
   -- Token budget
@@ -255,8 +261,8 @@ end
 -- Spawn an ah agent subprocess and wait for completion.
 -- When new_session is true, passes -n to start a fresh session.
 -- When false, continues the most recent session in the db.
-local function spawn_agent(run_env: {string:string}, db: string, prompt: string, new_session: boolean, limits: AgentLimits): boolean, string, integer
-  local args = build_agent_args(ah_exe(), db, prompt, new_session, limits)
+local function spawn_agent(run_env: {string:string}, db: string, prompt: string, new_session: boolean, limits: AgentLimits, model: string): boolean, string, integer
+  local args = build_agent_args(ah_exe(), db, prompt, new_session, limits, model)
 
   log("spawning agent: db=" .. db .. " prompt_len=" .. #prompt .. " new=" .. tostring(new_session))
   local handle, spawn_err = spawn.spawn(args, {env = run_env as {string}})
@@ -312,7 +318,7 @@ local check_limits: AgentLimits = {max_tokens = 50000,  timeout_sec = 180}
 local fix_limits: AgentLimits   = {max_tokens = 100000, timeout_sec = 300}
 local friction_limits: AgentLimits = {max_tokens = 10000, timeout_sec = 60}
 
-local function sandboxed_agent(no_sandbox: boolean, prompt: string, db: string, protect_dirs?: {string}, friction_prompt?: string, limits?: AgentLimits): boolean, string, integer
+local function sandboxed_agent(no_sandbox: boolean, prompt: string, db: string, protect_dirs?: {string}, friction_prompt?: string, limits?: AgentLimits, model?: string): boolean, string, integer
   local ctx: SandboxCtx = nil
   if not no_sandbox then
     local sctx, err = start_sandbox()
@@ -344,7 +350,7 @@ local function sandboxed_agent(no_sandbox: boolean, prompt: string, db: string, 
   end
 
   -- Main prompt: new session
-  local ok, stdout, exit_code = spawn_agent(run_env, db, prompt, true, limits)
+  local ok, stdout, exit_code = spawn_agent(run_env, db, prompt, true, limits, model)
 
   if not ok then
     if ctx then
@@ -357,7 +363,7 @@ local function sandboxed_agent(no_sandbox: boolean, prompt: string, db: string, 
   -- Friction follow-up: same session (no -n)
   if friction_prompt then
     log("sending friction follow-up to same session")
-    spawn_agent(run_env, db, friction_prompt, false, friction_limits)
+    spawn_agent(run_env, db, friction_prompt, false, friction_limits, model)
   end
 
   if ctx then
@@ -623,7 +629,7 @@ end
 
 -- Phase runners
 
-local function phase_plan(no_sandbox: boolean, repo: string, issue_number: integer): integer, Issue
+local function phase_plan(no_sandbox: boolean, repo: string, issue_number: integer, model: string): integer, Issue
   -- Select or fetch issue
   local issue: Issue
   local err: string
@@ -666,7 +672,7 @@ local function phase_plan(no_sandbox: boolean, repo: string, issue_number: integ
   log("plan prompt interpolated (" .. #prompt .. " bytes) for issue #" .. tostring(issue.number))
 
   local friction = make_friction_prompt("o/work/plan")
-  local ok = sandboxed_agent(no_sandbox, prompt, "o/work/plan/session.db", nil, friction, plan_limits)
+  local ok = sandboxed_agent(no_sandbox, prompt, "o/work/plan/session.db", nil, friction, plan_limits, model)
 
   if not ok then
     io.stderr:write("error: plan agent failed\n")
@@ -685,7 +691,7 @@ local function phase_plan(no_sandbox: boolean, repo: string, issue_number: integ
   return 0, issue
 end
 
-local function phase_do(no_sandbox: boolean, title: string, number: string): integer
+local function phase_do(no_sandbox: boolean, title: string, number: string, model: string): integer
   fs.makedirs("o/work/do")
 
   local plan_contents = read_file("o/work/plan/plan.md")
@@ -705,7 +711,7 @@ local function phase_do(no_sandbox: boolean, title: string, number: string): int
   prompt = build_do_prompt(prompt, title, plan_contents, branch)
 
   local friction = make_friction_prompt("o/work/do")
-  local ok = sandboxed_agent(no_sandbox, prompt, "o/work/do/session.db", {"o/work/plan"}, friction, do_limits)
+  local ok = sandboxed_agent(no_sandbox, prompt, "o/work/do/session.db", {"o/work/plan"}, friction, do_limits, model)
 
   if not ok then
     io.stderr:write("error: do agent failed\n")
@@ -745,7 +751,7 @@ local function phase_push(): integer
   return 0
 end
 
-local function phase_check(no_sandbox: boolean): integer
+local function phase_check(no_sandbox: boolean, model: string): integer
   fs.makedirs("o/work/check")
 
   local plan_contents = read_file("o/work/plan/plan.md")
@@ -769,7 +775,7 @@ local function phase_check(no_sandbox: boolean): integer
   prompt = build_check_prompt(prompt, plan_contents, do_contents)
 
   local friction = make_friction_prompt("o/work/check")
-  local ok = sandboxed_agent(no_sandbox, prompt, "o/work/check/session.db", {"o/work/plan", "o/work/do"}, friction, check_limits)
+  local ok = sandboxed_agent(no_sandbox, prompt, "o/work/check/session.db", {"o/work/plan", "o/work/do"}, friction, check_limits, model)
 
   if not ok then
     io.stderr:write("error: check agent failed\n")
@@ -787,7 +793,7 @@ local function read_check_verdict(): string
   return ((data as {string:any}).verdict or "unknown") as string
 end
 
-local function phase_fix(no_sandbox: boolean, title: string, number: string): integer
+local function phase_fix(no_sandbox: boolean, title: string, number: string, model: string): integer
   fs.makedirs("o/work/do")
 
   local plan_contents = read_file("o/work/plan/plan.md")
@@ -813,7 +819,7 @@ local function phase_fix(no_sandbox: boolean, title: string, number: string): in
   prompt = build_fix_prompt(prompt, title, plan_contents, check_contents, branch)
 
   local friction = make_friction_prompt("o/work/do")
-  local ok = sandboxed_agent(no_sandbox, prompt, "o/work/do/session.db", {"o/work/plan"}, friction, fix_limits)
+  local ok = sandboxed_agent(no_sandbox, prompt, "o/work/do/session.db", {"o/work/plan"}, friction, fix_limits, model)
 
   if not ok then
     io.stderr:write("error: fix agent failed\n")
@@ -890,10 +896,11 @@ options:
   -r, --repo <owner/repo>  repository (required)
   -i, --issue <number>     issue number (optional)
   -p, --prompt <name>      create issue from prompt template
+  -m, --model <alias>      model alias (sonnet, opus, haiku)
 ]])
 end
 
-local function cmd_plan(no_sandbox: boolean, args: {string}): integer
+local function cmd_plan(no_sandbox: boolean, args: {string}, model: string): integer
   local repo: string
   local issue_number: integer
 
@@ -926,11 +933,11 @@ local function cmd_plan(no_sandbox: boolean, args: {string}): integer
     return 1
   end
 
-  local rc = phase_plan(no_sandbox, repo, issue_number)
+  local rc = phase_plan(no_sandbox, repo, issue_number, model)
   return rc
 end
 
-local function cmd_do(no_sandbox: boolean, args: {string}): integer
+local function cmd_do(no_sandbox: boolean, args: {string}, model: string): integer
   local title: string
   local number: string
 
@@ -963,7 +970,7 @@ local function cmd_do(no_sandbox: boolean, args: {string}): integer
     return 1
   end
 
-  return phase_do(no_sandbox, title, number)
+  return phase_do(no_sandbox, title, number, model)
 end
 
 local function cmd_act(args: {string}): integer
@@ -999,29 +1006,36 @@ local function cmd_act(args: {string}): integer
 end
 
 local function main(args: {string}): integer
-  -- Parse global options first (--no-sandbox, --help)
+  -- Parse global options first (--no-sandbox, --model, --help)
   local no_sandbox = false
+  local model: string = nil
   local filtered_args: {string} = {}
 
-  for _, a in ipairs(args) do
+  local i = 1
+  while i <= #args do
+    local a = args[i]
     if a == "--no-sandbox" then
       no_sandbox = true
+    elseif a == "-m" or a == "--model" then
+      i = i + 1
+      model = args[i]
     elseif a == "-h" or a == "--help" then
       usage()
       return 0
     else
       table.insert(filtered_args, a)
     end
+    i = i + 1
   end
 
   local subcmd = filtered_args[1]
 
   if subcmd == "plan" then
-    return cmd_plan(no_sandbox, slice(filtered_args, 2))
+    return cmd_plan(no_sandbox, slice(filtered_args, 2), model)
   elseif subcmd == "do" then
-    return cmd_do(no_sandbox, slice(filtered_args, 2))
+    return cmd_do(no_sandbox, slice(filtered_args, 2), model)
   elseif subcmd == "check" then
-    return phase_check(no_sandbox)
+    return phase_check(no_sandbox, model)
   elseif subcmd == "act" then
     return cmd_act(slice(filtered_args, 2))
   elseif subcmd == "push" then
@@ -1038,9 +1052,10 @@ local function main(args: {string}): integer
     {name = "repo", has_arg = "required", short = "r"},
     {name = "issue", has_arg = "required", short = "i"},
     {name = "prompt", has_arg = "required", short = "p"},
+    {name = "model", has_arg = "required", short = "m"},
   }
 
-  local parser = getopt.new(filtered_args, "hr:i:p:", longopts)
+  local parser = getopt.new(filtered_args, "hr:i:p:m:", longopts)
 
   while true do
     local opt, optarg = parser:next()
@@ -1054,6 +1069,8 @@ local function main(args: {string}): integer
       issue_number = optarg
     elseif opt == "p" or opt == "prompt" then
       prompt_name = optarg
+    elseif opt == "m" or opt == "model" then
+      model = optarg
     elseif opt == "?" then
       usage()
       return 1
@@ -1102,7 +1119,7 @@ local function main(args: {string}): integer
   end
   local rc: integer
   local issue: Issue
-  rc, issue = phase_plan(no_sandbox, repo, issue_num)
+  rc, issue = phase_plan(no_sandbox, repo, issue_num, model)
   if rc ~= 0 then return rc end
 
   if not issue then
@@ -1116,7 +1133,7 @@ local function main(args: {string}): integer
   -- Phase 2: Do (agent — sandboxed)
   if not check_deadline("do") then return 1 end
   io.stderr:write("==> do\n")
-  rc = phase_do(no_sandbox, issue.title, issue_number_str)
+  rc = phase_do(no_sandbox, issue.title, issue_number_str, model)
   if rc ~= 0 then return rc end
 
   -- Phase 3: Push (deterministic — unsandboxed)
@@ -1128,7 +1145,7 @@ local function main(args: {string}): integer
   -- Phase 4: Check (agent — sandboxed)
   if not check_deadline("check") then return 1 end
   io.stderr:write("==> check\n")
-  rc = phase_check(no_sandbox)
+  rc = phase_check(no_sandbox, model)
   if rc ~= 0 then return rc end
 
   -- Retry loop: if check returns needs-fixes, run fix/push/check
@@ -1138,7 +1155,7 @@ local function main(args: {string}): integer
     if not check_deadline("fix") then break end
 
     io.stderr:write("==> fix (attempt " .. tostring(attempt) .. "/" .. tostring(max_fix_retries) .. ")\n")
-    rc = phase_fix(no_sandbox, issue.title, issue_number_str)
+    rc = phase_fix(no_sandbox, issue.title, issue_number_str, model)
     if rc ~= 0 then break end
 
     if not check_deadline("push") then break end
@@ -1148,7 +1165,7 @@ local function main(args: {string}): integer
 
     if not check_deadline("check") then break end
     io.stderr:write("==> check\n")
-    rc = phase_check(no_sandbox)
+    rc = phase_check(no_sandbox, model)
     if rc ~= 0 then break end
   end
 
