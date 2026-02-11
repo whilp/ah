@@ -14,6 +14,7 @@ end
 
 local record Work
   build_fix_prompt: function(string, string, string, string, string): string
+  build_friction_prompt: function(string, string): string
   parse_actions: function(string): ParsedActions, string
   interpolate_prompt: function(string, {string:string}): string
 end
@@ -51,5 +52,27 @@ local function test_parse_needs_fixes()
   print("ok parse_actions handles needs-fixes verdict")
 end
 test_parse_needs_fixes()
+
+-- Test: build_friction_prompt interpolates friction_path
+local function test_build_friction_prompt_basic()
+  local template = "reflect on friction.\n\nWrite `{friction_path}`:\n\n    ## Friction\n    <items>"
+  local result = work.build_friction_prompt(template, "o/work/plan/friction.md")
+  assert(result == "reflect on friction.\n\nWrite `o/work/plan/friction.md`:\n\n    ## Friction\n    <items>",
+    "should interpolate friction_path, got: " .. tostring(result))
+  print("ok build_friction_prompt interpolates friction_path")
+end
+test_build_friction_prompt_basic()
+
+-- Test: build_friction_prompt handles different phase paths
+local function test_build_friction_prompt_phases()
+  local template = "Write `{friction_path}`"
+  for _, path in ipairs({"o/work/plan/friction.md", "o/work/do/friction.md", "o/work/check/friction.md"}) do
+    local result = work.build_friction_prompt(template, path)
+    assert(result == "Write `" .. path .. "`",
+      "should interpolate " .. path .. ", got: " .. tostring(result))
+  end
+  print("ok build_friction_prompt works for all phase paths")
+end
+test_build_friction_prompt_phases()
 
 print("\nAll work-fix tests passed!")

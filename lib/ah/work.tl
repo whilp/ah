@@ -217,12 +217,52 @@ local function run(cmd: {string}): boolean, string, integer, string
   return ok and exit_code == 0, stdout, exit_code, stderr_out
 end
 
+-- Spawn an ah agent subprocess and wait for completion.
+-- When new_session is true, passes -n to start a fresh session.
+-- When false, continues the most recent session in the db.
+local function spawn_agent(run_env: {string:string}, db: string, prompt: string, new_session: boolean): boolean, string, integer
+  local args: {string}
+  if new_session then
+    args = {ah_exe(), "-n", "--db", db, prompt}
+  else
+    args = {ah_exe(), "--db", db, prompt}
+  end
+
+  log("spawning agent: db=" .. db .. " prompt_len=" .. #prompt .. " new=" .. tostring(new_session))
+  local handle, spawn_err = spawn.spawn(args, {env = run_env as {string}})
+  if not handle then
+    return false, spawn_err as string, -1
+  end
+  local stderr_out = handle.stderr:read()
+  local ok, stdout, exit_str = handle:read()
+  local exit_code = (tonumber(exit_str) or 0) as integer
+
+  -- Log agent subprocess results for debugging
+  log("agent exited: ok=" .. tostring(ok) .. " exit_code=" .. tostring(exit_code))
+  if stderr_out and stderr_out ~= "" then
+    local stderr_tail = stderr_out
+    if #stderr_tail > 2000 then
+      stderr_tail = "...(" .. #stderr_out .. " bytes total)\n" .. stderr_out:sub(-2000)
+    end
+    log("agent stderr:\n" .. stderr_tail)
+  end
+  if stdout and stdout ~= "" then
+    local stdout_preview = stdout:sub(1, 500)
+    if #stdout > 500 then stdout_preview = stdout_preview .. "..." end
+    log("agent stdout: " .. stdout_preview)
+  end
+
+  return ok and exit_code == 0, stdout, exit_code
+end
+
 -- Run an ah agent subprocess inside the network sandbox.
 -- Only api.anthropic.com is reachable; filesystem is restricted via pledge/unveil.
 -- The sandbox is started and stopped around each agent invocation so that
 -- only agent actions run inside the sandbox; all other (deterministic) work
 -- executes without network isolation overhead.
-local function sandboxed_agent(no_sandbox: boolean, prompt: string, db: string, protect_dirs?: {string}): boolean, string, integer
+-- If friction_prompt is provided, it is sent as a follow-up message in the
+-- same session after the main prompt completes.
+local function sandboxed_agent(no_sandbox: boolean, prompt: string, db: string, protect_dirs?: {string}, friction_prompt?: string): boolean, string, integer
   local ctx: SandboxCtx = nil
   if not no_sandbox then
     local sctx, err = start_sandbox()
@@ -253,41 +293,26 @@ local function sandboxed_agent(no_sandbox: boolean, prompt: string, db: string, 
     end
   end
 
-  log("spawning agent: db=" .. db .. " prompt_len=" .. #prompt)
-  local handle, spawn_err = spawn.spawn(
-    {ah_exe(), "-n", "--db", db, prompt},
-    {env = run_env as {string}}
-  )
-  if not handle then
+  -- Main prompt: new session
+  local ok, stdout, exit_code = spawn_agent(run_env, db, prompt, true)
+
+  if not ok then
     if ctx then
       io.stderr:write("[sandbox] stopping proxy\n")
       stop_sandbox(ctx)
     end
-    return false, spawn_err as string, -1
+    return false, stdout, exit_code
   end
-  local stderr_out = handle.stderr:read()
-  local ok, stdout, exit_str = handle:read()
-  local exit_code = (tonumber(exit_str) or 0) as integer
+
+  -- Friction follow-up: same session (no -n)
+  if friction_prompt then
+    log("sending friction follow-up to same session")
+    spawn_agent(run_env, db, friction_prompt, false)
+  end
 
   if ctx then
     io.stderr:write("[sandbox] stopping proxy\n")
     stop_sandbox(ctx)
-  end
-
-  -- Log agent subprocess results for debugging
-  log("agent exited: ok=" .. tostring(ok) .. " exit_code=" .. tostring(exit_code))
-  if stderr_out and stderr_out ~= "" then
-    -- Log last 2000 chars of stderr to avoid flooding
-    local stderr_tail = stderr_out
-    if #stderr_tail > 2000 then
-      stderr_tail = "...(" .. #stderr_out .. " bytes total)\n" .. stderr_out:sub(-2000)
-    end
-    log("agent stderr:\n" .. stderr_tail)
-  end
-  if stdout and stdout ~= "" then
-    local stdout_preview = stdout:sub(1, 500)
-    if #stdout > 500 then stdout_preview = stdout_preview .. "..." end
-    log("agent stdout: " .. stdout_preview)
   end
 
   return ok and exit_code == 0, stdout, exit_code
@@ -435,6 +460,12 @@ local function build_fix_prompt(template: string, title: string, plan_contents: 
   })
 end
 
+local function build_friction_prompt(template: string, friction_path: string): string
+  return interpolate_prompt(template, {
+    friction_path = friction_path,
+  })
+end
+
 -- Format error from a failed command, preferring stderr over stdout.
 local function format_run_error(prefix: string, stdout: string, stderr: string): string
   local detail: string
@@ -533,6 +564,13 @@ local function update_labels(issue_url: string, success: boolean)
   end
 end
 
+-- Build friction follow-up prompt for a given phase output directory.
+local function make_friction_prompt(phase_dir: string): string
+  local template = read_prompt("friction.md")
+  if not template then return nil end
+  return build_friction_prompt(template, phase_dir .. "/friction.md")
+end
+
 -- Phase runners
 
 local function phase_plan(no_sandbox: boolean, repo: string, issue_number: integer): integer, Issue
@@ -577,7 +615,8 @@ local function phase_plan(no_sandbox: boolean, repo: string, issue_number: integ
 
   log("plan prompt interpolated (" .. #prompt .. " bytes) for issue #" .. tostring(issue.number))
 
-  local ok = sandboxed_agent(no_sandbox, prompt, "o/work/plan/session.db")
+  local friction = make_friction_prompt("o/work/plan")
+  local ok = sandboxed_agent(no_sandbox, prompt, "o/work/plan/session.db", nil, friction)
 
   if not ok then
     io.stderr:write("error: plan agent failed\n")
@@ -615,7 +654,8 @@ local function phase_do(no_sandbox: boolean, title: string, number: string): int
 
   prompt = build_do_prompt(prompt, title, plan_contents, branch)
 
-  local ok = sandboxed_agent(no_sandbox, prompt, "o/work/do/session.db", {"o/work/plan"})
+  local friction = make_friction_prompt("o/work/do")
+  local ok = sandboxed_agent(no_sandbox, prompt, "o/work/do/session.db", {"o/work/plan"}, friction)
 
   if not ok then
     io.stderr:write("error: do agent failed\n")
@@ -678,7 +718,8 @@ local function phase_check(no_sandbox: boolean): integer
 
   prompt = build_check_prompt(prompt, plan_contents, do_contents)
 
-  local ok = sandboxed_agent(no_sandbox, prompt, "o/work/check/session.db", {"o/work/plan", "o/work/do"})
+  local friction = make_friction_prompt("o/work/check")
+  local ok = sandboxed_agent(no_sandbox, prompt, "o/work/check/session.db", {"o/work/plan", "o/work/do"}, friction)
 
   if not ok then
     io.stderr:write("error: check agent failed\n")
@@ -721,7 +762,8 @@ local function phase_fix(no_sandbox: boolean, title: string, number: string): in
 
   prompt = build_fix_prompt(prompt, title, plan_contents, check_contents, branch)
 
-  local ok = sandboxed_agent(no_sandbox, prompt, "o/work/do/session.db", {"o/work/plan"})
+  local friction = make_friction_prompt("o/work/do")
+  local ok = sandboxed_agent(no_sandbox, prompt, "o/work/do/session.db", {"o/work/plan"}, friction)
 
   if not ok then
     io.stderr:write("error: fix agent failed\n")
@@ -1071,4 +1113,5 @@ return {
   format_run_error = format_run_error,
   format_protect_dirs = format_protect_dirs,
   build_fix_prompt = build_fix_prompt,
+  build_friction_prompt = build_friction_prompt,
 }
