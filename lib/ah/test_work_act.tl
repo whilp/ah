@@ -11,6 +11,7 @@ local record Work
   parse_actions: function(string): ParsedActions, string
   validate_branch: function(string): boolean, string
   execute_action: function(string, {string:any}, function(string)): boolean
+  issue_number_from_url: function(string): string
 end
 
 local work = require("ah.work") as Work
@@ -126,5 +127,37 @@ local function test_execute_action_unknown()
   print("✓ execute_action skips unknown action types")
 end
 test_execute_action_unknown()
+
+-- Test issue_number_from_url extracts number
+local function test_issue_number_from_url()
+  local num = work.issue_number_from_url("https://api.github.com/repos/owner/repo/issues/42")
+  assert(num == "42", "should extract issue number, got: " .. tostring(num))
+  print("✓ issue_number_from_url extracts number from GitHub API URL")
+end
+test_issue_number_from_url()
+
+-- Test issue_number_from_url with html url
+local function test_issue_number_from_html_url()
+  local num = work.issue_number_from_url("https://github.com/owner/repo/issues/7")
+  assert(num == "7", "should extract issue number from html url, got: " .. tostring(num))
+  print("✓ issue_number_from_url extracts number from HTML URL")
+end
+test_issue_number_from_html_url()
+
+-- Test issue_number_from_url with nil
+local function test_issue_number_from_url_nil()
+  local num = work.issue_number_from_url(nil)
+  assert(num == nil, "should return nil for nil input")
+  print("✓ issue_number_from_url returns nil for nil")
+end
+test_issue_number_from_url_nil()
+
+-- Test issue_number_from_url with no match
+local function test_issue_number_from_url_no_match()
+  local num = work.issue_number_from_url("https://example.com/foo")
+  assert(num == nil, "should return nil for non-matching url")
+  print("✓ issue_number_from_url returns nil for non-matching URL")
+end
+test_issue_number_from_url_no_match()
 
 print("\nAll work-act tests passed!")
