@@ -1,5 +1,5 @@
 #!/usr/bin/env cosmic
--- test_work_analyze.tl: tests for friction analysis parsing, validation, and CLI
+-- test_analyze.tl: tests for friction analysis parsing, validation, and CLI
 
 local record FrictionIssue
   title: string
