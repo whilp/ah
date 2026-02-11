@@ -43,6 +43,16 @@ local record ParsedActions
   success: boolean
 end
 
+local record FrictionIssue
+  title: string
+  body: string
+  labels: {string}
+end
+
+local record FrictionIssues
+  issues: {FrictionIssue}
+end
+
 -- Helpers
 
 local function log(msg: string)
@@ -331,6 +341,7 @@ local do_limits: AgentLimits    = {max_tokens = 100000, timeout_sec = 300}
 local check_limits: AgentLimits = {max_tokens = 50000,  timeout_sec = 180}
 local fix_limits: AgentLimits   = {max_tokens = 100000, timeout_sec = 300}
 local friction_limits: AgentLimits = {max_tokens = 10000, timeout_sec = 60}
+local analyze_limits: AgentLimits = {max_tokens = 50000, timeout_sec = 180}
 
 local function sandboxed_agent(no_sandbox: boolean, prompt: string, db: string, protect_dirs?: {string}, friction_prompt?: string, limits?: AgentLimits, model?: string): boolean, string, integer
   local ctx: SandboxCtx = nil
@@ -407,7 +418,7 @@ local function slice(t: {string}, from: integer): {string}
 end
 
 -- Labels used throughout the PDCA workflow
-local required_labels: {string} = {"todo", "doing", "done", "failed"}
+local required_labels: {string} = {"todo", "doing", "done", "failed", "friction"}
 
 local function ensure_labels(repo: string): boolean, string
   for _, label in ipairs(required_labels) do
@@ -658,6 +669,34 @@ local function make_friction_prompt(phase_dir: string): string
   local template = read_prompt("friction.md")
   if not template then return nil end
   return build_friction_prompt(template, phase_dir .. "/friction.md")
+end
+
+-- Friction issue parsing/validation
+
+local function parse_friction_issues(content: string): FrictionIssues, string
+  if not content then return nil, "no content" end
+  local ok, data = pcall(json.decode, content)
+  if not ok or type(data) ~= "table" then
+    return nil, "invalid json"
+  end
+  local d = data as {string:any}
+  local raw_issues = (d.issues or {}) as {{string:any}}
+  local result: FrictionIssues = {issues = {}}
+  for _, raw in ipairs(raw_issues) do
+    table.insert(result.issues, {
+      title = (raw.title or "") as string,
+      body = (raw.body or "") as string,
+      labels = (raw.labels or {}) as {string},
+    })
+  end
+  return result
+end
+
+local function validate_friction_issue(issue: FrictionIssue): boolean, string
+  if not issue.title or issue.title == "" then return false, "missing title" end
+  if not issue.body or issue.body == "" then return false, "missing body" end
+  if not issue.title:match("^friction: ") then return false, "title must start with 'friction: '" end
+  return true
 end
 
 -- Phase runners
@@ -920,18 +959,96 @@ local function phase_act(issue_url: string): integer
   return 0
 end
 
+-- Friction analysis phase: sandboxed agent analyzes all outputs
+
+local function phase_analyze(no_sandbox: boolean, repo: string, model: string): integer
+  fs.makedirs("o/work/analyze")
+
+  local prompt = read_prompt("analyze.md")
+  if not prompt then
+    io.stderr:write("error: could not read analyze.md prompt\n")
+    return 1
+  end
+
+  prompt = interpolate_prompt(prompt, {
+    repo = repo,
+  })
+
+  -- Protect all existing phase output directories (read-only)
+  local protect_dirs: {string} = {"o/work/plan", "o/work/do", "o/work/check", "o/work/fix", "o/work/act"}
+
+  local ok = sandboxed_agent(no_sandbox, prompt, "o/work/analyze/session.db", protect_dirs, nil, analyze_limits, model)
+
+  if not ok then
+    io.stderr:write("error: analyze agent failed\n")
+    return 1
+  end
+
+  return 0
+end
+
+-- File friction issues deterministically from analyze output
+
+local function file_friction_issues(repo: string): integer
+  local content = read_file("o/work/analyze/issues.json")
+  if not content then
+    log("no issues.json found in analyze output")
+    return 0
+  end
+
+  local parsed, err = parse_friction_issues(content)
+  if not parsed then
+    log("failed to parse issues.json: " .. (err or "unknown"))
+    return 1
+  end
+
+  if #parsed.issues == 0 then
+    log("no friction issues to file")
+    return 0
+  end
+
+  local max_issues = 3
+  local filed = 0
+  for i, issue in ipairs(parsed.issues) do
+    if i > max_issues then break end
+
+    local valid, verr = validate_friction_issue(issue)
+    if not valid then
+      log("skipping invalid friction issue: " .. (verr or "unknown"))
+    else
+      local cmd: {string} = {"gh", "issue", "create", "--repo", repo, "--title", issue.title, "--body", issue.body}
+      for _, label in ipairs(issue.labels) do
+        table.insert(cmd, "--label")
+        table.insert(cmd, label)
+      end
+
+      local ok = run(cmd)
+      if ok then
+        filed = filed + 1
+        log("filed friction issue: " .. issue.title)
+      else
+        log("failed to file friction issue: " .. issue.title)
+      end
+    end
+  end
+
+  log("filed " .. tostring(filed) .. " friction issues")
+  return 0
+end
+
 -- CLI
 
 local function usage()
   io.stderr:write([[usage: ah work [command] [options]
 
 commands:
-  (default)  run all phases: plan, do, push, check, act
+  (default)  run all phases: plan, do, push, check, act, analyze
   plan       select issue and create plan
   do         execute plan
   check      verify execution
   act        execute actions
   push       push work branch
+  analyze    analyze friction and file issues
 
 options:
   -h, --help               show this help
@@ -1047,6 +1164,42 @@ local function cmd_act(args: {string}): integer
   return phase_act(issue_url)
 end
 
+local function cmd_analyze(no_sandbox: boolean, args: {string}, model: string): integer
+  local repo: string
+
+  local longopts = {
+    {name = "help", has_arg = "none", short = "h"},
+    {name = "repo", has_arg = "required", short = "r"},
+  }
+
+  local parser = getopt.new(args, "hr:", longopts)
+
+  while true do
+    local opt, optarg = parser:next()
+    if not opt then break end
+    if opt == "h" or opt == "help" then
+      io.stderr:write("usage: ah work analyze --repo <owner/repo>\n")
+      return 0
+    elseif opt == "r" or opt == "repo" then
+      repo = optarg
+    elseif opt == "?" then
+      io.stderr:write("usage: ah work analyze --repo <owner/repo>\n")
+      return 1
+    end
+  end
+
+  if not repo then
+    io.stderr:write("usage: ah work analyze --repo <owner/repo>\n")
+    return 1
+  end
+
+  local rc = phase_analyze(no_sandbox, repo, model)
+  if rc == 0 then
+    file_friction_issues(repo)
+  end
+  return rc
+end
+
 local function main(args: {string}): integer
   -- Parse global options first (--no-sandbox, --model, --help)
   local no_sandbox = false
@@ -1082,6 +1235,8 @@ local function main(args: {string}): integer
     return cmd_act(slice(filtered_args, 2))
   elseif subcmd == "push" then
     return phase_push("o/work/do")
+  elseif subcmd == "analyze" then
+    return cmd_analyze(no_sandbox, slice(filtered_args, 2), model)
   end
 
   -- Unified mode: parse options, run all phases
@@ -1153,6 +1308,9 @@ local function main(args: {string}): integer
     return true
   end
 
+  -- PDCA workflow (may fail at any phase)
+  local pdca_rc = 0
+
   -- Phase 1: Plan (agent — sandboxed)
   io.stderr:write("==> plan\n")
   local issue_num: integer = nil
@@ -1162,61 +1320,88 @@ local function main(args: {string}): integer
   local rc: integer
   local issue: Issue
   rc, issue = phase_plan(no_sandbox, repo, issue_num, model)
-  if rc ~= 0 then return rc end
 
-  if not issue then
+  if rc ~= 0 then
+    pdca_rc = rc
+  elseif not issue then
     io.stderr:write("no issues to work on\n")
     return 0
   end
 
-  local max_fix_retries = 2
-  local issue_number_str = tostring(issue.number)
+  if pdca_rc == 0 then
+    local max_fix_retries = 2
+    local issue_number_str = tostring(issue.number)
 
-  -- Phase 2: Do (agent — sandboxed)
-  if not check_deadline("do") then return 1 end
-  io.stderr:write("==> do\n")
-  rc = phase_do(no_sandbox, issue.title, issue_number_str, model)
-  if rc ~= 0 then return rc end
+    -- Phase 2: Do (agent — sandboxed)
+    if not check_deadline("do") then
+      pdca_rc = 1
+    else
+      io.stderr:write("==> do\n")
+      rc = phase_do(no_sandbox, issue.title, issue_number_str, model)
+      if rc ~= 0 then pdca_rc = rc end
+    end
 
-  -- Phase 3: Push (deterministic — unsandboxed)
-  if not check_deadline("push") then return 1 end
-  io.stderr:write("==> push\n")
-  rc = phase_push("o/work/do")
-  if rc ~= 0 then return rc end
+    -- Phase 3: Push (deterministic — unsandboxed)
+    if pdca_rc == 0 then
+      if not check_deadline("push") then
+        pdca_rc = 1
+      else
+        io.stderr:write("==> push\n")
+        rc = phase_push("o/work/do")
+        if rc ~= 0 then pdca_rc = rc end
+      end
+    end
 
-  -- Phase 4: Check (agent — sandboxed)
-  if not check_deadline("check") then return 1 end
-  io.stderr:write("==> check\n")
-  rc = phase_check(no_sandbox, model, "o/work/do")
-  if rc ~= 0 then return rc end
+    -- Phase 4: Check (agent — sandboxed)
+    if pdca_rc == 0 then
+      if not check_deadline("check") then
+        pdca_rc = 1
+      else
+        io.stderr:write("==> check\n")
+        rc = phase_check(no_sandbox, model, "o/work/do")
+        if rc ~= 0 then pdca_rc = rc end
+      end
+    end
 
-  -- Retry loop: if check returns needs-fixes, run fix/push/check
-  for attempt = 1, max_fix_retries do
-    local verdict = read_check_verdict()
-    if verdict ~= "needs-fixes" then break end
-    if not check_deadline("fix") then break end
+    -- Retry loop: if check returns needs-fixes, run fix/push/check
+    if pdca_rc == 0 then
+      for attempt = 1, max_fix_retries do
+        local verdict = read_check_verdict()
+        if verdict ~= "needs-fixes" then break end
+        if not check_deadline("fix") then break end
 
-    io.stderr:write("==> fix (attempt " .. tostring(attempt) .. "/" .. tostring(max_fix_retries) .. ")\n")
-    rc = phase_fix(no_sandbox, issue.title, issue_number_str, model)
-    if rc ~= 0 then break end
+        io.stderr:write("==> fix (attempt " .. tostring(attempt) .. "/" .. tostring(max_fix_retries) .. ")\n")
+        rc = phase_fix(no_sandbox, issue.title, issue_number_str, model)
+        if rc ~= 0 then break end
 
-    if not check_deadline("push") then break end
-    io.stderr:write("==> push\n")
-    rc = phase_push("o/work/fix")
-    if rc ~= 0 then break end
+        if not check_deadline("push") then break end
+        io.stderr:write("==> push\n")
+        rc = phase_push("o/work/fix")
+        if rc ~= 0 then break end
 
-    if not check_deadline("check") then break end
-    io.stderr:write("==> check\n")
-    rc = phase_check(no_sandbox, model, "o/work/fix")
-    if rc ~= 0 then break end
+        if not check_deadline("check") then break end
+        io.stderr:write("==> check\n")
+        rc = phase_check(no_sandbox, model, "o/work/fix")
+        if rc ~= 0 then break end
+      end
+    end
+
+    -- Phase 5: Act (deterministic — unsandboxed)
+    io.stderr:write("==> act\n")
+    rc = phase_act(issue.url)
+    if rc ~= 0 and pdca_rc == 0 then pdca_rc = rc end
   end
 
-  -- Phase 5: Act (deterministic — unsandboxed)
-  io.stderr:write("==> act\n")
-  rc = phase_act(issue.url)
-  if rc ~= 0 then return rc end
+  -- Phase 6: Analyze friction (always runs when work was attempted)
+  if read_file("o/work/plan/issue.json") then
+    io.stderr:write("==> analyze\n")
+    local analyze_rc = phase_analyze(no_sandbox, repo, model)
+    if analyze_rc == 0 then
+      file_friction_issues(repo)
+    end
+  end
 
-  return 0
+  return pdca_rc
 end
 
 return {
@@ -1244,4 +1429,6 @@ return {
   build_friction_prompt = build_friction_prompt,
   build_agent_args = build_agent_args,
   setup_git_env = setup_git_env,
+  parse_friction_issues = parse_friction_issues,
+  validate_friction_issue = validate_friction_issue,
 }
