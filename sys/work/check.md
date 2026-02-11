@@ -32,6 +32,12 @@ Write `o/work/check/check.md`:
     ## Issues
     <problems found, or "none">
 
+    ## Friction
+    <what slowed this work down or caused errors? examples:
+     hallucinated facts not verified against source, missing validation
+     in plan, unclear requirements, tool failures, prompt gaps.
+     write "none" if the work was smooth.>
+
     ## Verdict
     <pass|needs-fixes|fail>
 
@@ -39,6 +45,7 @@ Write `o/work/check/actions.json`:
 
     {
       "verdict": "pass|needs-fixes|fail",
+      "friction": ["<friction item>", ...],
       "actions": [
         {"action": "comment_issue", "body": "..."},
         {"action": "create_pr", "branch": "...", "title": "...", "body": "..."}
@@ -46,8 +53,9 @@ Write `o/work/check/actions.json`:
     }
 
 Action rules:
-- Always include `comment_issue` with verdict and summary
+- Always include `comment_issue` with verdict, summary, and any friction items
 - Include `create_pr` only when verdict is "pass" and changes were committed
+- `friction` array: one short string per friction item, or empty array if none
 
 Write `o/work/check/update.md`: 2-4 line summary.
 
