@@ -426,6 +426,15 @@ local function build_check_prompt(template: string, plan_contents: string, do_co
   })
 end
 
+local function build_fix_prompt(template: string, title: string, plan_contents: string, check_contents: string, branch: string): string
+  return interpolate_prompt(template, {
+    title = title,
+    ["plan.md contents"] = plan_contents,
+    ["check.md contents"] = check_contents,
+    branch = branch,
+  })
+end
+
 -- Format error from a failed command, preferring stderr over stdout.
 local function format_run_error(prefix: string, stdout: string, stderr: string): string
   local detail: string
@@ -675,6 +684,51 @@ local function phase_check(no_sandbox: boolean): integer
     io.stderr:write("error: check agent failed\n")
     return 1
   end
+
+  return 0
+end
+
+local function read_check_verdict(): string
+  local content = read_file("o/work/check/actions.json")
+  if not content then return nil end
+  local ok, data = pcall(json.decode, content)
+  if not ok or type(data) ~= "table" then return nil end
+  return ((data as {string:any}).verdict or "unknown") as string
+end
+
+local function phase_fix(no_sandbox: boolean, title: string, number: string): integer
+  fs.makedirs("o/work/do")
+
+  local plan_contents = read_file("o/work/plan/plan.md")
+  if not plan_contents then
+    io.stderr:write("error: could not read o/work/plan/plan.md\n")
+    return 1
+  end
+
+  local check_contents = read_file("o/work/check/check.md")
+  if not check_contents then
+    io.stderr:write("error: could not read o/work/check/check.md\n")
+    return 1
+  end
+
+  local prompt = read_prompt("fix.md")
+  if not prompt then
+    io.stderr:write("error: could not read fix.md prompt\n")
+    return 1
+  end
+
+  local branch = extract_branch(plan_contents, number)
+
+  prompt = build_fix_prompt(prompt, title, plan_contents, check_contents, branch)
+
+  local ok = sandboxed_agent(no_sandbox, prompt, "o/work/do/session.db", {"o/work/plan"})
+
+  if not ok then
+    io.stderr:write("error: fix agent failed\n")
+    return 1
+  end
+
+  write_file("o/work/do/branch.txt", branch .. "\n")
 
   return 0
 end
@@ -953,9 +1007,12 @@ local function main(args: {string}): integer
     return 0
   end
 
+  local max_fix_retries = 2
+  local issue_number_str = tostring(issue.number)
+
   -- Phase 2: Do (agent — sandboxed)
   io.stderr:write("==> do\n")
-  rc = phase_do(no_sandbox, issue.title, tostring(issue.number))
+  rc = phase_do(no_sandbox, issue.title, issue_number_str)
   if rc ~= 0 then return rc end
 
   -- Phase 3: Push (deterministic — unsandboxed)
@@ -967,6 +1024,24 @@ local function main(args: {string}): integer
   io.stderr:write("==> check\n")
   rc = phase_check(no_sandbox)
   if rc ~= 0 then return rc end
+
+  -- Retry loop: if check returns needs-fixes, run fix/push/check
+  for attempt = 1, max_fix_retries do
+    local verdict = read_check_verdict()
+    if verdict ~= "needs-fixes" then break end
+
+    io.stderr:write("==> fix (attempt " .. tostring(attempt) .. "/" .. tostring(max_fix_retries) .. ")\n")
+    rc = phase_fix(no_sandbox, issue.title, issue_number_str)
+    if rc ~= 0 then break end
+
+    io.stderr:write("==> push\n")
+    rc = phase_push()
+    if rc ~= 0 then break end
+
+    io.stderr:write("==> check\n")
+    rc = phase_check(no_sandbox)
+    if rc ~= 0 then break end
+  end
 
   -- Phase 5: Act (deterministic — unsandboxed)
   io.stderr:write("==> act\n")
@@ -995,4 +1070,5 @@ return {
   build_check_prompt = build_check_prompt,
   format_run_error = format_run_error,
   format_protect_dirs = format_protect_dirs,
+  build_fix_prompt = build_fix_prompt,
 }
