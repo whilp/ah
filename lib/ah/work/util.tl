@@ -1,4 +1,4 @@
--- ah/work_util.tl: shared utilities for the work subsystem
+-- ah/work/util.tl: shared utilities for the work subsystem
 local spawn = require("cosmic.child")
 local env = require("cosmic.env")
 local unix = require("cosmo.unix")

@@ -1,5 +1,5 @@
 #!/usr/bin/env cosmic
--- test_work_action.tl: tests for work_action module
+-- test_action.tl: tests for ah.work.action module
 
 local record ParsedActions
   verdict: string
@@ -15,7 +15,7 @@ local record WorkAction
   build_pr_body: function(string, string): string
 end
 
-local action = require("ah.work_action") as WorkAction
+local action = require("ah.work.action") as WorkAction
 
 -- Test parse_actions with passing verdict
 local function test_parse_pass()

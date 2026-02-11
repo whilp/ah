@@ -1,7 +1,7 @@
 -- ah/work.tl: unified work command (PDCA loop)
 --
 -- Orchestrates phase runners and CLI dispatch.
--- Helpers live in work_util, work_issue, work_action, work_prompt, work_sandbox.
+-- Helpers live in ah.work.{util, issue, action, prompt, sandbox}.
 local fs = require("cosmic.fs")
 local json = require("cosmic.json")
 local getopt = require("cosmic.getopt")
@@ -108,11 +108,11 @@ local record SandboxMod
   build_agent_args: function(string, string, string, boolean, AgentLimits, string): {string}
 end
 
-local util = require("ah.work_util") as Util
-local issue_mod = require("ah.work_issue") as IssueMod
-local action = require("ah.work_action") as ActionMod
-local prompt = require("ah.work_prompt") as PromptMod
-local sandbox = require("ah.work_sandbox") as SandboxMod
+local util = require("ah.work.util") as Util
+local issue_mod = require("ah.work.issue") as IssueMod
+local action = require("ah.work.action") as ActionMod
+local prompt = require("ah.work.prompt") as PromptMod
+local sandbox = require("ah.work.sandbox") as SandboxMod
 
 local analyze_limits: AgentLimits = {max_tokens = 50000, timeout_sec = 180}
 

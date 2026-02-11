@@ -1,6 +1,6 @@
--- ah/work_prompt.tl: prompt loading, interpolation, and building
+-- ah/work/prompt.tl: prompt loading, interpolation, and building
 local cio = require("cosmic.io")
-local util = require("ah.work_util")
+local util = require("ah.work.util")
 
 local function read_prompt(name: string): string
   return cio.slurp("/zip/embed/sys/work/" .. name)

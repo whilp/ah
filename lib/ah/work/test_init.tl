@@ -1,5 +1,5 @@
 #!/usr/bin/env cosmic
--- test_work.tl: tests for unified work module CLI/main
+-- test_init.tl: tests for ah.work CLI/main
 
 local record Work
   main: function({string}): integer

@@ -1,6 +1,6 @@
--- ah/work_issue.tl: issue types, selection, labels, and GitHub operations
+-- ah/work/issue.tl: issue types, selection, labels, and GitHub operations
 local json = require("cosmic.json")
-local util = require("ah.work_util")
+local util = require("ah.work.util")
 
 local record Label
   name: string

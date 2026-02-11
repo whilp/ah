@@ -1,5 +1,5 @@
 #!/usr/bin/env cosmic
--- test_work_issue.tl: tests for work_issue module (selection, labels)
+-- test_issue.tl: tests for ah.work.issue module (selection, labels)
 
 local record Label
   name: string
@@ -30,7 +30,7 @@ local record WorkIssue
   ensure_labels: function(string): boolean, string
 end
 
-local issue = require("ah.work_issue") as WorkIssue
+local issue = require("ah.work.issue") as WorkIssue
 
 -- Test get_priority
 local function test_get_priority()

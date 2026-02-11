@@ -32,10 +32,10 @@ $(cosmic):
 reporter := $(cosmic) lib/build/reporter.tl
 
 # ah module
-ah_srcs := $(wildcard lib/ah/*.tl) bin/ah.tl
+ah_srcs := $(wildcard lib/ah/*.tl) $(wildcard lib/ah/work/*.tl) bin/ah.tl
 ah_lua := $(patsubst %.tl,$(o)/%.lua,$(ah_srcs))
-ah_tests := $(wildcard lib/ah/test_*.tl)
-ah_lib_srcs := $(filter-out $(ah_tests),$(wildcard lib/ah/*.tl))
+ah_tests := $(wildcard lib/ah/test_*.tl) $(wildcard lib/ah/work/test_*.tl)
+ah_lib_srcs := $(filter-out $(ah_tests),$(wildcard lib/ah/*.tl) $(wildcard lib/ah/work/*.tl))
 ah_lib_lua := $(patsubst lib/ah/%.tl,$(o)/embed/.lua/ah/%.lua,$(ah_lib_srcs))
 ah_dep_srcs := $(wildcard lib/*.tl)
 ah_dep_lua := $(patsubst lib/%.tl,$(o)/embed/.lua/%.lua,$(ah_dep_srcs))

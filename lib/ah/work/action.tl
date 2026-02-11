@@ -1,6 +1,6 @@
--- ah/work_action.tl: action parsing, validation, and execution
+-- ah/work/action.tl: action parsing, validation, and execution
 local json = require("cosmic.json")
-local util = require("ah.work_util")
+local util = require("ah.work.util")
 
 local record ParsedActions
   verdict: string

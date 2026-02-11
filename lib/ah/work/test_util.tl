@@ -1,5 +1,5 @@
 #!/usr/bin/env cosmic
--- test_work_util.tl: tests for work_util module
+-- test_util.tl: tests for ah.work.util module
 
 local record WorkUtil
   slice: function({string}, integer): {string}
@@ -9,7 +9,7 @@ local record WorkUtil
   format_run_error: function(string, string, string): string
 end
 
-local util = require("ah.work_util") as WorkUtil
+local util = require("ah.work.util") as WorkUtil
 
 -- Test slice helper
 local function test_slice()

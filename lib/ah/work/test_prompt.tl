@@ -1,5 +1,5 @@
 #!/usr/bin/env cosmic
--- test_work_prompt.tl: tests for work_prompt module
+-- test_prompt.tl: tests for ah.work.prompt module
 
 local record WorkPrompt
   interpolate_prompt: function(string, {string:string}): string
@@ -10,7 +10,7 @@ local record WorkPrompt
   build_friction_prompt: function(string, string): string
 end
 
-local prompt = require("ah.work_prompt") as WorkPrompt
+local prompt = require("ah.work.prompt") as WorkPrompt
 
 -- Test basic interpolation
 local function test_interpolate_basic()

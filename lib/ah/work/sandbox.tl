@@ -1,9 +1,9 @@
--- ah/work_sandbox.tl: sandbox management, agent spawning, and limits
+-- ah/work/sandbox.tl: sandbox management, agent spawning, and limits
 local spawn = require("cosmic.child")
 local env = require("cosmic.env")
 local fetch = require("cosmic.fetch")
 local unix = require("cosmo.unix")
-local util = require("ah.work_util")
+local util = require("ah.work.util")
 
 -- Sandbox context for network isolation
 local record SandboxCtx

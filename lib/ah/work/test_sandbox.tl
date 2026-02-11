@@ -1,5 +1,5 @@
 #!/usr/bin/env cosmic
--- test_work_sandbox.tl: tests for work_sandbox module
+-- test_sandbox.tl: tests for ah.work.sandbox module
 
 local record AgentLimits
   max_tokens: integer
@@ -10,7 +10,7 @@ local record WorkSandbox
   build_agent_args: function(string, string, string, boolean, AgentLimits, string): {string}
 end
 
-local sandbox = require("ah.work_sandbox") as WorkSandbox
+local sandbox = require("ah.work.sandbox") as WorkSandbox
 
 -- Test: build_agent_args with new session, no limits
 local function test_agent_args_basic()
