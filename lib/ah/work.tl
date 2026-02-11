@@ -66,6 +66,13 @@ local function load_phase_file(cached: string, path: string): string
   return read_file(path)
 end
 
+-- Format a list of directories for AH_PROTECT_DIRS env var (colon-separated).
+-- Returns nil when there are no directories to protect.
+local function format_protect_dirs(dirs: {string}): string
+  if not dirs or #dirs == 0 then return nil end
+  return table.concat(dirs, ":")
+end
+
 local function write_file(path: string, content: string): boolean
   local f = io.open(path, "w")
   if not f then return false end
@@ -224,7 +231,7 @@ end
 -- The sandbox is started and stopped around each agent invocation so that
 -- only agent actions run inside the sandbox; all other (deterministic) work
 -- executes without network isolation overhead.
-local function sandboxed_agent(no_sandbox: boolean, prompt: string, db: string): boolean, string, integer
+local function sandboxed_agent(no_sandbox: boolean, prompt: string, db: string, protect_dirs?: {string}): boolean, string, integer
   local ctx: SandboxCtx = nil
   if not no_sandbox then
     local sctx, err = start_sandbox()
@@ -249,6 +256,10 @@ local function sandboxed_agent(no_sandbox: boolean, prompt: string, db: string):
     run_env.https_proxy = proxy_url
     run_env.HTTPS_PROXY = proxy_url
     run_env.AH_SANDBOX = "1"
+    local protect = format_protect_dirs(protect_dirs)
+    if protect then
+      run_env.AH_PROTECT_DIRS = protect
+    end
   end
 
   log("spawning agent: db=" .. db .. " prompt_len=" .. #prompt)
@@ -604,7 +615,7 @@ local function phase_do(no_sandbox: boolean, title: string, number: string, cach
 
   prompt = build_do_prompt(prompt, title, plan_contents, branch)
 
-  local ok = sandboxed_agent(no_sandbox, prompt, "o/work/do/session.db")
+  local ok = sandboxed_agent(no_sandbox, prompt, "o/work/do/session.db", {"o/work/plan"})
 
   if not ok then
     io.stderr:write("error: do agent failed\n")
@@ -667,7 +678,7 @@ local function phase_check(no_sandbox: boolean, cached_plan?: string): integer
 
   prompt = build_check_prompt(prompt, plan_contents, do_contents)
 
-  local ok = sandboxed_agent(no_sandbox, prompt, "o/work/check/session.db")
+  local ok = sandboxed_agent(no_sandbox, prompt, "o/work/check/session.db", {"o/work/plan", "o/work/do"})
 
   if not ok then
     io.stderr:write("error: check agent failed\n")
@@ -1001,4 +1012,5 @@ return {
   build_check_prompt = build_check_prompt,
   format_run_error = format_run_error,
   load_phase_file = load_phase_file,
+  format_protect_dirs = format_protect_dirs,
 }

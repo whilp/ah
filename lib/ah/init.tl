@@ -745,6 +745,17 @@ local function parse_args(args: {string}): ParsedArgs, string
   return result
 end
 
+-- Parse AH_PROTECT_DIRS env var (colon-separated relative paths).
+-- Returns a list of directory paths that should be made read-only via unveil.
+local function parse_protect_dirs(value: string): {string}
+  local dirs: {string} = {}
+  if not value or value == "" then return dirs end
+  for dir in value:gmatch("[^:]+") do
+    table.insert(dirs, dir)
+  end
+  return dirs
+end
+
 local function main(args: {string}): integer, string
   -- Enable core dumps for crash debugging
   -- RLIMIT_CORE = 4 on Linux, RLIM_INFINITY = -1
@@ -756,6 +767,11 @@ local function main(args: {string}): integer, string
     -- Unveil: restrict filesystem visibility
     local cwd_for_unveil = fs.getcwd()
     sandbox.unveil(cwd_for_unveil, "rwxc")  -- workspace
+    -- Protect directories from earlier phases (more specific = higher priority)
+    local protect = parse_protect_dirs(os.getenv("AH_PROTECT_DIRS"))
+    for _, dir in ipairs(protect) do
+      sandbox.unveil(cwd_for_unveil .. "/" .. dir, "r")
+    end
     sandbox.unveil("/tmp", "rwc")            -- proxy socket, temp files
     sandbox.unveil("/usr", "rx")             -- system binaries
     sandbox.unveil("/bin", "rx")             -- system binaries
@@ -1245,4 +1261,5 @@ return {
   cmd_checkout = cmd_checkout,
   cmd_branch_rm = cmd_branch_rm,
   cmd_diff = cmd_diff,
+  parse_protect_dirs = parse_protect_dirs,
 }
