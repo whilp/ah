@@ -753,8 +753,25 @@ local function main(args: {string}): integer
     return true
   end
 
+  -- Always create work directory for artifacts
+  fs.makedirs("o/work")
+
+  -- Helper to write run summary
+  local function write_summary(status: string, issue_num: integer, phases_completed: {string})
+    local summary = {
+      status = status,
+      issue = issue_num,
+      phases = phases_completed,
+      started_at = start_time,
+      ended_at = util.now_sec(),
+      repo = repo,
+    }
+    util.write_file("o/work/summary.json", json.encode(summary) .. "\n")
+  end
+
   -- PDCA workflow (may fail at any phase)
   local pdca_rc = 0
+  local phases_completed: {string} = {}
 
   -- Phase 1: Plan (agent — sandboxed)
   io.stderr:write("==> plan\n")
@@ -768,10 +785,13 @@ local function main(args: {string}): integer
 
   if rc ~= 0 then
     pdca_rc = rc
+    write_summary("plan_failed", issue_num, phases_completed)
   elseif not issue then
     io.stderr:write("no issues to work on\n")
+    write_summary("no_issues", nil, phases_completed)
     return 0
   end
+  table.insert(phases_completed, "plan")
 
   if pdca_rc == 0 then
     local max_fix_retries = 2
@@ -783,7 +803,7 @@ local function main(args: {string}): integer
     else
       io.stderr:write("==> do\n")
       rc = phase_do(no_sandbox, issue.title, issue_number_str, model)
-      if rc ~= 0 then pdca_rc = rc end
+      if rc ~= 0 then pdca_rc = rc else table.insert(phases_completed, "do") end
     end
 
     -- Phase 3: Push (deterministic — unsandboxed)
@@ -793,7 +813,7 @@ local function main(args: {string}): integer
       else
         io.stderr:write("==> push\n")
         rc = phase_push("o/work/do")
-        if rc ~= 0 then pdca_rc = rc end
+        if rc ~= 0 then pdca_rc = rc else table.insert(phases_completed, "push") end
       end
     end
 
@@ -804,7 +824,7 @@ local function main(args: {string}): integer
       else
         io.stderr:write("==> check\n")
         rc = phase_check(no_sandbox, model, "o/work/do")
-        if rc ~= 0 then pdca_rc = rc end
+        if rc ~= 0 then pdca_rc = rc else table.insert(phases_completed, "check") end
       end
     end
 
@@ -818,6 +838,7 @@ local function main(args: {string}): integer
         io.stderr:write("==> fix (attempt " .. tostring(attempt) .. "/" .. tostring(max_fix_retries) .. ")\n")
         rc = phase_fix(no_sandbox, issue.title, issue_number_str, model)
         if rc ~= 0 then break end
+        table.insert(phases_completed, "fix")
 
         if not check_deadline("push") then break end
         io.stderr:write("==> push\n")
@@ -834,7 +855,7 @@ local function main(args: {string}): integer
     -- Phase 5: Act (deterministic — unsandboxed)
     io.stderr:write("==> act\n")
     rc = phase_act(issue.url)
-    if rc ~= 0 and pdca_rc == 0 then pdca_rc = rc end
+    if rc ~= 0 and pdca_rc == 0 then pdca_rc = rc else table.insert(phases_completed, "act") end
   end
 
   -- Phase 6: Analyze friction (always runs when work was attempted)
@@ -843,8 +864,13 @@ local function main(args: {string}): integer
     local analyze_rc = phase_analyze(no_sandbox, repo, model)
     if analyze_rc == 0 then
       file_friction_issues(repo)
+      table.insert(phases_completed, "analyze")
     end
   end
+
+  -- Write final summary
+  local final_status = pdca_rc == 0 and "success" or "failed"
+  write_summary(final_status, issue and issue.number or nil, phases_completed)
 
   return pdca_rc
 end
