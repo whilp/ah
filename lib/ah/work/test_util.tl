@@ -66,6 +66,24 @@ local function test_setup_git_env_defaults()
 end
 test_setup_git_env_defaults()
 
+-- Test setup_git_env sets GIT_CONFIG_GLOBAL to /dev/null when not present
+local function test_setup_git_env_config_global()
+  local e: {string} = {}
+  util.setup_git_env(e)
+  assert(util.env_get(e, "GIT_CONFIG_GLOBAL") == "/dev/null", "should set GIT_CONFIG_GLOBAL=/dev/null, got: " .. tostring(util.env_get(e, "GIT_CONFIG_GLOBAL")))
+  print("✓ setup_git_env sets GIT_CONFIG_GLOBAL")
+end
+test_setup_git_env_config_global()
+
+-- Test setup_git_env preserves existing GIT_CONFIG_GLOBAL
+local function test_setup_git_env_preserves_config_global()
+  local e: {string} = {"GIT_CONFIG_GLOBAL=/custom/gitconfig"}
+  util.setup_git_env(e)
+  assert(util.env_get(e, "GIT_CONFIG_GLOBAL") == "/custom/gitconfig", "should preserve existing GIT_CONFIG_GLOBAL")
+  print("✓ setup_git_env preserves existing GIT_CONFIG_GLOBAL")
+end
+test_setup_git_env_preserves_config_global()
+
 -- Test setup_git_env uses GITHUB_ACTOR when available
 local function test_setup_git_env_github_actor()
   local e: {string} = {"GITHUB_ACTOR=octocat"}
