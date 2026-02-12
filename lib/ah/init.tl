@@ -779,6 +779,10 @@ local function main(args: {string}): integer, string
     sandbox.unveil("/lib64", "rx")           -- shared libraries (64-bit)
     sandbox.unveil("/etc/ssl", "r")          -- CA certificates
     sandbox.unveil("/etc/resolv.conf", "r")  -- DNS config
+    local home = os.getenv("HOME")
+    if home then
+      sandbox.unveil(home, "r")              -- git/tool configs
+    end
     sandbox.unveil(nil, nil)                 -- commit unveil
 
     -- Pledge: drop inet, keep unix for proxy socket
@@ -789,9 +793,10 @@ local function main(args: {string}): integer, string
     -- proc: fork/wait for subprocesses
     -- exec: run git, make, etc.
     -- unix: unix domain sockets (for proxy)
+    -- prot_exec: allow mmap(PROT_EXEC) needed by dynamic linker for native binaries
     -- Use EPERM mode (2) so blocked calls return error instead of crashing
     local PLEDGE_PENALTY_RETURN_EPERM = 2
-    local promises = "stdio rpath wpath cpath flock tty proc exec unix"
+    local promises = "stdio rpath wpath cpath flock tty proc exec unix prot_exec"
     sandbox.pledge(promises, promises, PLEDGE_PENALTY_RETURN_EPERM)
   end
 
