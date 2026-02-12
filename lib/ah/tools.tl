@@ -743,11 +743,35 @@ local function abort_running_tools()
   end
 end
 
+-- Coerce string values to integers where schema expects integer
+-- Claude models sometimes serialize integers as strings in JSON tool calls
+local function coerce_integer_params(schema: {string:any}, input: {string:any})
+  local properties = schema.properties as {string:{string:any}}
+  if not properties then return end
+
+  for prop, prop_schema in pairs(properties) do
+    local expected_type = prop_schema.type as string
+    if expected_type == "integer" or expected_type == "number" then
+      local value = input[prop]
+      if type(value) == "string" then
+        local num = tonumber(value)
+        if num then
+          input[prop] = num
+        end
+      end
+    end
+  end
+end
+
 local function execute_tool(name: string, input: {string:any}): string, boolean, ToolDetails
   local tool = get_tool(name)
   if not tool then
     return "error: unknown tool: " .. name, true, nil
   end
+
+  -- Coerce string integers to integers before validation
+  -- Claude models sometimes serialize integers as strings
+  coerce_integer_params(tool.input_schema, input or {})
 
   -- Validate input against schema before execution
   local validation_err = validate_input(tool.input_schema, input or {})
