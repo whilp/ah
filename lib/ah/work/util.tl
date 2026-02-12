@@ -30,18 +30,39 @@ local function format_protect_dirs(dirs: {string}): string
   return table.concat(dirs, ":")
 end
 
--- Configure git identity env vars in the given environment table.
+-- Look up an environment variable in the env array.
+-- env.all() returns {string} as "KEY=value" entries; this finds and returns
+-- the value for a given key, or nil if not found.
+local function env_get(run_env: {string}, key: string): string
+  local prefix = key .. "="
+  for _, entry in ipairs(run_env) do
+    if entry:sub(1, #prefix) == prefix then
+      return entry:sub(#prefix + 1)
+    end
+  end
+  return nil
+end
+
+-- Set an environment variable in the env array.
+-- Appends "KEY=value" to the array. Does not check for duplicates;
+-- caller should use env_get first to avoid adding duplicate keys.
+local function env_set(run_env: {string}, key: string, value: string)
+  table.insert(run_env, key .. "=" .. value)
+end
+
+-- Configure git identity env vars in the given environment array.
+-- env.all() returns {string} as "KEY=value" entries.
 -- Uses GITHUB_ACTOR when available (GitHub Actions), otherwise falls back
 -- to defaults. Does not overwrite values that are already set.
-local function setup_git_env(run_env: {string:string})
-  local actor = run_env.GITHUB_ACTOR
+local function setup_git_env(run_env: {string})
+  local actor = env_get(run_env, "GITHUB_ACTOR")
   local name = actor or "ah-agent"
   local email = actor and (actor .. "@users.noreply.github.com") or "ah-agent@localhost"
 
-  if not run_env.GIT_AUTHOR_NAME then run_env.GIT_AUTHOR_NAME = name end
-  if not run_env.GIT_AUTHOR_EMAIL then run_env.GIT_AUTHOR_EMAIL = email end
-  if not run_env.GIT_COMMITTER_NAME then run_env.GIT_COMMITTER_NAME = name end
-  if not run_env.GIT_COMMITTER_EMAIL then run_env.GIT_COMMITTER_EMAIL = email end
+  if not env_get(run_env, "GIT_AUTHOR_NAME") then env_set(run_env, "GIT_AUTHOR_NAME", name) end
+  if not env_get(run_env, "GIT_AUTHOR_EMAIL") then env_set(run_env, "GIT_AUTHOR_EMAIL", email) end
+  if not env_get(run_env, "GIT_COMMITTER_NAME") then env_set(run_env, "GIT_COMMITTER_NAME", name) end
+  if not env_get(run_env, "GIT_COMMITTER_EMAIL") then env_set(run_env, "GIT_COMMITTER_EMAIL", email) end
 end
 
 -- Format error from a failed command, preferring stderr over stdout.
@@ -115,6 +136,8 @@ return {
   read_file = read_file,
   write_file = write_file,
   format_protect_dirs = format_protect_dirs,
+  env_get = env_get,
+  env_set = env_set,
   setup_git_env = setup_git_env,
   format_run_error = format_run_error,
   ah_exe = ah_exe,

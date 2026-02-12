@@ -53,6 +53,11 @@ jobs:
       - name: Build ah
         run: make ah
 
+      - name: Configure git identity
+        run: |
+          git config --global user.email "${GITHUB_ACTOR}@users.noreply.github.com"
+          git config --global user.name "${GITHUB_ACTOR}"
+
       - name: Run work
         env:
           GH_TOKEN: ${{ github.token }}
