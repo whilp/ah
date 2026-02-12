@@ -779,6 +779,7 @@ local function main(args: {string}): integer, string
     sandbox.unveil("/lib64", "rx")           -- shared libraries (64-bit)
     sandbox.unveil("/etc/ssl", "r")          -- CA certificates
     sandbox.unveil("/etc/resolv.conf", "r")  -- DNS config
+    sandbox.unveil("/dev/null", "rw")         -- git and other tools need /dev/null
     local home = os.getenv("HOME")
     if home then
       sandbox.unveil(home, "r")              -- git/tool configs

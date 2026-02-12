@@ -28,6 +28,7 @@ local function sandbox_exec(cmd: {string}, promises: string): integer
     sandbox.unveil("/lib64", "rx")
     sandbox.unveil("/etc/ssl", "r")
     sandbox.unveil("/etc/resolv.conf", "r")
+    sandbox.unveil("/dev/null", "rw")
     local home = os.getenv("HOME")
     if home then
       sandbox.unveil(home, "r")
