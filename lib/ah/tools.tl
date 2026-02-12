@@ -266,6 +266,34 @@ local edit_tool: Tool = {
   end,
 }
 
+-- Find executable in PATH or common locations
+-- Returns absolute path or nil if not found
+local function find_executable(name: string): string
+  -- Check AH_* env override first (e.g., AH_SHELL, AH_TIMEOUT)
+  local env_override = os.getenv("AH_" .. name:upper())
+  if env_override then
+    return env_override
+  end
+
+  -- Common absolute paths to check
+  local common_paths: {string} = {
+    "/usr/bin/" .. name,
+    "/bin/" .. name,
+    "/usr/local/bin/" .. name,
+  }
+
+  for _, path in ipairs(common_paths) do
+    local f = io.open(path, "r")
+    if f then
+      f:close()
+      return path
+    end
+  end
+
+  -- Fall back to bare name (relies on PATH)
+  return name
+end
+
 -- Bash tool
 local bash_tool: Tool = {
   name = "bash",
@@ -291,9 +319,11 @@ local bash_tool: Tool = {
     -- Spawn directly: timeout -> shell -> command
     -- No double-wrapping (old: sh -c "timeout N sh -c %q") which corrupted
     -- newlines via %q escaping (backslash-newline becomes line continuation).
-    local shell = os.getenv("AH_SHELL") or "bash"
+    -- Use absolute paths to avoid PATH lookup issues in sandbox environments.
+    local shell = find_executable(os.getenv("AH_SHELL") or "bash")
+    local timeout_cmd = find_executable("timeout")
     local handle, err = child.spawn(
-      {"timeout", tostring(timeout_sec), shell, "-c", command},
+      {timeout_cmd, tostring(timeout_sec), shell, "-c", command},
       {env = env.all() as {string}}
     )
     if not handle then
