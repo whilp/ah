@@ -139,11 +139,11 @@ end
 -- Spawn an ah agent subprocess and wait for completion.
 -- When new_session is true, passes -n to start a fresh session.
 -- When false, continues the most recent session in the db.
-local function spawn_agent(run_env: {string:string}, db: string, prompt: string, new_session: boolean, limits: AgentLimits, model: string): boolean, string, integer
+local function spawn_agent(run_env: {string}, db: string, prompt: string, new_session: boolean, limits: AgentLimits, model: string): boolean, string, integer
   local args = build_agent_args(util.ah_exe(), db, prompt, new_session, limits, model)
 
   util.log("spawning agent: db=" .. db .. " prompt_len=" .. #prompt .. " new=" .. tostring(new_session))
-  local handle, spawn_err = spawn.spawn(args, {env = run_env as {string}})
+  local handle, spawn_err = spawn.spawn(args, {env = run_env})
   if not handle then
     return false, spawn_err as string, -1
   end
@@ -193,7 +193,7 @@ local function sandboxed_agent(no_sandbox: boolean, prompt: string, db: string, 
     io.stderr:write("[sandbox] proxy started on " .. ctx.socket_path .. "\n")
   end
 
-  local run_env = env.all()
+  local run_env: {string} = env.all() as {string}
   util.setup_git_env(run_env)
   if ctx and ctx.enabled then
     local proxy_url, proxy_err = fetch.unix_proxy(ctx.socket_path)
@@ -202,14 +202,14 @@ local function sandboxed_agent(no_sandbox: boolean, prompt: string, db: string, 
       stop_sandbox(ctx)
       return false, "invalid proxy path: " .. (proxy_err or "unknown"), 1
     end
-    run_env.http_proxy = proxy_url
-    run_env.HTTP_PROXY = proxy_url
-    run_env.https_proxy = proxy_url
-    run_env.HTTPS_PROXY = proxy_url
-    run_env.AH_SANDBOX = "1"
+    util.env_set(run_env, "http_proxy", proxy_url)
+    util.env_set(run_env, "HTTP_PROXY", proxy_url)
+    util.env_set(run_env, "https_proxy", proxy_url)
+    util.env_set(run_env, "HTTPS_PROXY", proxy_url)
+    util.env_set(run_env, "AH_SANDBOX", "1")
     local protect = util.format_protect_dirs(protect_dirs)
     if protect then
-      run_env.AH_PROTECT_DIRS = protect
+      util.env_set(run_env, "AH_PROTECT_DIRS", protect)
     end
   end
 
