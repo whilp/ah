@@ -61,7 +61,7 @@ test_extract_tool_calls_mixed()
 local function test_build_request_default_model()
   local req = api.build_request({}, {}, false)
   assert(req.model == api.DEFAULT_MODEL, "should use default model")
-  assert(req.model == "claude-sonnet-4-5-20250929", "default model should be sonnet")
+  assert(req.model == "claude-opus-4-5-20251101", "default model should be opus")
 end
 test_build_request_default_model()
 

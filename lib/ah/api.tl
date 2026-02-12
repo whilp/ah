@@ -51,7 +51,7 @@ local function now_ms(): integer
 end
 
 local API_URL = "https://api.anthropic.com/v1/messages"
-local DEFAULT_MODEL = "claude-sonnet-4-5-20250929"
+local DEFAULT_MODEL = "claude-opus-4-5-20251101"
 local DEFAULT_MAX_TOKENS = 8192
 
 local MODELS: {string} = {
