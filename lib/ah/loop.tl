@@ -137,7 +137,7 @@ end
 -- When provided, the loop emits events instead of writing directly to stderr/stdout.
 -- When nil, the loop still functions but produces no output.
 -- opts: optional agent options (e.g. token budget)
-local function run_agent(d: db.DB, qdb: queue.QueueDB, system_prompt: string, model: string, prompt: string, parent_id: string, on_event: events.EventCallback, opts: AgentOpts)
+local function run_agent(d: db.DB, qdb: queue.QueueDB, system_prompt: string, model: string, prompt: string, parent_id: string, on_event: events.EventCallback, opts: AgentOpts): string
   opts = opts or {}
   local max_tokens = opts.max_tokens
 
@@ -145,7 +145,7 @@ local function run_agent(d: db.DB, qdb: queue.QueueDB, system_prompt: string, mo
   local creds, creds_err = auth.load_credentials()
   if not creds then
     emit(on_event, events.error_event("credentials: " .. creds_err))
-    return
+    return "error"
   end
   local is_oauth = creds.is_oauth or false
 
@@ -738,6 +738,8 @@ local function run_agent(d: db.DB, qdb: queue.QueueDB, system_prompt: string, mo
 
   -- Log agent_end event to DB
   db.log_event(d, "agent_end", nil, events.to_json(events.agent_end(final_stop_reason, totals.input_tokens, totals.output_tokens)))
+
+  return final_stop_reason
 end
 
 return {

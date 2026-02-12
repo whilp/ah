@@ -242,3 +242,13 @@ end
 test_thresholds()
 
 print("all loop tests passed")
+
+-- Test that run_agent returns a stop_reason string
+local function test_run_agent_signature()
+  -- Verify run_agent is exported and callable
+  assert(type(loop.run_agent) == "function", "run_agent should be a function")
+  -- The function should return a string (stop_reason)
+  -- We can't easily test without mocking the API, but we document the contract
+  print("✓ run_agent is exported as a function")
+end
+test_run_agent_signature()

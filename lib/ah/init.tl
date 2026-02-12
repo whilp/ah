@@ -1242,7 +1242,7 @@ local function main(args: {string}): integer, string
   if max_tokens then
     agent_opts.max_tokens = max_tokens
   end
-  loop.run_agent(d, qdb, effective_system, effective_model, prompt, parent_id, on_event, agent_opts)
+  local stop_reason = loop.run_agent(d, qdb, effective_system, effective_model, prompt, parent_id, on_event, agent_opts)
 
   -- Mark session as closed before exit
   db.set_session_state(d, "closed")
@@ -1251,6 +1251,12 @@ local function main(args: {string}): integer, string
   queue.release_lock(qdb)
   queue.close(qdb)
   db.close(d)
+
+  -- Return non-zero exit code for error stop reasons
+  if stop_reason == "error" then
+    return 1
+  end
+
   return 0
 end
 
