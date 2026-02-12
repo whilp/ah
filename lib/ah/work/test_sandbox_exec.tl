@@ -28,6 +28,7 @@ local function sandbox_exec(cmd: {string}, promises: string): integer
     sandbox.unveil("/lib64", "rx")
     sandbox.unveil("/etc/ssl", "r")
     sandbox.unveil("/etc/resolv.conf", "r")
+    sandbox.unveil("/dev/null", "rw")
     local home = os.getenv("HOME")
     if home then
       sandbox.unveil(home, "r")
@@ -127,5 +128,19 @@ local function test_sandbox_file_read()
   print("✓ file read (cat) works inside sandbox")
 end
 test_sandbox_file_read()
+
+-- Test: git log works inside sandbox (git needs /dev/null)
+local function test_sandbox_git_log()
+  local promises = read_init_promises()
+  assert(promises, "should be able to read pledge promises from init.tl")
+
+  local exit_code = sandbox_exec({"git", "log", "--oneline", "-1"}, promises)
+  assert(exit_code == 0,
+    "git log should succeed inside sandbox, got exit code " .. tostring(exit_code) ..
+    "\npromises: " .. promises ..
+    "\ngit needs /dev/null to be accessible")
+  print("✓ git log works inside sandbox")
+end
+test_sandbox_git_log()
 
 print("\nAll sandbox exec tests passed!")
