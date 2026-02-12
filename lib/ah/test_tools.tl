@@ -746,4 +746,35 @@ local function test_abort_kills_process()
 end
 test_abort_kills_process()
 
+-- Test that string integers are coerced to integers before validation
+-- Regression: Claude models sometimes serialize integers as strings
+local function test_string_integer_coercion()
+  -- Read tool with string limit/offset (Claude often sends these as strings)
+  local test_file = fs.join(TEST_TMPDIR, "test_coerce.txt")
+  cio.barf(test_file, "line1\nline2\nline3\nline4\nline5\n")
+
+  local result, is_error = tools.execute_tool("read", {
+    path = test_file,
+    limit = "2",  -- string instead of integer
+    offset = "2"  -- string instead of integer
+  })
+  assert(not is_error, "read with string integers should succeed: " .. result)
+  assert(result:match("2\tline2"), "should start at offset 2: " .. result)
+  assert(not result:match("4\tline4"), "should respect limit of 2: " .. result)
+  print("✓ read tool coerces string integers to integers")
+end
+test_string_integer_coercion()
+
+local function test_bash_timeout_string_coercion()
+  -- Bash tool with string timeout
+  local result, is_error = tools.execute_tool("bash", {
+    command = "echo hello",
+    timeout = "5000"  -- string instead of integer
+  })
+  assert(not is_error, "bash with string timeout should succeed: " .. result)
+  assert(result:match("hello"), "should execute command")
+  print("✓ bash tool coerces string timeout to integer")
+end
+test_bash_timeout_string_coercion()
+
 print("\nAll tools tests passed!")
