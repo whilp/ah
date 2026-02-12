@@ -789,9 +789,10 @@ local function main(args: {string}): integer, string
     -- proc: fork/wait for subprocesses
     -- exec: run git, make, etc.
     -- unix: unix domain sockets (for proxy)
+    -- prot_exec: allow mmap(PROT_EXEC) needed by dynamic linker for native binaries
     -- Use EPERM mode (2) so blocked calls return error instead of crashing
     local PLEDGE_PENALTY_RETURN_EPERM = 2
-    local promises = "stdio rpath wpath cpath flock tty proc exec unix"
+    local promises = "stdio rpath wpath cpath flock tty proc exec unix prot_exec"
     sandbox.pledge(promises, promises, PLEDGE_PENALTY_RETURN_EPERM)
   end
 
