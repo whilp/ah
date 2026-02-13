@@ -19,6 +19,10 @@ You are planning a work item. Research the codebase and write a plan.
 2. Identify what needs to change and where
 3. Validate that you have a clear goal and entry point
 
+You have a limited turn budget. Spend at most 5 turns researching, then
+write your output files. If you find yourself on turn 6+, stop researching
+and write plan.md with what you know.
+
 ## Bail conditions
 
 If you cannot identify BOTH a clear goal AND an entry point, write ONLY
