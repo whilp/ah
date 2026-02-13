@@ -70,6 +70,8 @@ sandbox.unveil("/lib64", "rx")
 sandbox.unveil("/etc/ssl", "r")
 sandbox.unveil("/etc/resolv.conf", "r")
 sandbox.unveil("/dev/null", "rw")
+sandbox.unveil("/dev/tty", "rw")
+sandbox.unveil("/proc/self", "r")
 local home = os.getenv("HOME")
 if home then
   sandbox.unveil(home, "r")
@@ -77,7 +79,7 @@ end
 sandbox.unveil(nil, nil)
 print("   unveil: committed")
 
-local promises = "stdio rpath wpath cpath flock tty proc exec unix prot_exec"
+local promises = "stdio rpath wpath cpath flock tty proc exec execnative unix prot_exec"
 sandbox.pledge(promises, promises, 2)
 print("   pledge: " .. promises)
 
