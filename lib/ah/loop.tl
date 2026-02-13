@@ -218,6 +218,9 @@ local function run_agent(d: db.DB, qdb: queue.QueueDB, system_prompt: string, mo
   -- Track final stop reason for agent_end event
   local final_stop_reason = "unknown"
 
+  -- Track last error message for agent_end
+  local last_error: string = nil
+
   -- Turn signature history for loop detection
   local turn_history: {string} = {}
 
@@ -289,6 +292,7 @@ local function run_agent(d: db.DB, qdb: queue.QueueDB, system_prompt: string, mo
       else
         -- Compaction failed - continue without it
         emit(on_event, events.error_event(compact_err))
+        db.log_event(d, "error", nil, events.to_json(events.error_event(compact_err)))
         last_input_tokens = 0  -- Don't keep retrying
       end
     end
@@ -337,12 +341,16 @@ local function run_agent(d: db.DB, qdb: queue.QueueDB, system_prompt: string, mo
 
     if err then
       emit(on_event, events.error_event(err))
+      db.log_event(d, "error", nil, events.to_json(events.error_event(err)))
+      last_error = err
       final_stop_reason = "error"
       break
     end
 
     if not response then
       emit(on_event, events.error_event("no response"))
+      db.log_event(d, "error", nil, events.to_json(events.error_event("no response")))
+      last_error = "no response"
       final_stop_reason = "error"
       break
     end
@@ -734,10 +742,10 @@ local function run_agent(d: db.DB, qdb: queue.QueueDB, system_prompt: string, mo
   local totals = db.get_session_token_totals(d)
 
   -- Emit agent_end with token totals
-  emit(on_event, events.agent_end(final_stop_reason, totals.input_tokens, totals.output_tokens))
+  emit(on_event, events.agent_end(final_stop_reason, totals.input_tokens, totals.output_tokens, last_error))
 
   -- Log agent_end event to DB
-  db.log_event(d, "agent_end", nil, events.to_json(events.agent_end(final_stop_reason, totals.input_tokens, totals.output_tokens)))
+  db.log_event(d, "agent_end", nil, events.to_json(events.agent_end(final_stop_reason, totals.input_tokens, totals.output_tokens, last_error)))
 
   return final_stop_reason
 end

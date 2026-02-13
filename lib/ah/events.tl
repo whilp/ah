@@ -92,11 +92,14 @@ local function agent_start(model: string, prompt: string, parent_id: string): Ev
   return e
 end
 
-local function agent_end(stop_reason: string, total_input_tokens: integer, total_output_tokens: integer): EventData
+local function agent_end(stop_reason: string, total_input_tokens: integer, total_output_tokens: integer, error_message: string): EventData
   local e = make_event("agent_end")
   e.stop_reason = stop_reason
   e.total_input_tokens = total_input_tokens
   e.total_output_tokens = total_output_tokens
+  if error_message then
+    e.error = error_message
+  end
   return e
 end
 
