@@ -1,8 +1,19 @@
 -- ah/work/prompt.tl: prompt loading, interpolation, and building
 local cio = require("cosmic.io")
+local skills = require("ah.skills")
 local util = require("ah.work.util")
 
+-- Read a work phase prompt by name (e.g. "plan.md").
+-- Looks in skills dirs first (with frontmatter stripping), then falls back
+-- to the legacy sys/work/ location for backward compatibility.
 local function read_prompt(name: string): string
+  -- Try skills directories first (new location)
+  local content = cio.slurp("/zip/embed/sys/skills/" .. name)
+                or cio.slurp("sys/skills/" .. name)
+  if content then
+    return skills.strip_frontmatter(content)
+  end
+  -- Fallback to legacy location
   return cio.slurp("/zip/embed/sys/work/" .. name)
       or cio.slurp("sys/work/" .. name)
 end

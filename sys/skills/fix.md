@@ -1,3 +1,8 @@
+---
+name: fix
+description: Fix issues found during review. Address check feedback, re-validate, commit fixes.
+---
+
 # Fix
 
 You are fixing issues found during review. Follow the plan and address the feedback below.

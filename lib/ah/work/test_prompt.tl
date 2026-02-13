@@ -224,8 +224,8 @@ test_build_friction_prompt_fix_phase()
 
 -- Test fix.md prompt writes artifacts to o/work/fix/, not o/work/do/
 local function test_fix_prompt_uses_fix_directory()
-  local f = io.open("sys/work/fix.md", "r")
-  assert(f, "should be able to read sys/work/fix.md")
+  local f = io.open("sys/skills/fix.md", "r")
+  assert(f, "should be able to read sys/skills/fix.md")
   local content = f:read("*a")
   f:close()
   -- fix prompt must write to o/work/fix/ so it doesn't overwrite do phase artifacts

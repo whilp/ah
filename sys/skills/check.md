@@ -1,3 +1,8 @@
+---
+name: check
+description: Review work execution against the plan. Validate changes, check for issues, render verdict.
+---
+
 # Check
 
 You are checking a work item. Review the execution against the plan.

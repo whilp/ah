@@ -1,3 +1,8 @@
+---
+name: analyze
+description: Analyze completed work run outputs for friction. Identify errors, slow operations, and systemic issues.
+---
+
 # Friction analysis
 
 Analyze the outputs of a completed work run. Identify up to 3 impactful

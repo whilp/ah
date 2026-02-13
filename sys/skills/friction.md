@@ -1,3 +1,8 @@
+---
+name: friction
+description: Reflect on completed work and identify friction. Note what slowed you down, caused errors, or required workarounds.
+---
+
 reflect on the work you just completed. identify friction — anything that
 slowed you down, caused errors, or required workarounds.
 

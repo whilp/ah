@@ -1,3 +1,8 @@
+---
+name: plan
+description: Plan a work item. Research the codebase, identify goals and entry points, write a structured plan.
+---
+
 # Plan
 
 You are planning a work item. Research the codebase and write a plan.
