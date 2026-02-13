@@ -191,21 +191,27 @@ local function phase_plan(no_sandbox: boolean, repo: string, issue_number: integ
   local friction = prompt.make_friction_prompt("o/work/plan")
   local ok = sandbox.sandboxed_agent(no_sandbox, tpl, "o/work/plan/session.db", nil, friction, sandbox.plan_limits, model)
 
+  -- Check if plan.md was created, regardless of agent exit status.
+  -- The agent may have written plan.md in its final tool call but been
+  -- terminated before completing (stop_reason: tool_use instead of end_turn).
+  local plan_content = util.read_file("o/work/plan/plan.md")
+  if plan_content and #plan_content > 0 then
+    -- Plan exists with content - consider successful even if agent didn't exit cleanly
+    if not ok then
+      util.log("plan agent exited non-zero but plan.md exists, treating as success")
+    end
+    return 0, issue
+  end
+
+  -- No plan.md or empty - this is a failure
   if not ok then
     io.stderr:write("error: plan agent failed\n")
-    local diag = prompt.plan_diagnostic("o/work/plan")
-    util.log("plan diagnostic: " .. diag)
-    return 1
-  end
-
-  if not util.read_file("o/work/plan/plan.md") then
-    local diag = prompt.plan_diagnostic("o/work/plan")
+  else
     io.stderr:write("error: plan.md not created\n")
-    util.log("plan diagnostic: " .. diag)
-    return 1
   end
-
-  return 0, issue
+  local diag = prompt.plan_diagnostic("o/work/plan")
+  util.log("plan diagnostic: " .. diag)
+  return 1
 end
 
 local function phase_do(no_sandbox: boolean, title: string, number: string, model: string): integer

@@ -56,7 +56,7 @@ $(o)/%.tl.test.ok: $(o)/%.lua $(ah_lua) $(cosmic)
 	@mkdir -p $(@D)
 	@d=$$(mktemp -d); TEST_TMPDIR=$$d $(cosmic) $< >$$d/out 2>&1 \
 		&& echo "pass:" > $@ || echo "fail:" > $@; \
-	cat $$d/out >> $@; rm -rf $$d
+	if [ -f $$d/out ]; then cat $$d/out >> $@; fi; rm -rf $$d
 
 # targets
 .PHONY: help
