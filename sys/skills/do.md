@@ -1,3 +1,8 @@
+---
+name: do
+description: Execute a work plan. Create branch, make changes, run validation, commit.
+---
+
 # Do
 
 You are executing a work item. Follow the plan below.
