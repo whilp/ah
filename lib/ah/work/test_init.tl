@@ -3,9 +3,37 @@
 
 local record Work
   main: function({string}): integer
+  is_crash_signal: function(integer): boolean
 end
 
 local work = require("ah.work") as Work
+
+-- Test is_crash_signal
+local function test_is_crash_signal()
+  -- SIGSEGV = 11, exit code 139
+  assert(work.is_crash_signal(139) == true, "139 (SIGSEGV) should be crash signal")
+  -- SIGBUS = 7, exit code 135
+  assert(work.is_crash_signal(135) == true, "135 (SIGBUS) should be crash signal")
+  -- SIGFPE = 8, exit code 136
+  assert(work.is_crash_signal(136) == true, "136 (SIGFPE) should be crash signal")
+  -- SIGILL = 4, exit code 132
+  assert(work.is_crash_signal(132) == true, "132 (SIGILL) should be crash signal")
+  -- SIGABRT = 6, exit code 134
+  assert(work.is_crash_signal(134) == true, "134 (SIGABRT) should be crash signal")
+  
+  -- Non-crash signals
+  assert(work.is_crash_signal(0) == false, "0 should not be crash signal")
+  assert(work.is_crash_signal(1) == false, "1 should not be crash signal")
+  assert(work.is_crash_signal(124) == false, "124 (timeout) should not be crash signal")
+  assert(work.is_crash_signal(128) == false, "128 should not be crash signal")
+  -- SIGTERM = 15, exit code 143
+  assert(work.is_crash_signal(143) == false, "143 (SIGTERM) should not be crash signal")
+  -- SIGKILL = 9, exit code 137
+  assert(work.is_crash_signal(137) == false, "137 (SIGKILL) should not be crash signal")
+  
+  print("✓ is_crash_signal works correctly")
+end
+test_is_crash_signal()
 
 -- Test that help returns 0
 local function test_help()
