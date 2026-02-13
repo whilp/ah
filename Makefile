@@ -15,9 +15,9 @@ TMP ?= /tmp
 export TMPDIR := $(TMP)
 
 # cosmic dependency
-cosmic_version := 2026-02-10-a9a0523
+cosmic_version := 2026-02-13-5f7b857
 cosmic_url := https://github.com/whilp/cosmic/releases/download/$(cosmic_version)/cosmic-lua
-cosmic_sha := 4f5e12c0bfd365b5ccf3368d4e61118f00d74d16170b2aec5c276ef61db28886
+cosmic_sha := 2ef4e697c34f6ce9ed81ce98d9ab8df4407955922c08bd0cc994bdfd171c398c
 cosmic := $(o)/bin/cosmic
 
 .PHONY: cosmic
@@ -27,6 +27,20 @@ $(cosmic):
 	@echo "==> fetching cosmic $(cosmic_version)"
 	@curl -fsSL -o $@ $(cosmic_url)
 	@echo "$(cosmic_sha)  $@" | sha256sum -c - >/dev/null
+	@chmod +x $@
+
+# cosmic-debug dependency (with debug symbols)
+cosmic_debug_url := https://github.com/whilp/cosmic/releases/download/$(cosmic_version)/cosmic-lua-debug
+cosmic_debug_sha := d722747849d4409cfd613ab96ffccb1f62086c17b95d092c8ffafd8d9692dfc5
+cosmic_debug := $(o)/bin/cosmic-debug
+
+.PHONY: cosmic-debug
+cosmic-debug: $(cosmic_debug)
+$(cosmic_debug):
+	@mkdir -p $(@D)
+	@echo "==> fetching cosmic-debug $(cosmic_version)"
+	@curl -fsSL -o $@ $(cosmic_debug_url)
+	@echo "$(cosmic_debug_sha)  $@" | sha256sum -c - >/dev/null
 	@chmod +x $@
 
 reporter := $(cosmic) lib/build/reporter.tl
@@ -67,6 +81,7 @@ help:
 	@echo "  test                Run all tests (incremental)"
 	@echo "  build               Build all files"
 	@echo "  ah                  Build ah executable archive"
+	@echo "  ah-debug            Build ah executable archive with debug symbols"
 	@echo "  check-types         Run teal type checker on all files"
 	@echo "  ci                  Run tests and type checks"
 	@echo "  clean               Remove all build artifacts"
@@ -109,6 +124,14 @@ $(o)/bin/ah: $(o)/embed/main.lua $(ah_lib_lua) $(ah_dep_lua) $(ah_sys) $(cosmic)
 .PHONY: ah
 ## Build ah executable archive
 ah: $(o)/bin/ah
+
+$(o)/bin/ah-debug: $(o)/embed/main.lua $(ah_lib_lua) $(ah_dep_lua) $(ah_sys) $(cosmic_debug)
+	@echo "==> embedding ah-debug"
+	@$(cosmic_debug) --embed $(o)/embed --output $@
+
+.PHONY: ah-debug
+## Build ah executable archive with debug symbols
+ah-debug: $(o)/bin/ah-debug
 
 .PHONY: check-types
 ## Run teal type checker on all files
