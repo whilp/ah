@@ -780,6 +780,8 @@ local function main(args: {string}): integer, string
     sandbox.unveil("/etc/ssl", "r")          -- CA certificates
     sandbox.unveil("/etc/resolv.conf", "r")  -- DNS config
     sandbox.unveil("/dev/null", "rw")         -- git and other tools need /dev/null
+    sandbox.unveil("/dev/tty", "rw")          -- terminal access for interactive tools
+    sandbox.unveil("/proc/self", "r")         -- bash and make need /proc/self for process info
     local home = os.getenv("HOME")
     if home then
       sandbox.unveil(home, "r")              -- git/tool configs
@@ -797,7 +799,7 @@ local function main(args: {string}): integer, string
     -- prot_exec: allow mmap(PROT_EXEC) needed by dynamic linker for native binaries
     -- Use EPERM mode (2) so blocked calls return error instead of crashing
     local PLEDGE_PENALTY_RETURN_EPERM = 2
-    local promises = "stdio rpath wpath cpath flock tty proc exec unix prot_exec"
+    local promises = "stdio rpath wpath cpath flock tty proc exec execnative unix prot_exec"
     sandbox.pledge(promises, promises, PLEDGE_PENALTY_RETURN_EPERM)
   end
 
