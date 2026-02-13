@@ -192,6 +192,10 @@ local write_tool: Tool = {
     local dir = fs.dirname(file_path)
     if dir and dir ~= "" then
       fs.makedirs(dir)
+      local stat = unix.stat(dir)
+      if not stat then
+        return "error: failed to create directory: " .. dir, true, nil
+      end
     end
 
     local ok = cio.barf(file_path, content, tonumber("644", 8))

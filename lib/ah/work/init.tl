@@ -5,6 +5,17 @@
 local fs = require("cosmic.fs")
 local json = require("cosmic.json")
 local getopt = require("cosmic.getopt")
+local unix = require("cosmo.unix")
+
+-- Helper to create directory with error handling and verification
+local function ensure_dir(path: string): boolean, string
+  fs.makedirs(path)
+  local stat = unix.stat(path)
+  if not stat then
+    return false, "failed to create directory: " .. path
+  end
+  return true, nil
+end
 
 -- Local record types for the orchestrator
 local record Label
@@ -171,7 +182,11 @@ local function phase_plan(no_sandbox: boolean, repo: string, issue_number: integ
 
   issue_mod.transition_to_doing(issue.url)
 
-  fs.makedirs("o/work/plan")
+  local dir_ok, dir_err = ensure_dir("o/work/plan")
+  if not dir_ok then
+    io.stderr:write("error: " .. dir_err .. "\n")
+    return 1
+  end
   util.write_file("o/work/plan/issue.json", json.encode(issue) .. "\n")
 
   local tpl = prompt.read_prompt("plan.md")
@@ -215,7 +230,11 @@ local function phase_plan(no_sandbox: boolean, repo: string, issue_number: integ
 end
 
 local function phase_do(no_sandbox: boolean, title: string, number: string, model: string): integer
-  fs.makedirs("o/work/do")
+  local dir_ok, dir_err = ensure_dir("o/work/do")
+  if not dir_ok then
+    io.stderr:write("error: " .. dir_err .. "\n")
+    return 1
+  end
 
   local plan_contents = util.read_file("o/work/plan/plan.md")
   if not plan_contents then
@@ -278,7 +297,11 @@ end
 
 local function phase_check(no_sandbox: boolean, model: string, do_dir: string): integer
   do_dir = do_dir or "o/work/do"
-  fs.makedirs("o/work/check")
+  local dir_ok, dir_err = ensure_dir("o/work/check")
+  if not dir_ok then
+    io.stderr:write("error: " .. dir_err .. "\n")
+    return 1
+  end
 
   local plan_contents = util.read_file("o/work/plan/plan.md")
   if not plan_contents then
@@ -326,7 +349,11 @@ local function read_check_verdict(): string
 end
 
 local function phase_fix(no_sandbox: boolean, title: string, number: string, model: string): integer
-  fs.makedirs("o/work/fix")
+  local dir_ok, dir_err = ensure_dir("o/work/fix")
+  if not dir_ok then
+    io.stderr:write("error: " .. dir_err .. "\n")
+    return 1
+  end
 
   local plan_contents = util.read_file("o/work/plan/plan.md")
   if not plan_contents then
@@ -364,7 +391,11 @@ local function phase_fix(no_sandbox: boolean, title: string, number: string, mod
 end
 
 local function phase_act(issue_url: string): integer
-  fs.makedirs("o/work/act")
+  local dir_ok, dir_err = ensure_dir("o/work/act")
+  if not dir_ok then
+    io.stderr:write("error: " .. dir_err .. "\n")
+    return 1
+  end
 
   local act_md = "o/work/act/act.md"
   util.write_file(act_md, "")
@@ -413,7 +444,11 @@ end
 -- Friction analysis phase: sandboxed agent analyzes all outputs
 
 local function phase_analyze(no_sandbox: boolean, repo: string, model: string): integer
-  fs.makedirs("o/work/analyze")
+  local dir_ok, dir_err = ensure_dir("o/work/analyze")
+  if not dir_ok then
+    io.stderr:write("error: " .. dir_err .. "\n")
+    return 1
+  end
 
   local tpl = prompt.read_prompt("analyze.md")
   if not tpl then
@@ -760,7 +795,11 @@ local function main(args: {string}): integer
   end
 
   -- Always create work directory for artifacts
-  fs.makedirs("o/work")
+  local work_dir_ok, work_dir_err = ensure_dir("o/work")
+  if not work_dir_ok then
+    io.stderr:write("error: " .. work_dir_err .. "\n")
+    return 1
+  end
 
   -- Helper to write run summary
   local function write_summary(status: string, issue_num: integer, phases_completed: {string})
