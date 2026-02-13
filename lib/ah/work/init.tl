@@ -298,6 +298,17 @@ local function phase_push(work_dir: string): integer
   return 0
 end
 
+-- Check if exit code indicates a crash signal (SIGSEGV, SIGBUS, etc.)
+-- Exit codes 128+N indicate the process was killed by signal N
+local function is_crash_signal(exit_code: integer): boolean
+  if exit_code > 128 and exit_code <= 159 then
+    local signal = exit_code - 128
+    -- SIGSEGV=11, SIGBUS=7, SIGFPE=8, SIGILL=4, SIGABRT=6
+    return signal == 11 or signal == 7 or signal == 8 or signal == 4 or signal == 6
+  end
+  return false
+end
+
 local function phase_check(no_sandbox: boolean, model: string, do_dir: string): integer
   do_dir = do_dir or "o/work/do"
   local dir_ok, dir_err = ensure_dir("o/work/check")
@@ -333,14 +344,29 @@ local function phase_check(no_sandbox: boolean, model: string, do_dir: string): 
   end
 
   local friction = prompt.make_friction_prompt("o/work/check")
-  local ok = sandbox.sandboxed_agent(no_sandbox, tpl, "o/work/check/session.db", protect_dirs, friction, sandbox.check_limits, model)
 
-  if not ok then
-    io.stderr:write("error: check agent failed\n")
-    return 1
+  -- Retry on crash signals (SIGSEGV, SIGBUS, etc.) up to 2 times
+  local max_crash_retries = 2
+  for attempt = 1, max_crash_retries + 1 do
+    local ok, _, exit_code = sandbox.sandboxed_agent(no_sandbox, tpl, "o/work/check/session.db", protect_dirs, friction, sandbox.check_limits, model)
+
+    if ok then
+      return 0
+    end
+
+    -- Check if it was a crash signal
+    if is_crash_signal(exit_code) and attempt <= max_crash_retries then
+      io.stderr:write("[work] check agent crashed (signal " .. tostring(exit_code - 128) .. "), retrying (" .. tostring(attempt) .. "/" .. tostring(max_crash_retries) .. ")...\n")
+      -- Clear the check directory for retry
+      os.execute("rm -rf o/work/check/*")
+      ensure_dir("o/work/check")
+    else
+      io.stderr:write("error: check agent failed (exit code " .. tostring(exit_code) .. ")\n")
+      return 1
+    end
   end
 
-  return 0
+  return 1
 end
 
 local function read_check_verdict(): string
@@ -925,6 +951,8 @@ end
 
 return {
   main = main,
+  -- internal functions exported for testing
+  is_crash_signal = is_crash_signal,
   -- re-exported from submodules for backward compatibility
   get_priority = issue_mod.get_priority,
   sort_issues = issue_mod.sort_issues,
