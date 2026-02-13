@@ -8,8 +8,11 @@ local getopt = require("cosmic.getopt")
 local unix = require("cosmo.unix")
 
 -- Helper to create directory with error handling and verification
+-- TODO: fix cosmic fs.makedirs to return (ok, err) instead of silent failure
+-- see https://github.com/anthropics/cosmic/issues/XXX (file issue)
 local function ensure_dir(path: string): boolean, string
   fs.makedirs(path)
+  -- TODO: remove this stat workaround once cosmic fs.makedirs returns errors
   local stat = unix.stat(path)
   if not stat then
     return false, "failed to create directory: " .. path
