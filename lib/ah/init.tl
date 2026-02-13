@@ -772,7 +772,7 @@ local function main(args: {string}): integer, string
     for _, dir in ipairs(protect) do
       sandbox.unveil(cwd_for_unveil .. "/" .. dir, "r")
     end
-    sandbox.unveil("/tmp", "rwc")            -- proxy socket, temp files
+    sandbox.unveil("/tmp", "rwxc")           -- proxy socket, temp files, APE binaries
     sandbox.unveil("/usr", "rx")             -- system binaries
     sandbox.unveil("/bin", "rx")             -- system binaries
     sandbox.unveil("/lib", "rx")             -- shared libraries

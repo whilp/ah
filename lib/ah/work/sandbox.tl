@@ -195,6 +195,20 @@ local function sandboxed_agent(no_sandbox: boolean, prompt: string, db: string, 
 
   local run_env: {string} = env.all() as {string}
   util.setup_git_env(run_env)
+
+  -- Set TMPDIR to sandbox tmpdir or a local writable location.
+  -- APE binaries (cosmic) need to extract to $TMPDIR/.ape-* on first run;
+  -- in restricted environments (GitHub Actions), /tmp may not be writable.
+  if ctx and ctx.tmpdir then
+    util.env_set(run_env, "TMPDIR", ctx.tmpdir)
+  elseif not util.env_get(run_env, "TMPDIR") then
+    -- Fallback: use o/tmp relative to cwd
+    local cwd = unix.getcwd() or "."
+    local local_tmp = cwd .. "/o/tmp"
+    unix.mkdir(local_tmp, tonumber("755", 8))
+    util.env_set(run_env, "TMPDIR", local_tmp)
+  end
+
   if ctx and ctx.enabled then
     local proxy_url, proxy_err = fetch.unix_proxy(ctx.socket_path)
     if not proxy_url then
