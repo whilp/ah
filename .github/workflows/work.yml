@@ -50,8 +50,13 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Build ah
-        run: make ah
+      - name: Build ah-debug
+        run: make ah-debug
+
+      - name: Enable coredumps
+        run: |
+          ulimit -c unlimited
+          echo "core" | sudo tee /proc/sys/kernel/core_pattern
 
       - name: Configure git identity
         run: |
@@ -66,10 +71,14 @@ jobs:
           issue="${{ inputs.issue }}"
           prompt="${{ inputs.prompt }}"
           model="${{ inputs.model }}"
-          o/bin/ah work --repo "$REPO" \
+          o/bin/ah-debug work --repo "$REPO" \
             ${issue:+--issue "$issue"} \
             ${prompt:+--prompt "$prompt"} \
             ${model:+--model "$model"}
+
+      - name: Collect coredump
+        if: always()
+        run: mv core* o/ 2>/dev/null || true
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
