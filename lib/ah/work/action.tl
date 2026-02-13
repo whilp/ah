@@ -6,6 +6,7 @@ local record ParsedActions
   verdict: string
   actions: {{string:any}}
   success: boolean
+  blocker_type: string
 end
 
 local function parse_actions(content: string): ParsedActions, string
@@ -18,7 +19,8 @@ local function parse_actions(content: string): ParsedActions, string
   return {
     verdict = (d.verdict or "unknown") as string,
     actions = (d.actions or {}) as {{string:any}},
-    success = d.verdict == "pass"
+    success = d.verdict == "pass",
+    blocker_type = d.blocker_type as string
   }
 end
 

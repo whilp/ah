@@ -5,6 +5,7 @@ local record ParsedActions
   verdict: string
   actions: {any}
   success: boolean
+  blocker_type: string
 end
 
 local record WorkAction
@@ -204,5 +205,35 @@ local function test_build_pr_body_no_issue()
   print("✓ build_pr_body leaves body unchanged when no issue number")
 end
 test_build_pr_body_no_issue()
+
+-- Test parse_actions with environment blocker_type
+local function test_parse_blocker_type_environment()
+  local content = '{"verdict": "needs-fixes", "blocker_type": "environment", "actions": []}'
+  local result = action.parse_actions(content)
+  assert(result ~= nil, "should parse valid json")
+  assert(result.blocker_type == "environment", "blocker_type should be environment, got: " .. tostring(result.blocker_type))
+  print("✓ parse_actions extracts environment blocker_type")
+end
+test_parse_blocker_type_environment()
+
+-- Test parse_actions with code blocker_type
+local function test_parse_blocker_type_code()
+  local content = '{"verdict": "needs-fixes", "blocker_type": "code", "actions": []}'
+  local result = action.parse_actions(content)
+  assert(result ~= nil, "should parse valid json")
+  assert(result.blocker_type == "code", "blocker_type should be code, got: " .. tostring(result.blocker_type))
+  print("✓ parse_actions extracts code blocker_type")
+end
+test_parse_blocker_type_code()
+
+-- Test parse_actions with null/missing blocker_type
+local function test_parse_blocker_type_missing()
+  local content = '{"verdict": "pass", "actions": []}'
+  local result = action.parse_actions(content)
+  assert(result ~= nil, "should parse valid json")
+  assert(result.blocker_type == nil, "blocker_type should be nil when missing")
+  print("✓ parse_actions handles missing blocker_type")
+end
+test_parse_blocker_type_missing()
 
 print("\nAll work-action tests passed!")

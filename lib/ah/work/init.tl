@@ -325,6 +325,14 @@ local function read_check_verdict(): string
   return ((data as {string:any}).verdict or "unknown") as string
 end
 
+local function read_check_blocker_type(): string
+  local content = util.read_file("o/work/check/actions.json")
+  if not content then return nil end
+  local ok, data = pcall(json.decode, content)
+  if not ok or type(data) ~= "table" then return nil end
+  return (data as {string:any}).blocker_type as string
+end
+
 local function phase_fix(no_sandbox: boolean, title: string, number: string, model: string): integer
   fs.makedirs("o/work/fix")
 
@@ -839,6 +847,14 @@ local function main(args: {string}): integer
       for attempt = 1, max_fix_retries do
         local verdict = read_check_verdict()
         if verdict ~= "needs-fixes" then break end
+
+        -- Check for environment blockers that cannot be fixed by retrying
+        local blocker_type = read_check_blocker_type()
+        if blocker_type == "environment" then
+          io.stderr:write("==> skipping fix: environment blocker requires external resolution\n")
+          break
+        end
+
         if not check_deadline("fix") then break end
 
         io.stderr:write("==> fix (attempt " .. tostring(attempt) .. "/" .. tostring(max_fix_retries) .. ")\n")

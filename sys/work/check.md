@@ -45,6 +45,7 @@ Write `o/work/check/actions.json`:
 
     {
       "verdict": "pass|needs-fixes|fail",
+      "blocker_type": "environment|code|null",
       "friction": ["<friction item>", ...],
       "actions": [
         {"action": "comment_issue", "body": "..."},
@@ -56,6 +57,10 @@ Action rules:
 - Always include `comment_issue` with verdict, summary, and any friction items
 - Include `create_pr` only when verdict is "pass" and changes were committed
 - `friction` array: one short string per friction item, or empty array if none
+- `blocker_type`: classify the primary blocker when verdict is "needs-fixes" or "fail"
+  - `"environment"`: sandbox restrictions, missing system tools, permission errors (e.g., /dev/null access denied, command not found, network blocked)
+  - `"code"`: test failures, lint errors, logic bugs, missing implementation
+  - `null`: no blocker (verdict is "pass") or blocker type unclear
 
 Write `o/work/check/update.md`: 2-4 line summary.
 
