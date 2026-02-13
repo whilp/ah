@@ -76,10 +76,12 @@ jobs:
             ${prompt:+--prompt "$prompt"} \
             ${model:+--model "$model"}
 
+      - name: Collect coredump
+        if: always()
+        run: mv core* o/ 2>/dev/null || true
+
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
           name: work
-          path: |
-            o/
-            core*
+          path: o/
