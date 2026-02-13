@@ -55,7 +55,8 @@ end
 -- Uses GITHUB_ACTOR when available (GitHub Actions), otherwise falls back
 -- to defaults. Does not overwrite values that are already set.
 -- Also sets GIT_CONFIG_GLOBAL=/dev/null to disable global config (avoids
--- safe.directory issues in sandboxed environments).
+-- safe.directory issues in sandboxed environments) and GIT_CONFIG_NOSYSTEM=1
+-- to disable system config (avoids /etc/gitconfig permission errors).
 local function setup_git_env(run_env: {string})
   local actor = env_get(run_env, "GITHUB_ACTOR")
   local name = actor or "ah-agent"
@@ -67,6 +68,8 @@ local function setup_git_env(run_env: {string})
   if not env_get(run_env, "GIT_COMMITTER_EMAIL") then env_set(run_env, "GIT_COMMITTER_EMAIL", email) end
   -- Disable global config to avoid safe.directory errors in sandbox
   if not env_get(run_env, "GIT_CONFIG_GLOBAL") then env_set(run_env, "GIT_CONFIG_GLOBAL", "/dev/null") end
+  -- Disable system config to avoid /etc/gitconfig permission errors in sandbox
+  if not env_get(run_env, "GIT_CONFIG_NOSYSTEM") then env_set(run_env, "GIT_CONFIG_NOSYSTEM", "1") end
 end
 
 -- Format error from a failed command, preferring stderr over stdout.

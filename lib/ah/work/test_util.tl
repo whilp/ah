@@ -223,3 +223,13 @@ end
 test_format_error_both_nil()
 
 print("\nAll work-util tests passed!")
+
+-- Test setup_git_env sets GIT_CONFIG_NOSYSTEM
+local function test_setup_git_env_nosystem()
+  local run_env: {string} = {}
+  util.setup_git_env(run_env)
+  local val = util.env_get(run_env, "GIT_CONFIG_NOSYSTEM")
+  assert(val == "1", "GIT_CONFIG_NOSYSTEM should be '1', got: " .. (val or "nil"))
+  print("✓ setup_git_env sets GIT_CONFIG_NOSYSTEM=1")
+end
+test_setup_git_env_nosystem()
