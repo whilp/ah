@@ -51,18 +51,19 @@ local function now_ms(): integer
 end
 
 local API_URL = "https://api.anthropic.com/v1/messages"
-local DEFAULT_MODEL = "claude-opus-4-5-20251101"
+local DEFAULT_MODEL = "claude-opus-4-6"
 local DEFAULT_MAX_TOKENS = 8192
 
 local MODELS: {string} = {
   "claude-sonnet-4-5-20250929",
   "claude-opus-4-5-20251101",
+  "claude-opus-4-6",
   "claude-haiku-4-5-20251001",
 }
 
 local MODEL_ALIASES: {string:string} = {
   ["sonnet"] = "claude-sonnet-4-5-20250929",
-  ["opus"] = "claude-opus-4-5-20251101",
+  ["opus"] = "claude-opus-4-6",
   ["haiku"] = "claude-haiku-4-5-20251001",
 }
 
