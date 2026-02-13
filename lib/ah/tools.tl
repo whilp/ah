@@ -189,9 +189,15 @@ local write_tool: Tool = {
     end
 
     -- Create parent directories if needed
+    -- TODO: fix cosmic fs.makedirs to return (ok, err) instead of silent failure
     local dir = fs.dirname(file_path)
     if dir and dir ~= "" then
       fs.makedirs(dir)
+      -- TODO: remove this stat workaround once cosmic fs.makedirs returns errors
+      local stat = unix.stat(dir)
+      if not stat then
+        return "error: failed to create directory: " .. dir, true, nil
+      end
     end
 
     local ok = cio.barf(file_path, content, tonumber("644", 8))
