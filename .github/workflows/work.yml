@@ -50,8 +50,13 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Build ah
-        run: make ah
+      - name: Build ah-debug
+        run: make ah-debug
+
+      - name: Enable coredumps
+        run: |
+          ulimit -c unlimited
+          echo "core" | sudo tee /proc/sys/kernel/core_pattern
 
       - name: Configure git identity
         run: |
@@ -66,7 +71,7 @@ jobs:
           issue="${{ inputs.issue }}"
           prompt="${{ inputs.prompt }}"
           model="${{ inputs.model }}"
-          o/bin/ah work --repo "$REPO" \
+          o/bin/ah-debug work --repo "$REPO" \
             ${issue:+--issue "$issue"} \
             ${prompt:+--prompt "$prompt"} \
             ${model:+--model "$model"}
@@ -75,4 +80,6 @@ jobs:
         if: always()
         with:
           name: work
-          path: o/
+          path: |
+            o/
+            core*
