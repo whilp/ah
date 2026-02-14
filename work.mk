@@ -61,7 +61,7 @@ $(plan): $(is_doing) $(picked_issue) $(AH)
 		< $(picked_issue)
 
 $(on_branch): $(plan) $(picked_issue)
-	@git checkout -b $$(grep -o '"branch":"[^"]*"' $(picked_issue) | cut -d'"' -f4) origin/main
+	@git checkout -b $$(jq -r .branch $(picked_issue)) origin/main
 	@touch $@
 
 $(do_done): $(on_branch) $(plan) $(picked_issue) $(AH)
