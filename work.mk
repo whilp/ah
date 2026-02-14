@@ -53,24 +53,19 @@ $(o)/work/doing.ok: $(o)/work/issue.json
 
 # --- prompt and agent targets (don't fit pattern) ---
 
-# build plan prompt from issue
-$(o)/work/plan/prompt.txt: $(o)/work/doing.ok $(o)/work/issue.json $(cosmic)
-	@mkdir -p $(@D)
-	@$(render) --template sys/skills/plan.md \
-		--json-vars $(o)/work/issue.json \
-		--var issue_number=$$($(cosmic) lib/work/jq.tl --file $(o)/work/issue.json --field number) \
-		> $@
-
 # run plan agent
-$(o)/work/plan/plan.md: $(o)/work/plan/prompt.txt $(AH)
+$(o)/work/plan/plan.md: $(o)/work/doing.ok $(o)/work/issue.json $(cosmic) $(AH)
 	@mkdir -p $(@D)
 	@cp $(o)/work/issue.json $(o)/work/plan/issue.json
 	@echo "==> plan"
-	@timeout $(PLAN_TIMEOUT) $(AH) -n \
+	@$(render) --template sys/skills/plan.md \
+		--json-vars $(o)/work/issue.json \
+		--var issue_number=$$($(cosmic) lib/work/jq.tl --file $(o)/work/issue.json --field number) \
+	| timeout $(PLAN_TIMEOUT) $(AH) -n \
 		$(if $(MODEL),-m $(MODEL)) \
 		--max-tokens $(PLAN_MAX_TOKENS) \
 		--db $(o)/work/plan/session.db \
-		< $< || true
+		|| true
 	@test -s $@ || (echo "error: plan.md not created" >&2; exit 1)
 
 # extract branch name
@@ -78,24 +73,20 @@ $(o)/work/do/branch.txt: $(o)/work/plan/plan.md $(o)/work/issue.json $(cosmic)
 	@mkdir -p $(@D)
 	@$(cosmic) lib/work/extract-branch.tl --plan $< --issue $(o)/work/issue.json > $@
 
-# build do prompt from plan
-$(o)/work/do/prompt.txt: $(o)/work/plan/plan.md $(o)/work/do/branch.txt $(o)/work/issue.json $(cosmic)
+# run do agent
+$(o)/work/do/done: $(o)/work/do/branch.txt $(o)/work/plan/plan.md $(o)/work/issue.json $(cosmic) $(AH)
 	@mkdir -p $(@D)
+	@echo "==> do"
 	@$(render) --template sys/skills/do.md \
 		--json-vars $(o)/work/issue.json \
 		--var-file "plan.md contents"=$(o)/work/plan/plan.md \
 		--var branch=$$(cat $(o)/work/do/branch.txt) \
-		> $@
-
-# run do agent
-$(o)/work/do/done: $(o)/work/do/prompt.txt $(AH)
-	@echo "==> do"
-	@timeout $(DO_TIMEOUT) $(AH) -n \
+	| timeout $(DO_TIMEOUT) $(AH) -n \
 		$(if $(MODEL),-m $(MODEL)) \
 		--max-tokens $(DO_MAX_TOKENS) \
 		--unveil $(o)/work/plan:r \
 		--db $(o)/work/do/session.db \
-		< $< || true
+		|| true
 	@touch $@
 
 # push work branch
@@ -105,24 +96,19 @@ $(o)/work/push/done: $(o)/work/do/done $(o)/work/do/branch.txt
 	@$(cosmic) lib/work/push.tl --branch-file $(o)/work/do/branch.txt
 	@touch $@
 
-# build check prompt
-$(o)/work/check/prompt.txt: $(o)/work/push/done $(o)/work/plan/plan.md $(cosmic)
+# run check agent
+$(o)/work/check/done: $(o)/work/push/done $(o)/work/plan/plan.md $(cosmic) $(AH)
 	@mkdir -p $(@D)
+	@echo "==> check"
 	@$(render) --template sys/skills/check.md \
 		--var-file "plan.md contents"=$(o)/work/plan/plan.md \
 		--var-file "do.md contents"=$(o)/work/do/do.md \
-		> $@
-
-# run check agent
-$(o)/work/check/done: $(o)/work/check/prompt.txt $(AH)
-	@echo "==> check"
-	@timeout $(CHECK_TIMEOUT) $(AH) -n \
+	| timeout $(CHECK_TIMEOUT) $(AH) -n \
 		$(if $(MODEL),-m $(MODEL)) \
 		--max-tokens $(CHECK_MAX_TOKENS) \
 		--unveil $(o)/work/plan:r \
 		--unveil $(o)/work/do:r \
-		--db $(o)/work/check/session.db \
-		< $<
+		--db $(o)/work/check/session.db
 	@touch $@
 
 # fix loop: retry fix/push/check if verdict is needs-fixes
