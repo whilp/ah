@@ -92,6 +92,20 @@ local function fetch_issue(repo: string, issue_number: integer): Issue, string
   return issue as Issue
 end
 
+local function count_open_prs(repo: string): integer, string
+  local ok, stdout = util.run({
+    "gh", "pr", "list",
+    "--repo", repo,
+    "--state", "open",
+    "--json", "number",
+    "--jq", "length"
+  })
+  if not ok then return nil, "gh pr list failed: " .. (stdout or "no output") end
+  local count = tonumber(stdout:match("%d+"))
+  if not count then return nil, "failed to parse PR count from: " .. (stdout or ""):sub(1, 200) end
+  return count as integer
+end
+
 local function create_issue_from_prompt(repo: string, prompt_name: string, read_prompt_template: function(string): string): integer, string
   local body = read_prompt_template(prompt_name)
   if not body then
@@ -136,6 +150,7 @@ return {
   fetch_issues = fetch_issues,
   select_issue = select_issue,
   fetch_issue = fetch_issue,
+  count_open_prs = count_open_prs,
   create_issue_from_prompt = create_issue_from_prompt,
   transition_to_doing = transition_to_doing,
   update_labels = update_labels,
