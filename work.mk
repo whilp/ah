@@ -69,7 +69,7 @@ $(plan): $(is_doing) $(picked_issue) $(AH)
 	@mkdir -p $(@D)
 	@cp $(picked_issue) $(o)/work/plan/issue.json
 	@echo "==> plan"
-	@{ sed '1,/^---$$/d' sys/skills/plan.md; echo '---'; cat $(picked_issue); } \
+	@{ cat sys/skills/plan.md; echo '---'; cat $(picked_issue); } \
 	| timeout $(PLAN_TIMEOUT) $(AH) -n \
 		$(if $(MODEL),-m $(MODEL)) \
 		--max-tokens $(PLAN_MAX_TOKENS) \
