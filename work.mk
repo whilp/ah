@@ -53,10 +53,10 @@ $(plan): $(is_doing) $(picked_issue) $(AH)
 	@echo "==> plan"
 	@timeout 180 $(AH) -n \
 		--skill plan \
+		--must-produce $@ \
 		--max-tokens 50000 \
 		--db $(o)/work/plan/session.db \
 		< $(picked_issue)
-	@test -s $@ || (echo "error: plan.md not created" >&2; exit 1)
 
 $(do_done): $(plan) $(picked_issue) $(AH)
 	@mkdir -p $(@D)

@@ -790,6 +790,7 @@ local record ParsedArgs
   allow_hosts: {string}
   unveil_dirs: {string}
   skill: string
+  must_produce: string
   remaining: {string}
 end
 
@@ -817,6 +818,7 @@ local function parse_args(args: {string}): ParsedArgs, string
     {name = "allow-host", has_arg = "required"},
     {name = "unveil", has_arg = "required"},
     {name = "skill", has_arg = "required"},
+    {name = "must-produce", has_arg = "required"},
   }
 
   -- Use + prefix for POSIX mode: stop parsing options at first non-option arg.
@@ -856,6 +858,8 @@ local function parse_args(args: {string}): ParsedArgs, string
       table.insert(result.unveil_dirs, optarg)
     elseif opt == "skill" then
       result.skill = optarg
+    elseif opt == "must-produce" then
+      result.must_produce = optarg
     elseif opt == "?" then
       return nil, "unknown"
     end
@@ -1511,6 +1515,11 @@ local function main(args: {string}): integer, string
     effective_system = effective_system .. "\n\n" .. skills_prompt
   end
 
+  -- Reinforce must-produce in system prompt
+  if parsed.must_produce then
+    effective_system = effective_system .. "\n\nIMPORTANT: You must write the file `" .. parsed.must_produce .. "` before finishing."
+  end
+
   -- Initialize custom tools
   tools.init_custom_tools()
 
@@ -1543,6 +1552,9 @@ local function main(args: {string}): integer, string
   local agent_opts: loop.AgentOpts = {}
   if max_tokens then
     agent_opts.max_tokens = max_tokens
+  end
+  if parsed.must_produce then
+    agent_opts.must_produce = parsed.must_produce
   end
   local stop_reason = loop.run_agent(d, qdb, effective_system, effective_model, prompt, parent_id, on_event, agent_opts)
 
