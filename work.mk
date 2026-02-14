@@ -113,16 +113,6 @@ $(act_done): $(check_done) $(picked_issue) $(cosmic)
 		--actions $(o)/work/check/actions.json
 	@touch $@
 
-# top-level targets
-.PHONY: work work-issues work-select work-plan work-do work-push work-check work-act
-work-issues: $(all_issues)
-work-select: $(picked_issue)
-work-plan: $(plan)
-work-do: $(do_done)
-work-push: $(push_done)
-work-check: $(check_done)
-work-act: $(act_done)
-
 # work: converge on check, then act.
 # check agent writes feedback.md when verdict is needs-fixes, which makes
 # do_done stale so the next make re-runs do -> push -> check.

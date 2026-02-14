@@ -88,13 +88,6 @@ help:
 	@echo ""
 	@echo "Work targets:"
 	@echo "  work                Run full PDCA work loop"
-	@echo "  work-issues         Fetch open todo issues"
-	@echo "  work-select         Select highest priority issue"
-	@echo "  work-plan           Run plan agent"
-	@echo "  work-do             Run do agent"
-	@echo "  work-push           Push work branch"
-	@echo "  work-check          Run check agent"
-	@echo "  work-act            Execute actions"
 
 .PHONY: test
 ## Run all tests (incremental)
