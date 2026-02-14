@@ -6,6 +6,10 @@
 # convention: pipeline scripts in lib/work/ read env vars (WORK_*) instead
 # of CLI args. pattern rules provide recipes; dependency-only rules add
 # per-target prerequisites.
+#
+# convergence: check writes o/work/do/feedback.md when verdict is needs-fixes.
+# since do depends on feedback.md, the next make run re-executes do -> push -> check.
+# the caller runs `make work` which loops until convergence or a retry limit.
 
 REPO ?= whilp/ah
 MAX_PRS ?= 4
@@ -22,6 +26,7 @@ all_issues := $(o)/work/issues.json
 picked_issue := $(o)/work/issue.json
 is_doing := $(o)/work/doing.ok
 plan := $(o)/work/plan/plan.md
+feedback := $(o)/work/do/feedback.md
 on_branch := $(o)/work/branch.ok
 do_done := $(o)/work/do/done
 push_done := $(o)/work/push/done
@@ -59,11 +64,17 @@ $(plan): $(is_doing) $(picked_issue) $(AH)
 		--db $(o)/work/plan/session.db \
 		< $(picked_issue)
 
+# feedback.md: created empty after plan, updated by check agent.
+# exists as an explicit target so make can resolve the dependency from do_done.
+$(feedback): $(plan)
+	@mkdir -p $(@D)
+	@touch $@
+
 $(on_branch): $(plan) $(picked_issue)
 	@git checkout -b $$(jq -r .branch $(picked_issue)) origin/HEAD
 	@touch $@
 
-$(do_done): $(on_branch) $(plan) $(picked_issue) $(AH)
+$(do_done): $(on_branch) $(plan) $(feedback) $(picked_issue) $(AH)
 	@mkdir -p $(@D)
 	@echo "==> do"
 	@timeout 300 $(AH) -n \
@@ -94,24 +105,6 @@ $(check_done): $(push_done) $(plan) $(AH)
 		< /dev/null
 	@touch $@
 
-# fix: run fix agent, push, recheck (called by work-loop)
-.PHONY: work-fix
-work-fix: $(picked_issue) $(AH)
-	@mkdir -p $(o)/work/fix
-	@echo "==> fix"
-	@timeout 300 $(AH) -n \
-		--sandbox \
-		--skill fix \
-		--max-tokens 100000 \
-		--unveil $(o)/work/plan:r \
-		--unveil $(o)/work/do:r \
-		--db $(o)/work/fix/session.db \
-		< $(picked_issue) || true
-	@echo "==> push"
-	@git push -u origin HEAD
-	@rm -f $(check_done)
-	@$(MAKE) work-check
-
 $(act_done): $(check_done) $(picked_issue) $(cosmic)
 	@mkdir -p $(@D)
 	@echo "==> act"
@@ -120,7 +113,7 @@ $(act_done): $(check_done) $(picked_issue) $(cosmic)
 	@touch $@
 
 # top-level targets
-.PHONY: work work-issues work-select work-plan work-do work-push work-check work-fix work-act
+.PHONY: work work-issues work-select work-plan work-do work-push work-check work-act
 work-issues: $(all_issues)
 work-select: $(picked_issue)
 work-plan: $(plan)
@@ -129,12 +122,15 @@ work-push: $(push_done)
 work-check: $(check_done)
 work-act: $(act_done)
 
-# work: full pipeline with fix retries
+# work: converge on check, then act once.
+# check agent writes feedback.md when verdict is needs-fixes, which makes
+# do_done stale so the next $(MAKE) re-runs do -> push -> check.
 .PHONY: work
-work: $(check_done)
-	@for i in 1 2; do \
-		v=$$($(cosmic) lib/work/check-verdict.tl --actions $(o)/work/check/actions.json 2>/dev/null || echo unknown); \
-		[ "$$v" = "needs-fixes" ] || break; \
-		$(MAKE) work-fix; \
+work:
+	@for i in 1 2 3; do \
+		$(MAKE) $(check_done) || exit 1; \
+		verdict=$$(jq -r '.verdict // "unknown"' $(o)/work/check/actions.json 2>/dev/null); \
+		[ "$$verdict" != "needs-fixes" ] && break; \
+		echo "==> needs-fixes (attempt $$i/3), re-running do"; \
 	done
 	@$(MAKE) $(act_done)
