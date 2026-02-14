@@ -130,4 +130,56 @@ local function test_sandbox_file_read()
 end
 test_sandbox_file_read()
 
+-- Test: child.spawn with stdin=nil blocks (child never gets EOF)
+-- This is the bug that caused the check phase to hang for 3 minutes.
+-- cat reads stdin until EOF; with stdin=nil it inherits an open pipe
+-- that is never closed, so it blocks forever.
+local function test_spawn_stdin_nil_blocks()
+  local pid = child.fork()
+  assert(pid >= 0, "fork failed")
+
+  if pid == 0 then
+    -- Child: spawn cat with stdin=nil, expect it to block
+    local handle = child.spawn({"cat"}, {stdin = nil})
+    if not handle then os.exit(42) end
+    -- This read should block because cat never gets EOF.
+    -- The parent will kill us after 2 seconds.
+    handle:read()
+    -- If we get here, stdin=nil did NOT block (test should fail)
+    os.exit(0)
+  end
+
+  -- Parent: wait 2 seconds, then check if child is still running.
+  -- If it is, stdin=nil caused the expected block.
+  local time = require("cosmic.time")
+  time.sleep(2, 0)
+
+  local signal = require("cosmic.signal")
+  -- Try to kill the child — if it's still alive, the test passes
+  local kill_ok = signal.kill(pid, child.SIGKILL)
+  local _, raw_status = child.wait()
+  local exit_code = (math.floor(((raw_status as integer) or 0) / 256)) as integer
+
+  -- kill_ok true means child was still running (blocked as expected)
+  -- exit_code 137 (128+9) or 9 means killed by SIGKILL
+  assert(kill_ok, "child should still be alive (blocked on stdin=nil)")
+  print("✓ child.spawn with stdin=nil blocks (as expected)")
+end
+test_spawn_stdin_nil_blocks()
+
+-- Test: child.spawn with stdin="" exits cleanly (child gets immediate EOF)
+-- This is the fix: passing "" creates a pipe that is immediately closed,
+-- so the child's read gets EOF and exits.
+local function test_spawn_stdin_empty_exits()
+  local handle = child.spawn({"cat"}, {stdin = ""})
+  assert(handle, "spawn should succeed")
+  local ok, stdout, exit_str = handle:read()
+  local exit_code = (tonumber(exit_str) or 0) as integer
+  assert(ok, "cat should exit cleanly with stdin=''")
+  assert(exit_code == 0, "cat should exit 0, got: " .. tostring(exit_code))
+  assert(stdout == "" or stdout == nil, "cat with empty stdin should produce no output")
+  print("✓ child.spawn with stdin='' exits cleanly (EOF)")
+end
+test_spawn_stdin_empty_exits()
+
 print("\nAll sandbox exec tests passed!")
