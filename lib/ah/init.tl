@@ -48,6 +48,12 @@ local function load_claude_md(cwd: string): string
     result = result .. "\n\n# Project Context\n\n" .. project_claude
   end
 
+  -- Append project AGENTS.md
+  local agents_md = cio.slurp(fs.join(cwd, "AGENTS.md"))
+  if agents_md then
+    result = result .. "\n\n# Agent Context\n\n" .. agents_md
+  end
+
   return result
 end
 

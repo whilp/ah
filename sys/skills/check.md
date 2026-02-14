@@ -45,7 +45,18 @@ Write `o/work/check/check.md`:
     <results of running validation steps>
 
     ## Issues
-    <problems found, or "none">
+    <problems found, grouped by severity>
+
+    ### Critical
+    <blocks merge, must fix. include file path and line number.>
+
+    ### Warnings
+    <should fix, not blocking. include file path and line number.>
+
+    ### Suggestions
+    <optional improvements>
+
+    (write "none" for empty sections)
 
     ## Friction
     <friction identified from session database analysis: errors, slow operations,

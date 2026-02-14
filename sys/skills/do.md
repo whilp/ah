@@ -17,13 +17,20 @@ You are executing a work item. Follow the plan below.
 
 ## Instructions
 
-1. Create the feature branch: `git checkout -b {branch} origin/main`
-2. For each step in the plan:
+1. Read every file you intend to modify before editing it
+2. Create the feature branch: `git checkout -b {branch} origin/main`
+3. For each step in the plan:
    a. Make the changes for that step
-   b. Stage the specific files changed (not `git add -A`)
-   c. Commit with a descriptive message for that step
-3. Run validation steps from the plan
-4. If validation requires fixes, stage and commit them
+   b. Before staging, run `git status` and verify only your files are affected
+   c. Stage the specific files changed (not `git add -A`)
+   d. Commit with a descriptive message for that step
+4. Run validation steps from the plan
+5. If validation requires fixes, stage and commit them
+
+## Forbidden
+
+Do not use destructive git commands: `git reset --hard`, `git checkout .`,
+`git clean -fd`, `git stash`, `git commit --no-verify`.
 
 ## Output
 
