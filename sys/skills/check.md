@@ -13,7 +13,7 @@ Read `o/work/plan/plan.md` for the plan. Read `o/work/do/do.md` for the executio
 
 ## Instructions
 
-1. Review the diff: `git diff main...HEAD`
+1. Review the diff: `git diff origin/HEAD...HEAD`
 2. Run validation steps from the plan
 3. Check for unintended changes
 4. Analyze friction from session databases:
