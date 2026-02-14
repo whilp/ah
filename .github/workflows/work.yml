@@ -4,29 +4,6 @@ on:
   schedule:
     - cron: '0 */6 * * *'
   workflow_dispatch:
-    inputs:
-      issue:
-        description: 'Issue number (skip selection)'
-        type: number
-        required: false
-      prompt:
-        description: 'Run a predetermined prompt instead of picking an issue'
-        type: choice
-        required: false
-        default: ''
-        options:
-          - ''
-          - update-docs
-      model:
-        description: 'Model alias (sonnet, opus, haiku)'
-        type: choice
-        required: false
-        default: ''
-        options:
-          - ''
-          - sonnet
-          - opus
-          - haiku
 
 concurrency:
   group: work
@@ -50,13 +27,8 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Build ah-debug
-        run: make ah-debug
-
-      - name: Enable coredumps
-        run: |
-          ulimit -c unlimited
-          echo "core" | sudo tee /proc/sys/kernel/core_pattern
+      - name: Build ah
+        run: make ah
 
       - name: Configure git identity
         run: |
@@ -68,14 +40,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-        run: |
-          issue="${{ inputs.issue }}"
-          prompt="${{ inputs.prompt }}"
-          model="${{ inputs.model }}"
-          o/bin/ah-debug work --repo "$REPO" \
-            ${issue:+--issue "$issue"} \
-            ${prompt:+--prompt "$prompt"} \
-            ${model:+--model "$model"}
+        run: o/bin/ah work --repo "$REPO"
 
       - name: Check for work output
         id: check
@@ -84,10 +49,6 @@ jobs:
           if [ -d o/work ]; then
             echo "has_output=true" >> "$GITHUB_OUTPUT"
           fi
-
-      - name: Collect coredump
-        if: always()
-        run: mv core* o/ 2>/dev/null || true
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always() && steps.check.outputs.has_output == 'true'
