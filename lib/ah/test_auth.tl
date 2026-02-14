@@ -1,5 +1,6 @@
 #!/usr/bin/env cosmic
-local unix = require("cosmo.unix")
+local cenv = require("cosmic.env")
+local cfs = require("cosmic.fs")
 local auth = require("ah.auth")
 
 local function test_get_auth_headers()
@@ -16,8 +17,8 @@ local function test_load_from_env()
   local orig_oauth = os.getenv("CLAUDE_CODE_OAUTH_TOKEN")
 
   -- Clear OAuth token so ANTHROPIC_API_KEY is used
-  if orig_oauth then unix.unsetenv("CLAUDE_CODE_OAUTH_TOKEN") end
-  unix.setenv("ANTHROPIC_API_KEY", "test-api-key-123")
+  if orig_oauth then cenv.unset("CLAUDE_CODE_OAUTH_TOKEN") end
+  cenv.set("ANTHROPIC_API_KEY", "test-api-key-123", true)
 
   local creds = auth.load_credentials()
   assert(creds, "should load credentials from env")
@@ -25,11 +26,11 @@ local function test_load_from_env()
   assert(creds.is_oauth == false, "should not be oauth")
 
   if orig then
-    unix.setenv("ANTHROPIC_API_KEY", orig)
+    cenv.set("ANTHROPIC_API_KEY", orig, true)
   else
-    unix.unsetenv("ANTHROPIC_API_KEY")
+    cenv.unset("ANTHROPIC_API_KEY")
   end
-  if orig_oauth then unix.setenv("CLAUDE_CODE_OAUTH_TOKEN", orig_oauth) end
+  if orig_oauth then cenv.set("CLAUDE_CODE_OAUTH_TOKEN", orig_oauth, true) end
 end
 test_load_from_env()
 
@@ -40,12 +41,12 @@ local function test_load_from_env_file()
   local orig_oauth = os.getenv("CLAUDE_CODE_OAUTH_TOKEN")
 
   -- Clear both env vars so .env file is used
-  if orig_key then unix.unsetenv("ANTHROPIC_API_KEY") end
-  if orig_oauth then unix.unsetenv("CLAUDE_CODE_OAUTH_TOKEN") end
+  if orig_key then cenv.unset("ANTHROPIC_API_KEY") end
+  if orig_oauth then cenv.unset("CLAUDE_CODE_OAUTH_TOKEN") end
 
   local tmpdir = os.getenv("TEST_TMPDIR")
-  local orig_cwd = unix.getcwd()
-  unix.chdir(tmpdir)
+  local orig_cwd = cfs.getcwd()
+  cfs.chdir(tmpdir)
 
   cio.barf(".env", "ANTHROPIC_API_KEY=env-file-key-456\n", tonumber("644", 8))
 
@@ -54,9 +55,9 @@ local function test_load_from_env_file()
   assert(creds.access_token == "env-file-key-456", "token mismatch from .env")
   assert(creds.is_oauth == false, "should not be oauth from .env")
 
-  unix.chdir(orig_cwd)
-  if orig_key then unix.setenv("ANTHROPIC_API_KEY", orig_key) end
-  if orig_oauth then unix.setenv("CLAUDE_CODE_OAUTH_TOKEN", orig_oauth) end
+  cfs.chdir(orig_cwd)
+  if orig_key then cenv.set("ANTHROPIC_API_KEY", orig_key, true) end
+  if orig_oauth then cenv.set("CLAUDE_CODE_OAUTH_TOKEN", orig_oauth, true) end
 end
 test_load_from_env_file()
 
@@ -65,8 +66,8 @@ local function test_load_oauth_token()
   local orig_oauth = os.getenv("CLAUDE_CODE_OAUTH_TOKEN")
 
   -- Set OAuth token - should take priority
-  unix.setenv("CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat-test-token")
-  unix.setenv("ANTHROPIC_API_KEY", "test-api-key-123")
+  cenv.set("CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat-test-token", true)
+  cenv.set("ANTHROPIC_API_KEY", "test-api-key-123", true)
 
   local creds = auth.load_credentials()
   assert(creds, "should load credentials from oauth env")
@@ -75,14 +76,14 @@ local function test_load_oauth_token()
 
   -- Restore original values
   if orig_key then
-    unix.setenv("ANTHROPIC_API_KEY", orig_key)
+    cenv.set("ANTHROPIC_API_KEY", orig_key, true)
   else
-    unix.unsetenv("ANTHROPIC_API_KEY")
+    cenv.unset("ANTHROPIC_API_KEY")
   end
   if orig_oauth then
-    unix.setenv("CLAUDE_CODE_OAUTH_TOKEN", orig_oauth)
+    cenv.set("CLAUDE_CODE_OAUTH_TOKEN", orig_oauth, true)
   else
-    unix.unsetenv("CLAUDE_CODE_OAUTH_TOKEN")
+    cenv.unset("CLAUDE_CODE_OAUTH_TOKEN")
   end
 end
 test_load_oauth_token()
@@ -105,18 +106,18 @@ local function test_oauth_token_trailing_newline()
   local orig_key = os.getenv("ANTHROPIC_API_KEY")
   local orig_oauth = os.getenv("CLAUDE_CODE_OAUTH_TOKEN")
 
-  if orig_key then unix.unsetenv("ANTHROPIC_API_KEY") end
+  if orig_key then cenv.unset("ANTHROPIC_API_KEY") end
   -- Token with trailing newline (common copy/paste artifact)
-  unix.setenv("CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat-test-token\n")
+  cenv.set("CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat-test-token\n", true)
 
   local creds = auth.load_credentials()
   assert(creds, "should load credentials")
   assert(creds.access_token == "sk-ant-oat-test-token",
     "should trim trailing newline, got: [" .. creds.access_token .. "]")
 
-  if orig_key then unix.setenv("ANTHROPIC_API_KEY", orig_key) end
-  if orig_oauth then unix.setenv("CLAUDE_CODE_OAUTH_TOKEN", orig_oauth)
-  else unix.unsetenv("CLAUDE_CODE_OAUTH_TOKEN") end
+  if orig_key then cenv.set("ANTHROPIC_API_KEY", orig_key, true) end
+  if orig_oauth then cenv.set("CLAUDE_CODE_OAUTH_TOKEN", orig_oauth, true)
+  else cenv.unset("CLAUDE_CODE_OAUTH_TOKEN") end
 end
 test_oauth_token_trailing_newline()
 
@@ -124,18 +125,18 @@ local function test_api_key_trailing_whitespace()
   local orig_key = os.getenv("ANTHROPIC_API_KEY")
   local orig_oauth = os.getenv("CLAUDE_CODE_OAUTH_TOKEN")
 
-  if orig_oauth then unix.unsetenv("CLAUDE_CODE_OAUTH_TOKEN") end
+  if orig_oauth then cenv.unset("CLAUDE_CODE_OAUTH_TOKEN") end
   -- Token with trailing spaces and newline
-  unix.setenv("ANTHROPIC_API_KEY", "  sk-test-key-456  \n")
+  cenv.set("ANTHROPIC_API_KEY", "  sk-test-key-456  \n", true)
 
   local creds = auth.load_credentials()
   assert(creds, "should load credentials")
   assert(creds.access_token == "sk-test-key-456",
     "should trim whitespace, got: [" .. creds.access_token .. "]")
 
-  if orig_key then unix.setenv("ANTHROPIC_API_KEY", orig_key)
-  else unix.unsetenv("ANTHROPIC_API_KEY") end
-  if orig_oauth then unix.setenv("CLAUDE_CODE_OAUTH_TOKEN", orig_oauth) end
+  if orig_key then cenv.set("ANTHROPIC_API_KEY", orig_key, true)
+  else cenv.unset("ANTHROPIC_API_KEY") end
+  if orig_oauth then cenv.set("CLAUDE_CODE_OAUTH_TOKEN", orig_oauth, true) end
 end
 test_api_key_trailing_whitespace()
 
@@ -143,17 +144,17 @@ local function test_oauth_token_crlf()
   local orig_key = os.getenv("ANTHROPIC_API_KEY")
   local orig_oauth = os.getenv("CLAUDE_CODE_OAUTH_TOKEN")
 
-  if orig_key then unix.unsetenv("ANTHROPIC_API_KEY") end
-  unix.setenv("CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat-test\r\n")
+  if orig_key then cenv.unset("ANTHROPIC_API_KEY") end
+  cenv.set("CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat-test\r\n", true)
 
   local creds = auth.load_credentials()
   assert(creds, "should load credentials")
   assert(creds.access_token == "sk-ant-oat-test",
     "should trim CRLF, got: [" .. creds.access_token .. "]")
 
-  if orig_key then unix.setenv("ANTHROPIC_API_KEY", orig_key) end
-  if orig_oauth then unix.setenv("CLAUDE_CODE_OAUTH_TOKEN", orig_oauth)
-  else unix.unsetenv("CLAUDE_CODE_OAUTH_TOKEN") end
+  if orig_key then cenv.set("ANTHROPIC_API_KEY", orig_key, true) end
+  if orig_oauth then cenv.set("CLAUDE_CODE_OAUTH_TOKEN", orig_oauth, true)
+  else cenv.unset("CLAUDE_CODE_OAUTH_TOKEN") end
 end
 test_oauth_token_crlf()
 
@@ -161,16 +162,16 @@ local function test_whitespace_only_token_rejected()
   local orig_key = os.getenv("ANTHROPIC_API_KEY")
   local orig_oauth = os.getenv("CLAUDE_CODE_OAUTH_TOKEN")
 
-  if orig_key then unix.unsetenv("ANTHROPIC_API_KEY") end
-  unix.setenv("CLAUDE_CODE_OAUTH_TOKEN", "  \n\r  ")
+  if orig_key then cenv.unset("ANTHROPIC_API_KEY") end
+  cenv.set("CLAUDE_CODE_OAUTH_TOKEN", "  \n\r  ", true)
 
   local creds, err = auth.load_credentials()
   assert(creds == nil, "whitespace-only token should be rejected")
   assert(err, "should return error message")
 
-  if orig_key then unix.setenv("ANTHROPIC_API_KEY", orig_key) end
-  if orig_oauth then unix.setenv("CLAUDE_CODE_OAUTH_TOKEN", orig_oauth)
-  else unix.unsetenv("CLAUDE_CODE_OAUTH_TOKEN") end
+  if orig_key then cenv.set("ANTHROPIC_API_KEY", orig_key, true) end
+  if orig_oauth then cenv.set("CLAUDE_CODE_OAUTH_TOKEN", orig_oauth, true)
+  else cenv.unset("CLAUDE_CODE_OAUTH_TOKEN") end
 end
 test_whitespace_only_token_rejected()
 

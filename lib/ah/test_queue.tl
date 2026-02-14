@@ -1,6 +1,7 @@
 #!/usr/bin/env cosmic
 local fs = require("cosmic.fs")
-local unix = require("cosmo.unix")
+local proc = require("cosmic.proc")
+local time = require("cosmic.time")
 local queue = require("ah.queue")
 
 local TEST_TMPDIR = os.getenv("TEST_TMPDIR") or "/tmp"
@@ -28,7 +29,7 @@ local function test_lock_acquire_release()
   -- Check lock info
   local info = queue.get_lock_info(qdb)
   assert(info, "should have lock info")
-  assert(info.owner_pid == unix.getpid(), "owner_pid should be our pid")
+  assert(info.owner_pid == proc.getpid(), "owner_pid should be our pid")
 
   -- Should be able to re-acquire our own lock
   acquired, err = queue.try_acquire_lock(qdb)
@@ -57,7 +58,7 @@ local function test_heartbeat()
   local heartbeat1 = info1.heartbeat_at
 
   -- Wait a moment and update heartbeat
-  unix.nanosleep(0, 10000000)  -- 10ms
+  time.sleep(0, 10000000)  -- 10ms
   queue.update_heartbeat(qdb)
 
   local info2 = queue.get_lock_info(qdb)
@@ -207,7 +208,7 @@ local function test_stale_lock_detection()
 
   -- Now we own the lock
   local info = queue.get_lock_info(qdb)
-  assert(info.owner_pid == unix.getpid(), "should now own the lock")
+  assert(info.owner_pid == proc.getpid(), "should now own the lock")
 
   queue.release_lock(qdb)
   queue.close(qdb)

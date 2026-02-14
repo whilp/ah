@@ -718,7 +718,8 @@ local function test_abort_kills_process()
   -- We do this by starting the tool in a coroutine-like approach:
   -- spawn a sleep directly and verify it gets killed
   local child_mod = require("cosmic.child")
-  local unix_mod = require("cosmo.unix")
+  local signal_mod = require("cosmic.signal")
+  local time_mod = require("cosmic.time")
 
   -- Use the bash tool to start a process, but since bash tool is synchronous
   -- (blocks on handle:read()), we test the abort mechanism more directly:
@@ -729,17 +730,17 @@ local function test_abort_kills_process()
   assert(pid, "should have pid")
 
   -- Verify it's running (kill with signal 0 checks existence)
-  local alive = pcall(function() unix_mod.kill(pid, 0) end)
+  local alive = pcall(function() signal_mod.kill(pid, 0) end)
   assert(alive, "process should be alive")
 
   -- The abort function works on running_processes tracked by tools module.
   -- Since we spawned this externally, abort_running_tools won't see it.
   -- But we can verify the SIGTERM/SIGKILL pattern works:
-  unix_mod.kill(pid, unix_mod.SIGTERM)
-  unix_mod.nanosleep(0, 100000000) -- 100ms
+  signal_mod.kill(pid, child_mod.SIGTERM)
+  time_mod.sleep(0, 100000000) -- 100ms
 
   -- Process should be gone after SIGTERM
-  local still_alive = pcall(function() unix_mod.kill(pid, 0) end)
+  local still_alive = pcall(function() signal_mod.kill(pid, 0) end)
   -- Clean up the zombie
   child_mod.wait(pid, 0)
   print("✓ SIGTERM/SIGKILL discipline works on spawned processes")

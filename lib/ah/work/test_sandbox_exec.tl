@@ -8,18 +8,17 @@
 local sandbox = require("cosmic.sandbox")
 local child = require("cosmic.child")
 local env = require("cosmic.env")
-local unix = require("cosmo.unix")
-local fs = require("cosmic.fs")
+local cfs = require("cosmic.fs")
 
 -- Helper: fork a child, apply sandbox, run a command, report exit code.
 -- Returns the child's exit code (0 = success, non-zero = failure).
 local function sandbox_exec(cmd: {string}, promises: string): integer
-  local pid = unix.fork()
+  local pid = child.fork()
   assert(pid >= 0, "fork failed")
 
   if pid == 0 then
     -- Child: apply sandbox restrictions matching init.tl
-    local cwd = fs.getcwd()
+    local cwd = cfs.getcwd()
     sandbox.unveil(cwd, "rwxc")
     sandbox.unveil("/tmp", "rwc")
     sandbox.unveil("/usr", "rx")
@@ -50,7 +49,7 @@ local function sandbox_exec(cmd: {string}, promises: string): integer
 
   -- Parent: wait for child and extract exit code
   -- On POSIX, exit status is encoded as (code << 8); shift to get the real code.
-  local _, raw_status = unix.wait()
+  local _, raw_status = child.wait()
   local status_int = (raw_status as integer) or 0
   -- WEXITSTATUS: shift right by 8 to extract exit code from wait status
   local exit_code = (math.floor(status_int / 256)) as integer
