@@ -26,7 +26,7 @@ local plan_limits: AgentLimits  = {max_tokens = 50000,  timeout_sec = 180}
 local do_limits: AgentLimits    = {max_tokens = 100000, timeout_sec = 300}
 local check_limits: AgentLimits = {max_tokens = 50000,  timeout_sec = 180}
 local fix_limits: AgentLimits   = {max_tokens = 100000, timeout_sec = 300}
-local friction_limits: AgentLimits = {max_tokens = 10000, timeout_sec = 60}
+
 
 -- Start sandbox proxy
 -- Returns sandbox context or nil on error
@@ -238,12 +238,6 @@ local function sandboxed_agent(no_sandbox: boolean, prompt: string, db: string, 
     return false, stdout, exit_code
   end
 
-  -- Friction follow-up: same session (no -n)
-  if friction_prompt then
-    util.log("sending friction follow-up to same session")
-    spawn_agent(run_env, db, friction_prompt, false, friction_limits, model)
-  end
-
   if ctx then
     io.stderr:write("[sandbox] stopping proxy\n")
     stop_sandbox(ctx)
@@ -258,7 +252,6 @@ return {
   do_limits = do_limits,
   check_limits = check_limits,
   fix_limits = fix_limits,
-  friction_limits = friction_limits,
   sandboxed_agent = sandboxed_agent,
   build_agent_args = build_agent_args,
 }

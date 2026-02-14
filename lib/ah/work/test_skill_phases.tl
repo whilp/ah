@@ -9,7 +9,7 @@ local cio = require("cosmic.io")
 -- They live in sys/work/ (source) and /zip/embed/sys/work/ (embedded).
 -- After conversion, they should live in sys/skills/ and be loadable as skills.
 
-local work_phases = {"plan", "check", "do", "fix", "analyze", "friction"}
+local work_phases = {"plan", "check", "do", "fix"}
 
 -- Test 1: each work phase file has valid frontmatter with name and description
 local function test_work_phases_have_frontmatter()
@@ -147,20 +147,6 @@ local function test_check_prompt_has_template_vars()
   print("✓ check prompt retains template variables")
 end
 test_check_prompt_has_template_vars()
-
--- Test 8: friction prompt still has expected template variables
-local function test_friction_prompt_has_template_vars()
-  local record PromptMod
-    read_prompt: function(string): string
-  end
-  local prompt = require("ah.work.prompt") as PromptMod
-
-  local content = prompt.read_prompt("friction.md")
-  assert(content, "friction.md not found")
-  assert(content:find("{friction_path}"), "friction.md should contain {friction_path}")
-  print("✓ friction prompt retains template variables")
-end
-test_friction_prompt_has_template_vars()
 
 -- Test 9: work phase skills show up in format_skills_for_prompt
 local function test_work_phases_in_system_prompt()

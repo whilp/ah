@@ -7,7 +7,6 @@ local record WorkPrompt
   build_do_prompt: function(string, string, string, string, string): string
   build_check_prompt: function(string, string, string): string
   build_fix_prompt: function(string, string, string, string, string, string): string
-  build_friction_prompt: function(string, string): string
   build_plan_prompt: function(string, string, string, string): string
 end
 
@@ -190,38 +189,6 @@ local function test_build_fix_prompt_percent()
   print("✓ build_fix_prompt handles % in check feedback")
 end
 test_build_fix_prompt_percent()
-
--- Test build_friction_prompt interpolates friction_path
-local function test_build_friction_prompt_basic()
-  local template = "reflect on friction.\n\nWrite `{friction_path}`:\n\n    ## Friction\n    <items>"
-  local result = prompt.build_friction_prompt(template, "o/work/plan/friction.md")
-  assert(result == "reflect on friction.\n\nWrite `o/work/plan/friction.md`:\n\n    ## Friction\n    <items>",
-    "should interpolate friction_path, got: " .. tostring(result))
-  print("✓ build_friction_prompt interpolates friction_path")
-end
-test_build_friction_prompt_basic()
-
--- Test build_friction_prompt handles different phase paths
-local function test_build_friction_prompt_phases()
-  local template = "Write `{friction_path}`"
-  for _, path in ipairs({"o/work/plan/friction.md", "o/work/do/friction.md", "o/work/check/friction.md"}) do
-    local result = prompt.build_friction_prompt(template, path)
-    assert(result == "Write `" .. path .. "`",
-      "should interpolate " .. path .. ", got: " .. tostring(result))
-  end
-  print("✓ build_friction_prompt works for all phase paths")
-end
-test_build_friction_prompt_phases()
-
--- Test build_friction_prompt works for fix phase path
-local function test_build_friction_prompt_fix_phase()
-  local template = "Write `{friction_path}`"
-  local result = prompt.build_friction_prompt(template, "o/work/fix/friction.md")
-  assert(result == "Write `o/work/fix/friction.md`",
-    "should interpolate o/work/fix/friction.md, got: " .. tostring(result))
-  print("✓ build_friction_prompt works for fix phase path")
-end
-test_build_friction_prompt_fix_phase()
 
 -- Test fix.md prompt writes artifacts to o/work/fix/, not o/work/do/
 local function test_fix_prompt_uses_fix_directory()

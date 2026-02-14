@@ -20,7 +20,17 @@ You are checking a work item. Review the execution against the plan.
 1. Review the diff: `git diff main...HEAD`
 2. Run validation steps from the plan
 3. Check for unintended changes
-4. Write your assessment
+4. Analyze friction from session databases:
+
+        # for each existing phase db (plan, do):
+        sqlite3 o/work/<phase>/session.db \
+          "select tool_name, substr(tool_input,1,200), substr(tool_output,1,200) from content_blocks where is_error = 1;"
+        sqlite3 o/work/<phase>/session.db \
+          "select tool_name, duration_ms, substr(tool_input,1,200) from content_blocks where duration_ms > 30000 order by duration_ms desc limit 5;"
+        sqlite3 o/work/<phase>/session.db \
+          "select stop_reason, count(*) from messages where role='assistant' group by stop_reason;"
+
+5. Write your assessment
 
 ## Output
 
@@ -38,9 +48,8 @@ Write `o/work/check/check.md`:
     <problems found, or "none">
 
     ## Friction
-    <what slowed this work down or caused errors? examples:
-     hallucinated facts not verified against source, missing validation
-     in plan, unclear requirements, tool failures, prompt gaps.
+    <friction identified from session database analysis: errors, slow operations,
+     wasted retries, tool failures. cite specific evidence from the queries above.
      write "none" if the work was smooth.>
 
     ## Verdict
@@ -61,6 +70,7 @@ Action rules:
 - Always include `comment_issue` with verdict, summary, and any friction items
 - Include `create_pr` only when verdict is "pass" and changes were committed
 - `friction` array: one short string per friction item, or empty array if none
+- Friction items must cite evidence from session database queries, not self-reports
 
 Write `o/work/check/update.md`: 2-4 line summary.
 
