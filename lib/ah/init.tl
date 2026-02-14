@@ -577,6 +577,17 @@ local function make_cli_handler(): events.EventCallback
     end
   end
 
+  -- Format token count as human-friendly string (e.g., 1234 -> "1.2k", 12345 -> "12.3k")
+  local function format_tokens(n: integer): string
+    if n >= 1000000 then
+      return string.format("%.1fm", n / 1000000)
+    elseif n >= 1000 then
+      return string.format("%.1fk", n / 1000)
+    else
+      return tostring(n)
+    end
+  end
+
   return function(event: events.EventData)
     local t = event.event_type
 
@@ -601,7 +612,7 @@ local function make_cli_handler(): events.EventCallback
       local total_in = event.total_input_tokens or 0
       local total_out = event.total_output_tokens or 0
       if total_in > 0 or total_out > 0 then
-        io.stderr:write(string.format("%stokens [in:%d out:%d total:%d]%s\n", DIM, total_in, total_out, total_in + total_out, RESET))
+        io.stderr:write(string.format("%s%s in / %s out (%s total)%s\n", DIM, format_tokens(total_in), format_tokens(total_out), format_tokens(total_in + total_out), RESET))
       end
 
     elseif t == "budget_exceeded" then
@@ -614,19 +625,6 @@ local function make_cli_handler(): events.EventCallback
     elseif t == "api_call_end" then
       -- Flush buffered agent response text now that the response is complete
       flush_text()
-      -- Show cache stats when prompt caching is active
-      local cache_read = event.cache_read_input_tokens or 0
-      local cache_create = event.cache_creation_input_tokens or 0
-      if cache_read > 0 or cache_create > 0 then
-        local parts: {string} = {}
-        if cache_read > 0 then
-          table.insert(parts, string.format("read:%d", cache_read))
-        end
-        if cache_create > 0 then
-          table.insert(parts, string.format("write:%d", cache_create))
-        end
-        io.stderr:write(string.format("%scache [%s]%s\n", DIM, table.concat(parts, " "), RESET))
-      end
 
     elseif t == "compaction_triggered" then
       io.stderr:write(string.format("\n%scompacting conversation (%d/%d tokens)...%s\n", DIM, event.input_tokens, event.context_limit, RESET))
