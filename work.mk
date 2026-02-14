@@ -70,8 +70,7 @@ $(plan): $(is_doing) $(picked_issue) $(AH)
 	@{ echo '/skill:plan'; cat $(picked_issue); } \
 	| timeout $(PLAN_TIMEOUT) $(AH) -n \
 		--max-tokens $(PLAN_MAX_TOKENS) \
-		--db $(o)/work/plan/session.db \
-		|| true
+		--db $(o)/work/plan/session.db
 	@test -s $@ || (echo "error: plan.md not created" >&2; exit 1)
 
 $(branch): $(plan) $(picked_issue) $(cosmic)
@@ -85,8 +84,7 @@ $(do_done): $(branch) $(plan) $(picked_issue) $(AH)
 	| timeout $(DO_TIMEOUT) $(AH) -n \
 		--max-tokens $(DO_MAX_TOKENS) \
 		--unveil $(o)/work/plan:r \
-		--db $(o)/work/do/session.db \
-		|| true
+		--db $(o)/work/do/session.db
 	@touch $@
 
 $(push_done): $(do_done) $(branch)
