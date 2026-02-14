@@ -297,4 +297,143 @@ local function test_parse_protect_dirs_empty()
 end
 test_parse_protect_dirs_empty()
 
+-- Sandbox CLI flag parsing tests
+
+local function test_parse_args_sandbox()
+  local parsed = init.parse_args({"--sandbox", "hello"})
+  assert(parsed, "should parse successfully")
+  assert(parsed.sandbox == true, "sandbox should be true")
+  assert(parsed.remaining[1] == "hello", "prompt should be in remaining")
+  print("✓ parse_args: --sandbox flag")
+end
+test_parse_args_sandbox()
+
+local function test_parse_args_timeout()
+  local parsed = init.parse_args({"--timeout", "300", "hello"})
+  assert(parsed, "should parse successfully")
+  assert(parsed.timeout == 300, "timeout should be 300, got: " .. tostring(parsed.timeout))
+  assert(parsed.remaining[1] == "hello", "prompt should be in remaining")
+  print("✓ parse_args: --timeout flag")
+end
+test_parse_args_timeout()
+
+local function test_parse_args_allow_host_single()
+  local parsed = init.parse_args({"--allow-host", "api.example.com:443", "hello"})
+  assert(parsed, "should parse successfully")
+  assert(parsed.allow_hosts, "allow_hosts should be set")
+  assert(#parsed.allow_hosts == 1, "should have 1 host, got: " .. #parsed.allow_hosts)
+  assert(parsed.allow_hosts[1] == "api.example.com:443", "host mismatch, got: " .. parsed.allow_hosts[1])
+  print("✓ parse_args: --allow-host single")
+end
+test_parse_args_allow_host_single()
+
+local function test_parse_args_allow_host_multiple()
+  local parsed = init.parse_args({"--allow-host", "api.example.com:443", "--allow-host", "hooks.slack.com:443", "hello"})
+  assert(parsed, "should parse successfully")
+  assert(#parsed.allow_hosts == 2, "should have 2 hosts, got: " .. #parsed.allow_hosts)
+  assert(parsed.allow_hosts[1] == "api.example.com:443", "first host")
+  assert(parsed.allow_hosts[2] == "hooks.slack.com:443", "second host")
+  print("✓ parse_args: --allow-host multiple")
+end
+test_parse_args_allow_host_multiple()
+
+local function test_parse_args_unveil_single()
+  local parsed = init.parse_args({"--unveil", "o/work/plan:r", "hello"})
+  assert(parsed, "should parse successfully")
+  assert(parsed.unveil_dirs, "unveil_dirs should be set")
+  assert(#parsed.unveil_dirs == 1, "should have 1 unveil, got: " .. #parsed.unveil_dirs)
+  assert(parsed.unveil_dirs[1] == "o/work/plan:r", "unveil mismatch, got: " .. parsed.unveil_dirs[1])
+  print("✓ parse_args: --unveil single")
+end
+test_parse_args_unveil_single()
+
+local function test_parse_args_unveil_multiple()
+  local parsed = init.parse_args({"--unveil", "o/work/plan:r", "--unveil", "o/work/do:rw", "hello"})
+  assert(parsed, "should parse successfully")
+  assert(#parsed.unveil_dirs == 2, "should have 2 unveils, got: " .. #parsed.unveil_dirs)
+  assert(parsed.unveil_dirs[1] == "o/work/plan:r", "first unveil")
+  assert(parsed.unveil_dirs[2] == "o/work/do:rw", "second unveil")
+  print("✓ parse_args: --unveil multiple")
+end
+test_parse_args_unveil_multiple()
+
+local function test_parse_args_sandbox_combined()
+  local parsed = init.parse_args({
+    "--sandbox", "--timeout", "180",
+    "--allow-host", "hooks.slack.com:443",
+    "--unveil", "o/work/plan:r",
+    "-m", "opus", "--db", "test.db",
+    "do the thing"
+  })
+  assert(parsed, "should parse successfully")
+  assert(parsed.sandbox == true, "sandbox should be true")
+  assert(parsed.timeout == 180, "timeout should be 180")
+  assert(#parsed.allow_hosts == 1, "should have 1 allow-host")
+  assert(parsed.allow_hosts[1] == "hooks.slack.com:443", "allow-host value")
+  assert(#parsed.unveil_dirs == 1, "should have 1 unveil")
+  assert(parsed.unveil_dirs[1] == "o/work/plan:r", "unveil value")
+  assert(parsed.model == "opus", "model should be opus")
+  assert(parsed.db_path == "test.db", "db should be test.db")
+  assert(parsed.remaining[1] == "do the thing", "prompt in remaining")
+  print("✓ parse_args: --sandbox combined with all flags")
+end
+test_parse_args_sandbox_combined()
+
+local function test_parse_args_sandbox_with_work()
+  -- --sandbox before work subcommand shouldn't interfere
+  local parsed = init.parse_args({"--sandbox", "work", "--repo", "owner/repo"})
+  assert(parsed, "should parse successfully")
+  assert(parsed.sandbox == true, "sandbox should be true")
+  assert(parsed.remaining[1] == "work", "work in remaining")
+  assert(parsed.remaining[2] == "--repo", "--repo in remaining")
+  assert(parsed.remaining[3] == "owner/repo", "repo value in remaining")
+  print("✓ parse_args: --sandbox with work subcommand")
+end
+test_parse_args_sandbox_with_work()
+
+local function test_parse_args_no_sandbox_defaults()
+  local parsed = init.parse_args({"hello"})
+  assert(parsed, "should parse successfully")
+  assert(not parsed.sandbox, "sandbox should be nil/false by default")
+  assert(not parsed.timeout, "timeout should be nil by default")
+  assert(not parsed.allow_hosts or #parsed.allow_hosts == 0, "allow_hosts should be empty by default")
+  assert(not parsed.unveil_dirs or #parsed.unveil_dirs == 0, "unveil_dirs should be empty by default")
+  print("✓ parse_args: sandbox flags absent by default")
+end
+test_parse_args_no_sandbox_defaults()
+
+-- parse_unveil helper tests
+
+local function test_parse_unveil_entry()
+  local path, perms = init.parse_unveil_entry("o/work/plan:r")
+  assert(path == "o/work/plan", "path should be o/work/plan, got: " .. tostring(path))
+  assert(perms == "r", "perms should be r, got: " .. tostring(perms))
+  print("✓ parse_unveil_entry: basic")
+end
+test_parse_unveil_entry()
+
+local function test_parse_unveil_entry_rw()
+  local path, perms = init.parse_unveil_entry("src:rwc")
+  assert(path == "src", "path should be src")
+  assert(perms == "rwc", "perms should be rwc, got: " .. tostring(perms))
+  print("✓ parse_unveil_entry: rwc perms")
+end
+test_parse_unveil_entry_rw()
+
+local function test_parse_unveil_entry_absolute()
+  local path, perms = init.parse_unveil_entry("/tmp:rwxc")
+  assert(path == "/tmp", "path should be /tmp")
+  assert(perms == "rwxc", "perms should be rwxc")
+  print("✓ parse_unveil_entry: absolute path")
+end
+test_parse_unveil_entry_absolute()
+
+local function test_parse_unveil_entry_no_perms()
+  local path, perms = init.parse_unveil_entry("o/work/plan")
+  assert(path == "o/work/plan", "path should be o/work/plan")
+  assert(perms == "r", "perms should default to r, got: " .. tostring(perms))
+  print("✓ parse_unveil_entry: defaults to r when no perms")
+end
+test_parse_unveil_entry_no_perms()
+
 print("all init tests passed")
