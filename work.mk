@@ -65,13 +65,11 @@ $(is_doing): $(picked_issue)
 
 # --- agent targets ---
 
-$(plan): $(is_doing) $(picked_issue) $(cosmic) $(AH)
+$(plan): $(is_doing) $(picked_issue) $(AH)
 	@mkdir -p $(@D)
 	@cp $(picked_issue) $(o)/work/plan/issue.json
 	@echo "==> plan"
-	@$(render) --template sys/skills/plan.md \
-		--json-vars $(picked_issue) \
-		--var issue_number=$$($(cosmic) lib/work/jq.tl --file $(picked_issue) --field number) \
+	@{ sed '1,/^---$$/d' sys/skills/plan.md; echo '---'; cat $(picked_issue); } \
 	| timeout $(PLAN_TIMEOUT) $(AH) -n \
 		$(if $(MODEL),-m $(MODEL)) \
 		--max-tokens $(PLAN_MAX_TOKENS) \
