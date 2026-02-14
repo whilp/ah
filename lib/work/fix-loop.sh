@@ -6,6 +6,7 @@ cosmic="$1"
 ah="$2"
 model="${3:-}"
 max_retries="${4:-2}"
+render="$cosmic lib/work/render.tl"
 
 check_verdict() {
     local verdict
@@ -23,10 +24,12 @@ for attempt in $(seq 1 "$max_retries"); do
 
     # build fix prompt
     mkdir -p o/work/fix
-    "$cosmic" lib/work/fix-prompt.tl \
-        --issue o/work/issue.json \
-        --plan o/work/plan/plan.md \
-        --check o/work/check/check.md \
+    branch=$("$cosmic" lib/work/extract-branch.tl --plan o/work/plan/plan.md --issue o/work/issue.json)
+    $render --template sys/skills/fix.md \
+        --json-vars o/work/issue.json \
+        --var-file "plan.md contents"=o/work/plan/plan.md \
+        --var-file "check.md contents"=o/work/check/check.md \
+        --var branch="$branch" \
         > o/work/fix/prompt.txt
 
     # run fix agent
@@ -38,8 +41,7 @@ for attempt in $(seq 1 "$max_retries"); do
         --db o/work/fix/session.db \
         < o/work/fix/prompt.txt || true
 
-    # extract branch and push
-    branch=$("$cosmic" lib/work/extract-branch.tl --plan o/work/plan/plan.md --issue o/work/issue.json)
+    # push
     echo "$branch" > o/work/fix/branch.txt
 
     echo "==> push (fix)"
@@ -48,14 +50,13 @@ for attempt in $(seq 1 "$max_retries"); do
     # re-check
     echo "==> check (after fix)"
     mkdir -p o/work/check
-    # rebuild check prompt using fix output if available
     do_md="o/work/fix/do.md"
     if [ ! -f "$do_md" ]; then
         do_md="o/work/do/do.md"
     fi
-    "$cosmic" lib/work/check-prompt.tl \
-        --plan o/work/plan/plan.md \
-        --do-file "$do_md" \
+    $render --template sys/skills/check.md \
+        --var-file "plan.md contents"=o/work/plan/plan.md \
+        --var-file "do.md contents"="$do_md" \
         > o/work/check/prompt.txt
 
     timeout 180 "$ah" -n \
