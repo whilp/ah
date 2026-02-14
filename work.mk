@@ -33,12 +33,15 @@ all_issues := $(o)/work/issues.json
 picked_issue := $(o)/work/issue.json
 is_doing := $(o)/work/doing.ok
 plan := $(o)/work/plan/plan.md
-branch := $(o)/work/do/branch.txt
 do_done := $(o)/work/do/done
 push_done := $(o)/work/push/done
 check_done := $(o)/work/check/done
 fix_done := $(o)/work/fix/done
 act_done := $(o)/work/act/done
+
+# branch name derived from issue number
+issue_number = $$(grep -o '"number":[0-9]*' $(picked_issue) | grep -o '[0-9]*')
+branch_name = work/$(issue_number)
 
 .DELETE_ON_ERROR:
 
@@ -48,10 +51,6 @@ $(o)/work/%.json: lib/work/%.tl $(cosmic)
 	@$(cosmic) $< > $@
 
 $(o)/work/%.ok: lib/work/%.tl $(cosmic)
-	@mkdir -p $(@D)
-	@$(cosmic) $< > $@
-
-$(o)/work/%.txt: lib/work/%.tl $(cosmic)
 	@mkdir -p $(@D)
 	@$(cosmic) $< > $@
 
@@ -73,24 +72,20 @@ $(plan): $(is_doing) $(picked_issue) $(AH)
 		--db $(o)/work/plan/session.db
 	@test -s $@ || (echo "error: plan.md not created" >&2; exit 1)
 
-$(branch): $(plan) $(picked_issue) $(cosmic)
-	@mkdir -p $(@D)
-	@$(cosmic) lib/work/extract-branch.tl --plan $< --issue $(picked_issue) > $@
-
-$(do_done): $(branch) $(plan) $(picked_issue) $(AH)
+$(do_done): $(plan) $(picked_issue) $(AH)
 	@mkdir -p $(@D)
 	@echo "==> do"
-	@{ echo '/skill:do'; echo '{"branch":"'$$(cat $(branch))'"}'; } \
+	@{ echo '/skill:do'; echo '{"branch":"$(branch_name)"}'; } \
 	| timeout $(DO_TIMEOUT) $(AH) -n \
 		--max-tokens $(DO_MAX_TOKENS) \
 		--unveil $(o)/work/plan:r \
 		--db $(o)/work/do/session.db
 	@touch $@
 
-$(push_done): $(do_done) $(branch)
+$(push_done): $(do_done) $(picked_issue)
 	@mkdir -p $(@D)
 	@echo "==> push"
-	@$(cosmic) lib/work/push.tl --branch-file $(branch)
+	@WORK_BRANCH=$(branch_name) $(cosmic) lib/work/push.tl
 	@touch $@
 
 $(check_done): $(push_done) $(plan) $(AH)
