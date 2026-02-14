@@ -1099,10 +1099,20 @@ local function main(args: {string}): integer, string
       i = i + 1
     end
 
+    -- Read parent stdin before spawning child (stdin may have prompt data)
+    local parent_stdin: string = nil
+    if not tty.isatty(0) then
+      local rd_ok, rd_data = pcall(io.read, "*a")
+      if rd_ok and rd_data and rd_data ~= "" then
+        parent_stdin = rd_data
+      end
+    end
+
     -- Spawn child and wait
     local child_mod = require("cosmic.child") as ChildMod
     io.stderr:write("[sandbox] spawning child: " .. table.concat(child_args, " ") .. "\n")
-    local handle, spawn_err = child_mod.spawn(child_args, {env = run_env})
+    io.stderr:write("[sandbox] stdin: " .. (parent_stdin and (tostring(#parent_stdin) .. " bytes") or "none") .. "\n")
+    local handle, spawn_err = child_mod.spawn(child_args, {env = run_env, stdin = parent_stdin})
     if not handle then
       io.stderr:write("error: failed to spawn sandboxed child: " .. (spawn_err or "unknown") .. "\n")
       work_sandbox.stop_sandbox(ctx)
@@ -1114,14 +1124,15 @@ local function main(args: {string}): integer, string
     local exit_code = (tonumber(exit_str) or 0) as integer
 
     -- Forward child output
-    if stdout and stdout ~= "" then
-      io.write(stdout)
-    end
     if stderr_out and stderr_out ~= "" then
       io.stderr:write(stderr_out)
     end
+    if stdout and stdout ~= "" then
+      io.write(stdout)
+    end
 
     -- Cleanup
+    io.stderr:write("[sandbox] child exited: " .. tostring(exit_code) .. "\n")
     io.stderr:write("[sandbox] stopping proxy\n")
     work_sandbox.stop_sandbox(ctx)
 
