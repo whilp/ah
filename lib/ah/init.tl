@@ -916,6 +916,7 @@ end
 local record WorkSandboxMod
   start_sandbox: function(): SandboxCtx, string
   stop_sandbox: function(SandboxCtx)
+  prepare_child_stdin: function(): string
 end
 
 local record WorkUtilMod
@@ -1100,19 +1101,13 @@ local function main(args: {string}): integer, string
     end
 
     -- Read parent stdin before spawning child (stdin may have prompt data)
-    local parent_stdin: string = nil
-    if not tty.isatty(0) then
-      local rd_ok, rd_data = pcall(io.read, "*a")
-      if rd_ok and rd_data and rd_data ~= "" then
-        parent_stdin = rd_data
-      end
-    end
+    local parent_stdin = work_sandbox.prepare_child_stdin()
 
     -- Spawn child and wait
     local child_mod = require("cosmic.child") as ChildMod
     io.stderr:write("[sandbox] spawning child: " .. table.concat(child_args, " ") .. "\n")
-    io.stderr:write("[sandbox] stdin: " .. (parent_stdin and (tostring(#parent_stdin) .. " bytes") or "none") .. "\n")
-    local handle, spawn_err = child_mod.spawn(child_args, {env = run_env, stdin = parent_stdin or ""})
+    io.stderr:write("[sandbox] stdin: " .. (#parent_stdin > 0 and (tostring(#parent_stdin) .. " bytes") or "none") .. "\n")
+    local handle, spawn_err = child_mod.spawn(child_args, {env = run_env, stdin = parent_stdin})
     if not handle then
       io.stderr:write("error: failed to spawn sandboxed child: " .. (spawn_err or "unknown") .. "\n")
       work_sandbox.stop_sandbox(ctx)

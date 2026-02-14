@@ -242,6 +242,24 @@ local function run_phase(opts: PhaseOpts): boolean, string, integer
   return ok and exit_code == 0, stdout, exit_code
 end
 
+-- Prepare stdin data for a sandboxed child process.
+-- Reads all of stdin (when not a tty) and returns a string suitable for
+-- passing to child.spawn({stdin = ...}).
+-- IMPORTANT: always returns a string (never nil). Passing nil to
+-- child.spawn creates a pipe that is never closed, causing the child
+-- to block forever on io.read.
+local function prepare_child_stdin(): string
+  local tty = require("cosmic.tty")
+  if tty.isatty(0) then
+    return ""
+  end
+  local ok, data = pcall(io.read, "*a")
+  if ok and data and data ~= "" then
+    return data
+  end
+  return ""
+end
+
 return {
   overall_timeout_sec = overall_timeout_sec,
   plan_limits = plan_limits,
@@ -252,4 +270,5 @@ return {
   build_phase_args = build_phase_args,
   start_sandbox = start_sandbox,
   stop_sandbox = stop_sandbox,
+  prepare_child_stdin = prepare_child_stdin,
 }
