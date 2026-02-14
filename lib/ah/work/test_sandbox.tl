@@ -18,6 +18,7 @@ end
 
 local record WorkSandbox
   build_phase_args: function(string, PhaseOpts): {string}
+  prepare_child_stdin: function(): string
 end
 
 local sandbox = require("ah.work.sandbox") as WorkSandbox
@@ -176,5 +177,80 @@ local function test_phase_args_no_prompt_in_argv()
   print("✓ build_phase_args excludes prompt from argv")
 end
 test_phase_args_no_prompt_in_argv()
+
+-- Test: prepare_child_stdin never returns nil
+-- This is the contract that prevents the sandbox child from blocking forever.
+-- When stdin is /dev/null, prepare_child_stdin must return "" (not nil),
+-- because child.spawn({stdin = nil}) creates an unclosed pipe that blocks.
+local function test_prepare_child_stdin_never_nil()
+  local child = require("cosmic.child")
+
+  -- Fork so we can redirect stdin to /dev/null without affecting the test runner
+  local pid = child.fork()
+  assert(pid >= 0, "fork failed")
+
+  if pid == 0 then
+    -- Child: reopen stdin from /dev/null, then call prepare_child_stdin
+    local fd = io.open("/dev/null", "r")
+    if not fd then os.exit(10) end
+    -- Replace stdin: close fd 0, dup /dev/null to fd 0
+    io.stdin:close()
+    io.input(fd)
+
+    local result = sandbox.prepare_child_stdin()
+    if result == nil then
+      os.exit(1)  -- FAIL: returned nil
+    end
+    if type(result) ~= "string" then
+      os.exit(2)  -- FAIL: not a string
+    end
+    os.exit(0)  -- PASS
+  end
+
+  -- Parent: wait for child
+  local _, raw_status = child.wait()
+  local exit_code = (math.floor(((raw_status as integer) or 0) / 256)) as integer
+  assert(exit_code == 0,
+    "prepare_child_stdin returned nil or non-string when stdin is /dev/null (exit " .. tostring(exit_code) .. ")")
+  print("✓ prepare_child_stdin never returns nil (stdin=/dev/null)")
+end
+test_prepare_child_stdin_never_nil()
+
+-- Test: prepare_child_stdin returns data when stdin has content
+local function test_prepare_child_stdin_with_data()
+  local child = require("cosmic.child")
+  local cfs = require("cosmic.fs")
+
+  -- Write test data to a temp file, then use it as stdin
+  local tmp = "/tmp/ah_test_stdin_" .. tostring(os.time()) .. ".txt"
+  local f = io.open(tmp, "w")
+  assert(f, "failed to create temp file")
+  f:write("test input data")
+  f:close()
+
+  local pid = child.fork()
+  assert(pid >= 0, "fork failed")
+
+  if pid == 0 then
+    local fd = io.open(tmp, "r")
+    if not fd then os.exit(10) end
+    io.stdin:close()
+    io.input(fd)
+
+    local result = sandbox.prepare_child_stdin()
+    if result ~= "test input data" then
+      os.exit(1)
+    end
+    os.exit(0)
+  end
+
+  local _, raw_status = child.wait()
+  local exit_code = (math.floor(((raw_status as integer) or 0) / 256)) as integer
+  os.remove(tmp)
+  assert(exit_code == 0,
+    "prepare_child_stdin should return stdin data, exit " .. tostring(exit_code))
+  print("✓ prepare_child_stdin returns data when stdin has content")
+end
+test_prepare_child_stdin_with_data()
 
 print("\nAll work-sandbox tests passed!")
