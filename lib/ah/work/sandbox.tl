@@ -1,7 +1,10 @@
 -- ah/work/sandbox.tl: sandbox management, phase runner, and limits
 local spawn = require("cosmic.child")
 local env = require("cosmic.env")
-local unix = require("cosmo.unix")
+local cfs = require("cosmic.fs")
+local time = require("cosmic.time")
+local proc = require("cosmic.proc")
+local signal = require("cosmic.signal")
 local util = require("ah.work.util")
 
 -- Type declarations for cosmic.child handles
@@ -65,7 +68,7 @@ local fix_limits: AgentLimits   = {max_tokens = 100000, timeout_sec = 300}
 local function start_sandbox(): SandboxCtx, string
   util.log("starting sandbox...")
   -- Create temp directory for socket
-  local tmpdir = unix.mkdtemp("/tmp/ah-sandbox-XXXXXX")
+  local tmpdir = cfs.mkdtemp("/tmp/ah-sandbox-XXXXXX")
   if not tmpdir then
     util.log("failed to create temp directory for sandbox")
     return nil, "failed to create temp directory"
@@ -77,16 +80,16 @@ local function start_sandbox(): SandboxCtx, string
   -- Fork and exec proxy
   local exe = util.ah_exe()
   util.log("forking proxy: " .. exe .. " proxy " .. socket_path)
-  local pid = unix.fork()
+  local pid = spawn.fork()
   if pid < 0 then
     util.log("fork failed")
-    unix.rmrf(tmpdir)
+    cfs.rmrf(tmpdir)
     return nil, "fork failed"
   end
 
   if pid == 0 then
     -- Child: exec proxy
-    unix.execve(exe, {exe, "proxy", socket_path}, env.all() as {string})
+    proc.execve(exe, {exe, "proxy", socket_path}, env.all() as {string})
     os.exit(1)  -- exec failed
   end
 
@@ -95,19 +98,19 @@ local function start_sandbox(): SandboxCtx, string
   -- Parent: wait for socket to appear
   local timeout = 50  -- 5 seconds (50 * 100ms)
   while timeout > 0 do
-    local stat = unix.stat(socket_path)
+    local stat = cfs.stat(socket_path)
     if stat then
       break
     end
-    unix.nanosleep(0, 100000000)  -- 100ms
+    time.sleep(0, 100000000)  -- 100ms
     timeout = timeout - 1
   end
 
   if timeout == 0 then
     util.log("proxy socket not ready after 5s, killing pid " .. tostring(pid))
-    unix.kill(pid, unix.SIGTERM)
-    unix.wait()
-    unix.rmrf(tmpdir)
+    signal.kill(pid, spawn.SIGTERM)
+    spawn.wait()
+    cfs.rmrf(tmpdir)
     return nil, "proxy socket not ready"
   end
 
@@ -124,11 +127,11 @@ end
 local function stop_sandbox(ctx: SandboxCtx)
   if not ctx then return end
   if ctx.proxy_pid > 0 then
-    unix.kill(ctx.proxy_pid, unix.SIGTERM)
-    unix.wait()
+    signal.kill(ctx.proxy_pid, spawn.SIGTERM)
+    spawn.wait()
   end
   if ctx.tmpdir then
-    unix.rmrf(ctx.tmpdir)
+    cfs.rmrf(ctx.tmpdir)
   end
 end
 
@@ -197,9 +200,9 @@ local function run_phase(opts: PhaseOpts): boolean, string, integer
   -- APE binaries (cosmic) need to extract to $TMPDIR/.ape-* on first run;
   -- in restricted environments (GitHub Actions), /tmp may not be writable.
   if not util.env_get(run_env, "TMPDIR") then
-    local cwd = unix.getcwd() or "."
+    local cwd = cfs.getcwd() or "."
     local local_tmp = cwd .. "/o/tmp"
-    unix.mkdir(local_tmp, tonumber("755", 8))
+    cfs.mkdir(local_tmp, tonumber("755", 8))
     util.env_set(run_env, "TMPDIR", local_tmp)
   end
 
