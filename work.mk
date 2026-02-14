@@ -105,8 +105,14 @@ $(o)/work/check/done: $(o)/work/check/prompt.txt $(AH)
 		< $<
 	@touch $@
 
+# fix loop: retry fix/push/check if verdict is needs-fixes
+$(o)/work/fix/done: $(o)/work/check/done $(cosmic)
+	@mkdir -p $(@D)
+	@bash lib/work/fix-loop.sh $(cosmic) $(AH) "$(MODEL)" 2
+	@touch $@
+
 # run act phase (deterministic, no agent)
-$(o)/work/act/done: $(o)/work/check/done $(o)/work/issue.json $(cosmic)
+$(o)/work/act/done: $(o)/work/fix/done $(o)/work/issue.json $(cosmic)
 	@mkdir -p $(@D)
 	@echo "==> act"
 	@$(cosmic) lib/work/act.tl $(o)/work/issue.json $(o)/work/check/actions.json \
