@@ -57,6 +57,38 @@ local function load_claude_md(cwd: string): string
   return result
 end
 
+local child = require("cosmic.child")
+
+-- Run a git command in cwd with a 2s timeout. Returns trimmed stdout or nil.
+-- Never throws. Any failure (not a repo, git missing, timeout, bad exit) returns nil.
+local function git_cmd(cwd: string, ...: string): string
+  local argv: {string} = {"timeout", "2", "git"}
+  for i = 1, select("#", ...) do
+    argv[#argv + 1] = select(i, ...) as string
+  end
+  local ok, result = pcall(function(): string
+    local h, err = child.spawn(argv, {cwd = cwd})
+    if not h then return nil end
+    local success, stdout, _ = h:read()
+    if not success then return nil end
+    local out = (stdout as string) or ""
+    if out == "" then return nil end
+    return (out:gsub("%s+$", ""))
+  end)
+  if not ok then return nil end
+  return result
+end
+
+-- Gather git context for the working directory. Each value is nil
+-- when the command fails (not a git repo, git not installed, timeout).
+local function git_context(cwd: string): {string:string}
+  return {
+    branch  = git_cmd(cwd, "rev-parse", "--abbrev-ref", "HEAD"),
+    commit  = git_cmd(cwd, "rev-parse", "--short", "HEAD"),
+    remote  = git_cmd(cwd, "remote", "get-url", "origin"),
+  }
+end
+
 -- Load system prompt with precedence:
 -- 1. /zip/embed/system.md (user override)
 -- 2. /zip/embed/sys/system.md (ah default)
@@ -78,9 +110,20 @@ local function load_system_prompt(cwd: string): string
     end
   end
 
-  -- Append runtime context (datetime and working directory)
+  -- Append runtime context (datetime, working directory, git info)
   local date_str = os.date("!%Y-%m-%dT%H:%M:%SZ") as string
   base = base .. "\n\nCurrent date: " .. date_str .. "\nWorking directory: " .. cwd
+
+  local git = git_context(cwd)
+  if git.branch then
+    base = base .. "\nGit branch: " .. git.branch
+  end
+  if git.commit then
+    base = base .. "\nGit commit: " .. git.commit
+  end
+  if git.remote then
+    base = base .. "\nGit remote: " .. git.remote
+  end
 
   return base
 end
