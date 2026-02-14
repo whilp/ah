@@ -98,6 +98,7 @@ $(check_done): $(push_done) $(plan) $(AH)
 	@timeout 180 $(AH) -n \
 		--sandbox \
 		--skill check \
+		--must-produce $(o)/work/check/actions.json \
 		--max-tokens 50000 \
 		--unveil $(o)/work/plan:r \
 		--unveil $(o)/work/do:r \
