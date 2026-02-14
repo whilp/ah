@@ -26,7 +26,6 @@ on_branch := $(o)/work/branch.ok
 do_done := $(o)/work/do/done
 push_done := $(o)/work/push/done
 check_done := $(o)/work/check/done
-fix_done := $(o)/work/fix/done
 act_done := $(o)/work/act/done
 
 .DELETE_ON_ERROR:
@@ -95,12 +94,25 @@ $(check_done): $(push_done) $(plan) $(AH)
 		< /dev/null
 	@touch $@
 
-$(fix_done): $(check_done) $(cosmic)
-	@mkdir -p $(@D)
-	@bash lib/work/fix-loop.sh $(cosmic) $(AH) 2
-	@touch $@
+# fix: run fix agent, push, recheck (called by work-loop)
+.PHONY: work-fix
+work-fix: $(picked_issue) $(AH)
+	@mkdir -p $(o)/work/fix
+	@echo "==> fix"
+	@timeout 300 $(AH) -n \
+		--sandbox \
+		--skill fix \
+		--max-tokens 100000 \
+		--unveil $(o)/work/plan:r \
+		--unveil $(o)/work/do:r \
+		--db $(o)/work/fix/session.db \
+		< $(picked_issue) || true
+	@echo "==> push"
+	@git push -u origin HEAD
+	@rm -f $(check_done)
+	@$(MAKE) work-check
 
-$(act_done): $(fix_done) $(picked_issue) $(cosmic)
+$(act_done): $(check_done) $(picked_issue) $(cosmic)
 	@mkdir -p $(@D)
 	@echo "==> act"
 	@$(cosmic) lib/work/act.tl --issue $(picked_issue) \
@@ -108,8 +120,7 @@ $(act_done): $(fix_done) $(picked_issue) $(cosmic)
 	@touch $@
 
 # top-level targets
-.PHONY: work work-issues work-select work-plan work-do work-push work-check work-act
-work: $(act_done)
+.PHONY: work work-issues work-select work-plan work-do work-push work-check work-fix work-act
 work-issues: $(all_issues)
 work-select: $(picked_issue)
 work-plan: $(plan)
@@ -117,3 +128,13 @@ work-do: $(do_done)
 work-push: $(push_done)
 work-check: $(check_done)
 work-act: $(act_done)
+
+# work: full pipeline with fix retries
+.PHONY: work
+work: $(check_done)
+	@for i in 1 2; do \
+		v=$$($(cosmic) lib/work/check-verdict.tl --actions $(o)/work/check/actions.json 2>/dev/null || echo unknown); \
+		[ "$$v" = "needs-fixes" ] || break; \
+		$(MAKE) work-fix; \
+	done
+	@$(MAKE) $(act_done)
