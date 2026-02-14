@@ -76,4 +76,4 @@ local issue = {
    branch = "work/" .. tostring(selected.number) .. "-" .. suffix,
 }
 
-io.write(json.encode(issue))
+io.write((json.encode(issue)))
