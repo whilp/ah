@@ -1,6 +1,7 @@
 #!/usr/bin/env lua
-local cosmo = require("cosmo")
-local getopt = require("cosmo.getopt")
+local cio = require("cosmic.io")
+local proc = require("cosmic.proc")
+local getopt = require("cosmic.getopt")
 
 local record CheckResult
   status: string
@@ -90,7 +91,7 @@ local function main(...: string): integer, string
   table.sort(files)
 
   for _, file in ipairs(files) do
-    local content = cosmo.Slurp(file)
+    local content = cio.slurp(file)
     if content then
       local parsed = parse_result(content)
       if parsed then
@@ -151,7 +152,7 @@ local function main(...: string): integer, string
   return #results.fail == 0 and 0 or 1, nil
 end
 
-if cosmo.is_main() then
+if proc.is_main() then
   local code, err = main(...)
   if err then
     io.stderr:write(err .. "\n")

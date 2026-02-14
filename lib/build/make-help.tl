@@ -1,5 +1,6 @@
 #!/usr/bin/env cosmic
-local cosmo = require("cosmo")
+local cio = require("cosmic.io")
+local proc = require("cosmic.proc")
 
 local record Item
   type: string
@@ -98,7 +99,7 @@ end
 local function main(args: {string}): number, string
   local makefile = args[1] or "Makefile"
 
-  local content, err = cosmo.Slurp(makefile)
+  local content, err = cio.slurp(makefile)
   if not content then
     return 1, err or ("Failed to read " .. makefile)
   end
@@ -108,7 +109,7 @@ local function main(args: {string}): number, string
   return 0
 end
 
-if cosmo.is_main() then
+if proc.is_main() then
   local exit_code, err = main(arg)
   if err then
     io.stderr:write(err .. "\n")
