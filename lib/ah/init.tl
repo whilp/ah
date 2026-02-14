@@ -146,6 +146,17 @@ local function resolve_session(cwd: string, prefix: string): string, string
   return matches[1], nil
 end
 
+-- Format token count as human-friendly string (e.g., 1234 -> "1.2k", 12345 -> "12.3k")
+local function format_tokens(n: integer): string
+  if n >= 1000000 then
+    return string.format("%.1fm", n / 1000000)
+  elseif n >= 1000 then
+    return string.format("%.1fk", n / 1000)
+  else
+    return tostring(n)
+  end
+end
+
 local function usage()
   io.stderr:write([[usage: ah [options] [command] [args...]
 
@@ -162,6 +173,7 @@ commands:
   branch rm @N        delete branch from message N
   show [N]            show message(s)
   rmm N...            remove messages
+  usage               show token usage and cache stats
   work [cmd]          run work loop (plan/do/check/act)
   embed <dir>         embed files into /zip/embed/
   extract <dir>       extract /zip/embed/ to directory
@@ -558,6 +570,44 @@ local function cmd_diff(d: db.DB, id_a: string, id_b: string)
   render_branch(string.format("@%d", msg_b.seq), only_b)
 end
 
+-- Token usage summary for a session
+local function cmd_usage(d: db.DB)
+  local json = require("cosmic.json")
+  local ev = db.get_events(d, "api_call_end")
+
+  local total_input = 0
+  local total_output = 0
+  local total_cache_read = 0
+  local total_cache_create = 0
+  local api_calls = 0
+
+  for _, e in ipairs(ev) do
+    if e.details then
+      local detail = json.decode(e.details) as {string:any}
+      if detail then
+        total_input = total_input + ((detail.input_tokens or 0) as integer)
+        total_output = total_output + ((detail.output_tokens or 0) as integer)
+        total_cache_read = total_cache_read + ((detail.cache_read_input_tokens or 0) as integer)
+        total_cache_create = total_cache_create + ((detail.cache_creation_input_tokens or 0) as integer)
+        api_calls = api_calls + 1
+      end
+    end
+  end
+
+  local total = total_input + total_output
+
+  io.write(string.format("api calls:     %d\n", api_calls))
+  io.write(string.format("input:         %s\n", format_tokens(total_input)))
+  io.write(string.format("output:        %s\n", format_tokens(total_output)))
+  io.write(string.format("total:         %s\n", format_tokens(total)))
+  io.write(string.format("cache read:    %s\n", format_tokens(total_cache_read)))
+  io.write(string.format("cache write:   %s\n", format_tokens(total_cache_create)))
+  if total_input > 0 then
+    local cache_pct = math.floor(total_cache_read * 100 / total_input)
+    io.write(string.format("cache hit:     %d%%\n", cache_pct))
+  end
+end
+
 -- CLI display handler: renders structured events to stderr/stdout for terminal use.
 -- This is the application-layer implementation of the event callback.
 -- Other handlers (JSON logging, web UI, etc.) can be substituted.
@@ -574,17 +624,6 @@ local function make_cli_handler(): events.EventCallback
       io.write(table.concat(text_buffer))
       io.flush()
       text_buffer = {}
-    end
-  end
-
-  -- Format token count as human-friendly string (e.g., 1234 -> "1.2k", 12345 -> "12.3k")
-  local function format_tokens(n: integer): string
-    if n >= 1000000 then
-      return string.format("%.1fm", n / 1000000)
-    elseif n >= 1000 then
-      return string.format("%.1fk", n / 1000)
-    else
-      return tostring(n)
     end
   end
 
@@ -985,7 +1024,13 @@ local function main(args: {string}): integer, string
   end
 
   -- Handle commands (no lock needed for read-only commands)
-  if cmd == "scan" then
+  if cmd == "usage" then
+    cmd_usage(d)
+    queue.close(qdb)
+    db.close(d)
+    return 0
+
+  elseif cmd == "scan" then
     cmd_scan(d)
     queue.close(qdb)
     db.close(d)
