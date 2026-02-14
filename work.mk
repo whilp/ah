@@ -3,10 +3,6 @@
 # implements the PDCA work loop as make targets:
 #   preflight -> issues.json -> issue.json -> plan -> do -> push -> check -> act
 #
-# convention: pipeline scripts in lib/work/ read env vars (WORK_*) instead
-# of CLI args. pattern rules provide recipes; dependency-only rules add
-# per-target prerequisites.
-#
 # convergence: check writes o/work/do/feedback.md when verdict is needs-fixes.
 # since do depends on feedback.md, the next make run re-executes do -> push -> check.
 # the caller runs `make work` which loops until convergence or a retry limit.
@@ -14,6 +10,7 @@
 REPO ?= whilp/ah
 MAX_PRS ?= 4
 AH := $(o)/bin/ah
+work_tl := lib/work/work.tl
 
 # detect the remote default branch
 # in CI: DEFAULT_BRANCH is set by the workflow from github.event.repository.default_branch
@@ -42,20 +39,27 @@ act_done := $(o)/work/act/done
 
 .DELETE_ON_ERROR:
 
-# pattern: run lib/work/%.tl, capture stdout to output file
-$(o)/work/%.json: lib/work/%.tl $(cosmic)
+# --- preflight targets ---
+
+$(o)/work/labels.ok: $(work_tl) $(cosmic)
 	@mkdir -p $(@D)
-	@$(cosmic) $< > $@
+	@$(cosmic) $(work_tl) labels > $@
 
-$(o)/work/%.ok: lib/work/%.tl $(cosmic)
+$(o)/work/pr-limit.ok: $(work_tl) $(cosmic)
 	@mkdir -p $(@D)
-	@$(cosmic) $< > $@
+	@$(cosmic) $(work_tl) pr-limit > $@
 
-# --- per-target dependencies (no recipes) ---
+$(all_issues): $(o)/work/labels.ok $(o)/work/pr-limit.ok $(work_tl) $(cosmic)
+	@mkdir -p $(@D)
+	@$(cosmic) $(work_tl) issues > $@
 
-$(all_issues): $(o)/work/labels.ok $(o)/work/pr-limit.ok
-$(picked_issue): $(all_issues)
-$(is_doing): $(picked_issue)
+$(picked_issue): $(all_issues) $(work_tl) $(cosmic)
+	@mkdir -p $(@D)
+	@$(cosmic) $(work_tl) issue > $@
+
+$(is_doing): $(picked_issue) $(work_tl) $(cosmic)
+	@mkdir -p $(@D)
+	@$(cosmic) $(work_tl) doing > $@
 
 # --- agent targets ---
 
@@ -118,10 +122,10 @@ $(check_done): $(push_done) $(plan) $(AH)
 		< /dev/null
 	@touch $@
 
-$(act_done): $(check_done) $(picked_issue) $(cosmic)
+$(act_done): $(check_done) $(picked_issue) $(work_tl) $(cosmic)
 	@mkdir -p $(@D)
 	@echo "==> act"
-	@$(cosmic) lib/work/act.tl --issue $(picked_issue) \
+	@$(cosmic) $(work_tl) act --issue $(picked_issue) \
 		--actions $(o)/work/check/actions.json
 	@touch $@
 
