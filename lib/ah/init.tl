@@ -65,17 +65,24 @@ local function load_system_prompt(cwd: string): string
   cwd = cwd or fs.getcwd()
   local claude_md = load_claude_md(cwd)
 
+  local base: string
   local user_system = cio.slurp("/zip/embed/system.md")
   if user_system then
-    return user_system .. claude_md
+    base = user_system .. claude_md
+  else
+    local sys_system = cio.slurp("/zip/embed/sys/system.md")
+    if sys_system then
+      base = sys_system .. claude_md
+    else
+      base = claude_md
+    end
   end
 
-  local sys_system = cio.slurp("/zip/embed/sys/system.md")
-  if sys_system then
-    return sys_system .. claude_md
-  end
+  -- Append runtime context (datetime and working directory)
+  local date_str = os.date("!%Y-%m-%dT%H:%M:%SZ") as string
+  base = base .. "\n\nCurrent date: " .. date_str .. "\nWorking directory: " .. cwd
 
-  return claude_md
+  return base
 end
 
 -- List session files from .ah/*.db with valid ULID names
