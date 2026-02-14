@@ -1,10 +1,11 @@
 # work.mk: work targets
 #
 # implements the PDCA work loop as make targets:
-#   issues.json -> issue.json -> plan -> do -> push -> check -> fix -> act
+#   preflight -> issues.json -> issue.json -> plan -> do -> push -> check -> act
 
 REPO ?= whilp/ah
 MODEL ?=
+MAX_PRS ?= 4
 AH := $(o)/bin/ah
 PLAN_TIMEOUT := 180
 PLAN_MAX_TOKENS := 50000
@@ -15,8 +16,20 @@ CHECK_MAX_TOKENS := 50000
 FIX_TIMEOUT := 300
 FIX_MAX_TOKENS := 100000
 
+# ensure labels exist
+$(o)/work/labels.ok: $(cosmic)
+	@mkdir -p $(@D)
+	@$(cosmic) lib/work/ensure-labels.tl $(REPO)
+	@touch $@
+
+# check PR limit
+$(o)/work/pr-limit.ok: $(cosmic)
+	@mkdir -p $(@D)
+	@$(cosmic) lib/work/check-pr-limit.tl $(REPO) $(MAX_PRS)
+	@touch $@
+
 # fetch open todo issues
-$(o)/work/issues.json: $(cosmic)
+$(o)/work/issues.json: $(o)/work/labels.ok $(o)/work/pr-limit.ok $(cosmic)
 	@mkdir -p $(@D)
 	@$(cosmic) lib/work/issues.tl $(REPO) > $@
 
@@ -25,10 +38,15 @@ $(o)/work/issue.json: $(o)/work/issues.json $(cosmic)
 	@mkdir -p $(@D)
 	@$(cosmic) lib/work/select.tl < $< > $@
 
+# transition issue to doing
+$(o)/work/doing.ok: $(o)/work/issue.json $(cosmic)
+	@$(cosmic) lib/work/transition.tl $<
+	@touch $@
+
 # build plan prompt from issue
-$(o)/work/plan/prompt.txt: $(o)/work/issue.json $(cosmic)
+$(o)/work/plan/prompt.txt: $(o)/work/doing.ok $(o)/work/issue.json $(cosmic)
 	@mkdir -p $(@D)
-	@$(cosmic) lib/work/plan-prompt.tl $< > $@
+	@$(cosmic) lib/work/plan-prompt.tl $(o)/work/issue.json > $@
 
 # run plan agent
 $(o)/work/plan/plan.md: $(o)/work/plan/prompt.txt $(AH)
@@ -47,9 +65,13 @@ $(o)/work/do/prompt.txt: $(o)/work/plan/plan.md $(o)/work/issue.json $(cosmic)
 	@mkdir -p $(@D)
 	@$(cosmic) lib/work/do-prompt.tl $(o)/work/issue.json $< > $@
 
-# run do agent
-$(o)/work/do/done: $(o)/work/do/prompt.txt $(AH)
+# extract branch name
+$(o)/work/do/branch.txt: $(o)/work/plan/plan.md $(o)/work/issue.json $(cosmic)
 	@mkdir -p $(@D)
+	@$(cosmic) lib/work/extract-branch.tl $< $(o)/work/issue.json > $@
+
+# run do agent
+$(o)/work/do/done: $(o)/work/do/prompt.txt $(o)/work/do/branch.txt $(AH)
 	@echo "==> do"
 	@timeout $(DO_TIMEOUT) $(AH) -n \
 		$(if $(MODEL),-m $(MODEL)) \
@@ -57,12 +79,10 @@ $(o)/work/do/done: $(o)/work/do/prompt.txt $(AH)
 		--unveil $(o)/work/plan:r \
 		--db $(o)/work/do/session.db \
 		< $< || true
-	@$(cosmic) lib/work/extract-branch.tl $(o)/work/plan/plan.md $(o)/work/issue.json \
-		> $(o)/work/do/branch.txt
 	@touch $@
 
 # push work branch
-$(o)/work/push/done: $(o)/work/do/done
+$(o)/work/push/done: $(o)/work/do/done $(o)/work/do/branch.txt
 	@mkdir -p $(@D)
 	@echo "==> push"
 	@$(cosmic) lib/work/push.tl $(o)/work/do/branch.txt
@@ -75,7 +95,6 @@ $(o)/work/check/prompt.txt: $(o)/work/push/done $(o)/work/plan/plan.md $(cosmic)
 
 # run check agent
 $(o)/work/check/done: $(o)/work/check/prompt.txt $(AH)
-	@mkdir -p $(@D)
 	@echo "==> check"
 	@timeout $(CHECK_TIMEOUT) $(AH) -n \
 		$(if $(MODEL),-m $(MODEL)) \
@@ -87,7 +106,7 @@ $(o)/work/check/done: $(o)/work/check/prompt.txt $(AH)
 	@touch $@
 
 # run act phase (deterministic, no agent)
-$(o)/work/act/done: $(o)/work/check/done $(cosmic)
+$(o)/work/act/done: $(o)/work/check/done $(o)/work/issue.json $(cosmic)
 	@mkdir -p $(@D)
 	@echo "==> act"
 	@$(cosmic) lib/work/act.tl $(o)/work/issue.json $(o)/work/check/actions.json \
