@@ -97,13 +97,15 @@ local function count_open_prs(repo: string): integer, string
     "gh", "pr", "list",
     "--repo", repo,
     "--state", "open",
-    "--json", "number",
-    "--jq", "length"
+    "--json", "number"
   })
   if not ok then return nil, "gh pr list failed: " .. (stdout or "no output") end
-  local count = tonumber(stdout:match("%d+"))
-  if not count then return nil, "failed to parse PR count from: " .. (stdout or ""):sub(1, 200) end
-  return count as integer
+  local success, prs = pcall(json.decode, stdout)
+  if not success or type(prs) ~= "table" then
+    return nil, "failed to parse JSON from gh pr list: " .. (stdout or ""):sub(1, 200)
+  end
+  local pr_list = prs as {any}
+  return #pr_list
 end
 
 local function create_issue_from_prompt(repo: string, prompt_name: string, read_prompt_template: function(string): string): integer, string
