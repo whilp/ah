@@ -16,18 +16,22 @@ You are executing a work item. Follow the plan.
 
 Read `o/work/plan/plan.md` for the full plan.
 
+Read `o/work/do/feedback.md` — if non-empty, it contains review feedback from a
+previous check. Address those issues first, then continue with any remaining plan steps.
+
 The issue JSON follows this prompt with fields: `number`, `title`, `body`, `url`, `branch`.
 
 ## Instructions
 
 1. Read the plan and every file you intend to modify before editing
-2. For each step in the plan:
+2. If feedback.md is non-empty, fix those issues first
+3. For each remaining step in the plan:
    a. Make the changes for that step
    b. Before staging, run `git status` and verify only your files are affected
    c. Stage the specific files changed (not `git add -A`)
    d. Commit with a descriptive message for that step
-3. Run validation steps from the plan
-4. If validation requires fixes, stage and commit them
+4. Run validation steps from the plan
+5. If validation requires fixes, stage and commit them
 
 ## Forbidden
 
