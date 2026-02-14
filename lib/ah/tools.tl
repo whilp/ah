@@ -205,8 +205,12 @@ local write_tool: Tool = {
       return "error: failed to write file: " .. file_path, true, nil
     end
 
-    return "wrote " .. tostring(#content) .. " bytes to " .. file_path, false,
-      {path = file_path, bytes = #content} as ToolDetails
+    -- Count lines for display
+    local line_count = 1
+    for _ in content:gmatch("\n") do line_count = line_count + 1 end
+
+    return string.format("%d lines", line_count), false,
+      {path = file_path, bytes = #content, line_count = line_count} as ToolDetails
   end,
 }
 
@@ -267,7 +271,31 @@ local edit_tool: Tool = {
       return "error: failed to write file: " .. file_path, true, nil
     end
 
-    return "edited " .. file_path, false,
+    -- Build compact diff for display
+    local diff_lines: {string} = {}
+    for line in old_string:gmatch("([^\n]*)\n?") do
+      if line ~= "" or old_string:find("\n") then
+        table.insert(diff_lines, "- " .. line)
+      end
+    end
+    -- Remove trailing empty line artifact from pattern
+    if #diff_lines > 0 and diff_lines[#diff_lines] == "- " and not old_string:match("\n$") then
+      table.remove(diff_lines)
+    end
+    for line in new_string:gmatch("([^\n]*)\n?") do
+      if line ~= "" or new_string:find("\n") then
+        table.insert(diff_lines, "+ " .. line)
+      end
+    end
+    if #diff_lines > 0 and diff_lines[#diff_lines] == "+ " and not new_string:match("\n$") then
+      table.remove(diff_lines)
+    end
+    local result = table.concat(diff_lines, "\n")
+    if result == "" then
+      result = "edited " .. file_path
+    end
+
+    return result, false,
       {path = file_path, old_lines = old_lines, new_lines = new_lines} as ToolDetails
   end,
 }

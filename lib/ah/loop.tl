@@ -13,6 +13,23 @@ local compact = require("ah.compact")
 -- Reference the global interrupted flag (set by application layer)
 global interrupted: boolean
 
+-- Shorten an absolute path to a relative one when under cwd
+local _cwd: string
+local function shorten_path(p: string): string
+  if not _cwd then
+    _cwd = unix.getcwd() or ""
+  end
+  if _cwd ~= "" and p:sub(1, #_cwd) == _cwd then
+    local rest = p:sub(#_cwd + 1)
+    if rest:sub(1, 1) == "/" then
+      rest = rest:sub(2)
+    end
+    if rest == "" then return "." end
+    return rest
+  end
+  return p
+end
+
 -- Loop detection thresholds
 local LOOP_WARN_THRESHOLD = 3   -- Consecutive identical turns before steering injection
 local LOOP_BREAK_THRESHOLD = 5  -- Consecutive identical turns before forced break
@@ -30,15 +47,7 @@ local function tool_key_param(tool_name: string, tool_input: string, details_jso
     local details = json.decode(details_json) as {string:any}
     if details then
       if details.path then
-        if tool_name == "edit" then
-          -- For edit, include line change info from details
-          local suffix = ""
-          if details.old_lines and details.new_lines then
-            suffix = string.format(" (%d → %d lines)", details.old_lines as integer, details.new_lines as integer)
-          end
-          return (details.path as string) .. suffix
-        end
-        return details.path as string
+        return shorten_path(details.path as string)
       elseif details.command then
         local cmd = details.command as string
         if #cmd > 80 then
@@ -54,12 +63,8 @@ local function tool_key_param(tool_name: string, tool_input: string, details_jso
   local input = json.decode(tool_input) as {string:any}
   if not input then return "" end
 
-  if tool_name == "read" or tool_name == "write" then
-    return (input.path or "") as string
-  elseif tool_name == "edit" then
-    return string.format("%s: %s → %s", input.path or "",
-      ((input.old_string or "") as string):sub(1, 20),
-      ((input.new_string or "") as string):sub(1, 20))
+  if tool_name == "read" or tool_name == "write" or tool_name == "edit" then
+    return shorten_path((input.path or "") as string)
   elseif tool_name == "bash" then
     local cmd = (input.command or "") as string
     if #cmd > 80 then
@@ -754,6 +759,7 @@ return {
   run_agent = run_agent,
   AgentOpts = AgentOpts,
   tool_key_param = tool_key_param,
+  shorten_path = shorten_path,
   turn_signature = turn_signature,
   check_loop = check_loop,
   LOOP_WARN_THRESHOLD = LOOP_WARN_THRESHOLD,

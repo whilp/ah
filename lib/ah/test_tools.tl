@@ -28,7 +28,7 @@ local function test_write_tool()
   local test_file = os.getenv("TEST_TMPDIR") .. "/test_write.txt"
   local result, is_error, details = tools.execute_tool("write", {path = test_file, content = "hello world"})
   assert(not is_error, "write should succeed: " .. result)
-  assert(result:match("wrote.*bytes"), "should report bytes written")
+  assert(result:match("1 lines"), "should report line count: " .. result)
   assert(details, "write should return details")
   assert(details.path == test_file, "details should have path")
   assert(details.bytes == 11, "details should have bytes: " .. tostring(details.bytes))
