@@ -1,21 +1,37 @@
 -- ah/proxy.tl: HTTP CONNECT proxy with destination allowlist
 -- Used by `ah proxy` subcommand for sandboxed network access
 
-local net = require("cosmic.net")
 local fs = require("cosmic.fs")
 local child = require("cosmic.child")
 
+-- Type declarations for cosmic.net (Socket is not exported as a named type)
 local record Socket
   fd: number
   close: function(self: Socket): boolean
-  closed: function(self: Socket): boolean
-  send: function(self: Socket, data: string, flags?: number): number, string
-  recv: function(self: Socket, bufsiz?: number, flags?: number): string, string
+  recv: function(self: Socket, bufsiz: number): string, string
+  send: function(self: Socket, data: string): number, string
   bind_unix: function(self: Socket, path: string): boolean, string
-  listen: function(self: Socket, backlog?: number): boolean, string
-  accept: function(self: Socket, flags?: number): Socket, number, number, string
+  listen: function(self: Socket, backlog: number): boolean, string
+  accept: function(self: Socket, flags: number): Socket, number, number, string
   connect: function(self: Socket, ip: number, port: number): boolean, string
 end
+
+local record NetMod
+  socket: function(number, number, number): Socket, string
+  listen_unix: function(string, number): Socket, string
+  poll: function({number:number}, number): {number:number}, string
+  parseip: function(string): number, string
+  AF_INET: number
+  AF_UNIX: number
+  SOCK_STREAM: number
+  SOCK_NONBLOCK: number
+  POLLIN: number
+  POLLERR: number
+  POLLHUP: number
+  POLLNVAL: number
+end
+
+local net = require("cosmic.net") as NetMod
 
 local record M
   serve: function(string): integer
@@ -156,7 +172,7 @@ local function handle_client(client: Socket)
     return
   end
 
-  local upstream, sock_err = net.socket(net.AF_INET, net.SOCK_STREAM) as (Socket, string)
+  local upstream, sock_err = net.socket(net.AF_INET, net.SOCK_STREAM | net.SOCK_NONBLOCK, 0)
   if not upstream then
     log("socket failed:", sock_err)
     client:send("HTTP/1.1 502 Bad Gateway\r\n\r\nSocket creation failed\r\n")
@@ -183,9 +199,9 @@ end
 function M.serve(socket_path: string): integer
   fs.unlink(socket_path)
 
-  local server, sock_err = net.listen_unix(socket_path) as (Socket, string)
+  local server, srv_err = net.listen_unix(socket_path, 128)
   if not server then
-    io.stderr:write("error: failed to listen on " .. socket_path .. ": " .. (sock_err or "") .. "\n")
+    io.stderr:write("error: failed to listen on " .. socket_path .. ": " .. (srv_err or "") .. "\n")
     return 1
   end
 
@@ -196,7 +212,7 @@ function M.serve(socket_path: string): integer
   -- Note: forked children become zombies until the proxy is killed.
   -- Acceptable since proxy lifetime is bounded by the work session.
   while true do
-    local client = server:accept(0) as Socket
+    local client = server:accept(net.SOCK_NONBLOCK)
     if client then
       local pid = child.fork()
       if pid == 0 then
