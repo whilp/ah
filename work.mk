@@ -52,6 +52,7 @@ $(plan): $(is_doing) $(picked_issue) $(AH)
 	@cp $(picked_issue) $(o)/work/plan/issue.json
 	@echo "==> plan"
 	@timeout 180 $(AH) -n \
+		--sandbox \
 		--skill plan \
 		--must-produce $@ \
 		--max-tokens 50000 \
@@ -62,6 +63,7 @@ $(do_done): $(plan) $(picked_issue) $(AH)
 	@mkdir -p $(@D)
 	@echo "==> do"
 	@timeout 300 $(AH) -n \
+		--sandbox \
 		--skill do \
 		--max-tokens 100000 \
 		--unveil $(o)/work/plan:r \
@@ -79,6 +81,7 @@ $(check_done): $(push_done) $(plan) $(AH)
 	@mkdir -p $(@D)
 	@echo "==> check"
 	@timeout 180 $(AH) -n \
+		--sandbox \
 		--skill check \
 		--max-tokens 50000 \
 		--unveil $(o)/work/plan:r \

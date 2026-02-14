@@ -23,6 +23,7 @@ for attempt in $(seq 1 "$max_retries"); do
     mkdir -p o/work/fix
 
     timeout 300 "$ah" -n \
+        --sandbox \
         --skill fix \
         --max-tokens 100000 \
         --unveil o/work/plan:r \
@@ -38,6 +39,7 @@ for attempt in $(seq 1 "$max_retries"); do
     mkdir -p o/work/check
 
     timeout 180 "$ah" -n \
+        --sandbox \
         --skill check \
         --max-tokens 50000 \
         --unveil o/work/plan:r \
