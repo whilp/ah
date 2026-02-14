@@ -1,3 +1,4 @@
+#!/usr/bin/env cosmic
 -- lib/work/work.tl: work pipeline commands
 --
 -- subcommands:

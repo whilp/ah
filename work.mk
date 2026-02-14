@@ -12,6 +12,9 @@ MAX_PRS ?= 4
 AH := $(o)/bin/ah
 work_tl := lib/work/work.tl
 
+# put o/bin on PATH so shebangs (#!/usr/bin/env cosmic) work
+export PATH := $(CURDIR)/$(o)/bin:$(PATH)
+
 # detect the remote default branch
 # in CI: DEFAULT_BRANCH is set by the workflow from github.event.repository.default_branch
 # locally: fall back to git symbolic-ref, then origin/main
@@ -43,23 +46,23 @@ act_done := $(o)/work/act/done
 
 $(o)/work/labels.ok: $(work_tl) $(cosmic)
 	@mkdir -p $(@D)
-	@$(cosmic) $(work_tl) labels > $@
+	@$(work_tl) labels > $@
 
 $(o)/work/pr-limit.ok: $(work_tl) $(cosmic)
 	@mkdir -p $(@D)
-	@$(cosmic) $(work_tl) pr-limit > $@
+	@$(work_tl) pr-limit > $@
 
 $(all_issues): $(o)/work/labels.ok $(o)/work/pr-limit.ok $(work_tl) $(cosmic)
 	@mkdir -p $(@D)
-	@$(cosmic) $(work_tl) issues > $@
+	@$(work_tl) issues > $@
 
 $(picked_issue): $(all_issues) $(work_tl) $(cosmic)
 	@mkdir -p $(@D)
-	@$(cosmic) $(work_tl) issue > $@
+	@$(work_tl) issue > $@
 
 $(is_doing): $(picked_issue) $(work_tl) $(cosmic)
 	@mkdir -p $(@D)
-	@$(cosmic) $(work_tl) doing > $@
+	@$(work_tl) doing > $@
 
 # --- agent targets ---
 
@@ -125,7 +128,7 @@ $(check_done): $(push_done) $(plan) $(AH)
 $(act_done): $(check_done) $(picked_issue) $(work_tl) $(cosmic)
 	@mkdir -p $(@D)
 	@echo "==> act"
-	@$(cosmic) $(work_tl) act --issue $(picked_issue) \
+	@$(work_tl) act --issue $(picked_issue) \
 		--actions $(o)/work/check/actions.json
 	@touch $@
 
