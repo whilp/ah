@@ -63,7 +63,9 @@ local selected = issues[1]
 
 -- short hash of issue content + timestamp for unique branch names across runs
 local hash = require("cosmic.hash")
-local seed = tostring(selected.number) .. (selected.title or "") .. (selected.body or "") .. tostring(os.time())
+local time = require("cosmic.time")
+local sec, nsec = time.now()
+local seed = tostring(selected.number) .. (selected.title or "") .. (selected.body or "") .. tostring(sec) .. tostring(nsec)
 local suffix = hash.sha256_hex(seed):sub(1, 8)
 
 local issue = {
