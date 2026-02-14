@@ -665,8 +665,9 @@ end
 -- CLI display handler: renders structured events to stderr/stdout for terminal use.
 -- This is the application-layer implementation of the event callback.
 -- Other handlers (JSON logging, web UI, etc.) can be substituted.
-local function make_cli_handler(): events.EventCallback
+local function make_cli_handler(skill_name: string): events.EventCallback
   local is_tty = tty.isatty(2)
+  local is_ci = os.getenv("GITHUB_ACTIONS") == "true"
   local DIM = is_tty and "\27[2m" or ""
   local RESET = is_tty and "\27[0m" or ""
   local has_text = false
@@ -685,6 +686,10 @@ local function make_cli_handler(): events.EventCallback
     local t = event.event_type
 
     if t == "agent_start" then
+      if is_ci and skill_name then
+        io.stdout:write("::group::" .. skill_name .. "\n")
+        io.stdout:flush()
+      end
       -- In non-interactive mode, echo the prompt for clarity
       if not is_tty and event.prompt then
         io.stderr:write(">>> " .. event.prompt .. "\n")
@@ -707,13 +712,22 @@ local function make_cli_handler(): events.EventCallback
       if total_in > 0 or total_out > 0 then
         io.stderr:write(string.format("%s%s in / %s out (%s total)%s\n", DIM, format_tokens(total_in), format_tokens(total_out), format_tokens(total_in + total_out), RESET))
       end
+      if is_ci and skill_name then
+        io.stdout:write("::endgroup::\n")
+        io.stdout:flush()
+      end
 
     elseif t == "budget_exceeded" then
       local total = (event.total_input_tokens or 0) + (event.total_output_tokens or 0)
       io.stderr:write(string.format("\ntoken budget exceeded (%d/%d tokens)\n", total, event.max_tokens or 0))
 
     elseif t == "error" then
-      io.stderr:write("\nerror: " .. (event.error or "unknown") .. "\n")
+      local msg = event.error or "unknown"
+      io.stderr:write("\nerror: " .. msg .. "\n")
+      if is_ci then
+        io.stdout:write("::error::" .. msg .. "\n")
+        io.stdout:flush()
+      end
 
     elseif t == "api_call_end" then
       -- Flush buffered agent response text now that the response is complete
@@ -789,6 +803,8 @@ local record ParsedArgs
   timeout: integer
   allow_hosts: {string}
   unveil_dirs: {string}
+  skill: string
+  must_produce: string
   remaining: {string}
 end
 
@@ -815,6 +831,8 @@ local function parse_args(args: {string}): ParsedArgs, string
     {name = "timeout", has_arg = "required"},
     {name = "allow-host", has_arg = "required"},
     {name = "unveil", has_arg = "required"},
+    {name = "skill", has_arg = "required"},
+    {name = "must-produce", has_arg = "required"},
   }
 
   -- Use + prefix for POSIX mode: stop parsing options at first non-option arg.
@@ -852,6 +870,10 @@ local function parse_args(args: {string}): ParsedArgs, string
       table.insert(result.allow_hosts, optarg)
     elseif opt == "unveil" then
       table.insert(result.unveil_dirs, optarg)
+    elseif opt == "skill" then
+      result.skill = optarg
+    elseif opt == "must-produce" then
+      result.must_produce = optarg
     elseif opt == "?" then
       return nil, "unknown"
     end
@@ -1467,7 +1489,7 @@ local function main(args: {string}): integer, string
     prompt = input
     -- Trim trailing newline
     prompt = prompt:gsub("%s+$", "")
-    if prompt == "" then
+    if prompt == "" and not parsed.skill then
       usage()
       queue.close(qdb)
       db.close(d)
@@ -1477,6 +1499,11 @@ local function main(args: {string}): integer, string
 
   -- Load skills
   local loaded_skills = skills.load_skills()
+
+  -- --skill flag: prepend /skill:<name> to prompt
+  if parsed.skill then
+    prompt = "/skill:" .. parsed.skill .. "\n" .. prompt
+  end
 
   -- Expand /skill: invocations first
   local skill_expanded, was_skill = skills.expand_skill(prompt, loaded_skills)
@@ -1500,6 +1527,11 @@ local function main(args: {string}): integer, string
   local skills_prompt = skills.format_skills_for_prompt(loaded_skills)
   if skills_prompt ~= "" then
     effective_system = effective_system .. "\n\n" .. skills_prompt
+  end
+
+  -- Reinforce must-produce in system prompt
+  if parsed.must_produce then
+    effective_system = effective_system .. "\n\nIMPORTANT: You must write the file `" .. parsed.must_produce .. "` before finishing."
   end
 
   -- Initialize custom tools
@@ -1530,10 +1562,13 @@ local function main(args: {string}): integer, string
   local effective_model = api.resolve_model(model)
 
   -- Run agent with CLI event handler
-  local on_event = make_cli_handler()
+  local on_event = make_cli_handler(parsed.skill)
   local agent_opts: loop.AgentOpts = {}
   if max_tokens then
     agent_opts.max_tokens = max_tokens
+  end
+  if parsed.must_produce then
+    agent_opts.must_produce = parsed.must_produce
   end
   local stop_reason = loop.run_agent(d, qdb, effective_system, effective_model, prompt, parent_id, on_event, agent_opts)
 

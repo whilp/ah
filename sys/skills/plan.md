@@ -9,14 +9,12 @@ You are planning a work item. Research the codebase and write a plan.
 
 ## Environment
 
-- Working directory: `{repo_root}`
+- Working directory: current directory
 - Only paths under the working directory are accessible.
 
 ## Issue
 
-**{title}**
-
-{body}
+The issue JSON follows this prompt after a `---` separator. Fields: `number`, `title`, `body`, `url`.
 
 ## Instructions
 
@@ -40,7 +38,7 @@ If you cannot identify BOTH a clear goal AND an entry point, write ONLY
 
 Write `o/work/plan/plan.md`:
 
-    # Plan: {title}
+    # Plan: <issue title>
 
     ## Context
     <gathered context from files, inline>
@@ -59,7 +57,7 @@ Write `o/work/plan/plan.md`:
     <what could go wrong, edge cases, things to verify>
 
     ## Target
-    - Branch: work/{issue_number}-{slug}
+    - Branch: work/<issue_number>-<slug>
 
     ## Commit
     <commit message>

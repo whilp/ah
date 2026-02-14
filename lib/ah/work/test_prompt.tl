@@ -242,40 +242,4 @@ local function test_plan_prompt_includes_repo_root()
 end
 test_plan_prompt_includes_repo_root()
 
--- Test do.md skill prompt contains {repo_root} placeholder
-local function test_do_skill_has_repo_root()
-  local f = io.open("sys/skills/do.md", "r")
-  assert(f, "should be able to read sys/skills/do.md")
-  local content = f:read("*a")
-  f:close()
-  assert(content:find("{repo_root}", 1, true),
-    "do.md should contain {repo_root} placeholder")
-  print("✓ do.md skill prompt contains {repo_root} placeholder")
-end
-test_do_skill_has_repo_root()
-
--- Test plan.md skill prompt contains {repo_root} placeholder
-local function test_plan_skill_has_repo_root()
-  local f = io.open("sys/skills/plan.md", "r")
-  assert(f, "should be able to read sys/skills/plan.md")
-  local content = f:read("*a")
-  f:close()
-  assert(content:find("{repo_root}", 1, true),
-    "plan.md should contain {repo_root} placeholder")
-  print("✓ plan.md skill prompt contains {repo_root} placeholder")
-end
-test_plan_skill_has_repo_root()
-
--- Test fix.md skill prompt contains {repo_root} placeholder
-local function test_fix_skill_has_repo_root()
-  local f = io.open("sys/skills/fix.md", "r")
-  assert(f, "should be able to read sys/skills/fix.md")
-  local content = f:read("*a")
-  f:close()
-  assert(content:find("{repo_root}", 1, true),
-    "fix.md should contain {repo_root} placeholder")
-  print("✓ fix.md skill prompt contains {repo_root} placeholder")
-end
-test_fix_skill_has_repo_root()
-
 print("\nAll work-prompt tests passed!")

@@ -5,33 +5,30 @@ description: Fix issues found during review. Address check feedback, re-validate
 
 # Fix
 
-You are fixing issues found during review. Follow the plan and address the feedback below.
+You are fixing issues found during review. Follow the plan and address the feedback.
 
 ## Environment
 
-- Working directory: `{repo_root}`
+- Working directory: current directory
 
-## Plan
+## Setup
 
-{plan.md contents}
+Read `o/work/plan/plan.md` for the plan. Read `o/work/check/check.md` for the review feedback.
 
-## Review feedback
-
-{check.md contents}
+The issue JSON follows this prompt with fields: `number`, `title`, `body`, `url`, `branch`.
 
 ## Instructions
 
-1. Switch to the feature branch: `git checkout {branch}`
-2. Fix the issues described in the review feedback
-3. Run validation steps from the plan
-4. Stage specific files (not `git add -A`)
-5. Commit with a message describing the fixes
+1. Fix the issues described in the review feedback
+2. Run validation steps from the plan
+3. Stage specific files (not `git add -A`)
+4. Commit with a message describing the fixes
 
 ## Output
 
 Write `o/work/fix/do.md`:
 
-    # Fix: {title}
+    # Fix: <issue title>
 
     ## Changes
     <list of files changed>

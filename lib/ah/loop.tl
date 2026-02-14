@@ -135,6 +135,7 @@ end
 -- Options for run_agent
 local record AgentOpts
   max_tokens: integer  -- Optional token budget (input + output combined). Stop with budget_exceeded when exceeded.
+  must_produce: string  -- Optional file path that must exist when agent finishes. Retries once with a reminder.
 end
 
 -- Send prompt and run agent loop
@@ -146,6 +147,8 @@ end
 local function run_agent(d: db.DB, qdb: queue.QueueDB, system_prompt: string, model: string, prompt: string, parent_id: string, on_event: events.EventCallback, opts: AgentOpts): string
   opts = opts or {}
   local max_tokens = opts.max_tokens
+  local must_produce = opts.must_produce
+  local must_produce_reminded = false
 
   -- Load credentials to determine if OAuth mode
   local creds, creds_err = auth.load_credentials()
@@ -535,6 +538,31 @@ local function run_agent(d: db.DB, qdb: queue.QueueDB, system_prompt: string, mo
         end
       end
 
+      -- Check must_produce: if file doesn't exist, remind once then continue
+      if must_produce and not must_produce_reminded then
+        local f = io.open(must_produce, "r")
+        if f then
+          f:close()
+        else
+          must_produce_reminded = true
+          local reminder = "You must write the file `" .. must_produce .. "` before finishing. Please produce it now."
+
+          -- Create reminder user message
+          db.begin_transaction(d)
+          local reminder_msg = db.create_message(d, "user", assistant_msg.id)
+          db.add_content_block(d, reminder_msg.id, "text", {content = reminder})
+          db.commit(d)
+
+          table.insert(api_messages, {
+            role = "user",
+            content = {{type = "text", text = reminder}},
+          })
+
+          user_msg = reminder_msg
+          goto continue_loop
+        end
+      end
+
       final_stop_reason = resp.stop_reason as string or "end_turn"
       break  -- Done, no tool calls and no followup
     end
@@ -752,6 +780,17 @@ local function run_agent(d: db.DB, qdb: queue.QueueDB, system_prompt: string, mo
 
   -- Log agent_end event to DB
   db.log_event(d, "agent_end", nil, events.to_json(events.agent_end(final_stop_reason, totals.input_tokens, totals.output_tokens, last_error)))
+
+  -- Check must_produce after agent ends
+  if must_produce then
+    local f = io.open(must_produce, "r")
+    if f then
+      f:close()
+    else
+      emit(on_event, events.error_event("must_produce: " .. must_produce .. " not created"))
+      return "error"
+    end
+  end
 
   return final_stop_reason
 end

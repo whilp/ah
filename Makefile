@@ -85,6 +85,9 @@ help:
 	@echo "  check-types         Run teal type checker on all files"
 	@echo "  ci                  Run tests and type checks"
 	@echo "  clean               Remove all build artifacts"
+	@echo ""
+	@echo "Work targets:"
+	@echo "  work                Run full PDCA work loop"
 
 .PHONY: test
 ## Run all tests (incremental)
@@ -157,6 +160,8 @@ $(o)/%.tl.teal.ok: %.tl $(cosmic)
 .PHONY: ci
 ## Run tests and type checks
 ci: test check-types
+
+include work.mk
 
 .PHONY: clean
 ## Remove all build artifacts
