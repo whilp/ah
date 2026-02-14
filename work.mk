@@ -16,19 +16,14 @@ DO_TIMEOUT := 300
 DO_MAX_TOKENS := 100000
 CHECK_TIMEOUT := 180
 CHECK_MAX_TOKENS := 50000
-FIX_TIMEOUT := 300
-FIX_MAX_TOKENS := 100000
 
 # shared env vars for all work scripts
 export WORK_REPO := $(REPO)
 export WORK_MAX_PRS := $(MAX_PRS)
-export WORK_O := $(o)/work
 export WORK_INPUT := $(o)/work/issues.json
 export WORK_ISSUE := $(o)/work/issue.json
 
 # named targets
-has_labels := $(o)/work/labels.ok
-below_wip_limit := $(o)/work/pr-limit.ok
 all_issues := $(o)/work/issues.json
 picked_issue := $(o)/work/issue.json
 is_doing := $(o)/work/doing.ok
@@ -52,7 +47,7 @@ $(o)/work/%.ok: lib/work/%.tl $(cosmic)
 
 # --- per-target dependencies (no recipes) ---
 
-$(all_issues): $(has_labels) $(below_wip_limit)
+$(all_issues): $(o)/work/labels.ok $(o)/work/pr-limit.ok
 $(picked_issue): $(all_issues)
 $(is_doing): $(picked_issue)
 
