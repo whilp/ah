@@ -1,8 +1,21 @@
 -- ah/proxy.tl: HTTP CONNECT proxy with destination allowlist
 -- Used by `ah proxy` subcommand for sandboxed network access
 
-local unix = require("cosmo.unix")
 local net = require("cosmic.net")
+local fs = require("cosmic.fs")
+local child = require("cosmic.child")
+
+local record Socket
+  fd: number
+  close: function(self: Socket): boolean
+  closed: function(self: Socket): boolean
+  send: function(self: Socket, data: string, flags?: number): number, string
+  recv: function(self: Socket, bufsiz?: number, flags?: number): string, string
+  bind_unix: function(self: Socket, path: string): boolean, string
+  listen: function(self: Socket, backlog?: number): boolean, string
+  accept: function(self: Socket, flags?: number): Socket, number, number, string
+  connect: function(self: Socket, ip: number, port: number): boolean, string
+end
 
 local record M
   serve: function(string): integer
@@ -61,17 +74,13 @@ local function parse_connect(request: string): string, string
   return host, port
 end
 
-local function relay(client_fd: number, upstream_fd: number)
+local function relay(client: Socket, upstream: Socket)
   local BUFSIZ = 65536
-
-  -- Set non-blocking
-  unix.fcntl(client_fd, unix.F_SETFL, unix.O_NONBLOCK)
-  unix.fcntl(upstream_fd, unix.F_SETFL, unix.O_NONBLOCK)
 
   while true do
     local fds: {number:number} = {
-      [client_fd] = net.POLLIN,
-      [upstream_fd] = net.POLLIN,
+      [client.fd] = net.POLLIN,
+      [upstream.fd] = net.POLLIN,
     }
 
     local revents, err = net.poll(fds, 30000)
@@ -80,8 +89,8 @@ local function relay(client_fd: number, upstream_fd: number)
       break
     end
 
-    local client_ev = revents[client_fd] or 0
-    local upstream_ev = revents[upstream_fd] or 0
+    local client_ev = revents[client.fd] or 0
+    local upstream_ev = revents[upstream.fd] or 0
 
     -- Timeout: no activity on either fd
     if client_ev == 0 and upstream_ev == 0 then
@@ -96,21 +105,21 @@ local function relay(client_fd: number, upstream_fd: number)
     end
 
     if client_ev & net.POLLIN ~= 0 then
-      local data = unix.read(client_fd, BUFSIZ)
+      local data = client:recv(BUFSIZ)
       if not data or data == "" then break end
-      unix.write(upstream_fd, data)
+      upstream:send(data)
     end
 
     if upstream_ev & net.POLLIN ~= 0 then
-      local data = unix.read(upstream_fd, BUFSIZ)
+      local data = upstream:recv(BUFSIZ)
       if not data or data == "" then break end
-      unix.write(client_fd, data)
+      client:send(data)
     end
   end
 end
 
-local function handle_client(client_fd: number)
-  local request = unix.read(client_fd, 4096)
+local function handle_client(client: Socket)
+  local request = client:recv(4096)
   if not request then
     log("failed to read request")
     return
@@ -119,7 +128,7 @@ local function handle_client(client_fd: number)
   local host, port = parse_connect(request)
   if not host then
     log("bad request:", (request as string):sub(1, 50))
-    unix.write(client_fd, "HTTP/1.1 400 Bad Request\r\n\r\nOnly CONNECT supported\r\n")
+    client:send("HTTP/1.1 400 Bad Request\r\n\r\nOnly CONNECT supported\r\n")
     return
   end
 
@@ -129,84 +138,74 @@ local function handle_client(client_fd: number)
 
   if not ALLOWLIST[dest] then
     log("BLOCKED", dest)
-    unix.write(client_fd, "HTTP/1.1 403 Forbidden\r\n\r\n")
+    client:send("HTTP/1.1 403 Forbidden\r\n\r\n")
     return
   end
 
   local ip_str = resolvehost(host)
   if not ip_str then
     log("DNS failed:", host)
-    unix.write(client_fd, "HTTP/1.1 502 Bad Gateway\r\n\r\nDNS resolution failed\r\n")
+    client:send("HTTP/1.1 502 Bad Gateway\r\n\r\nDNS resolution failed\r\n")
     return
   end
 
   local ip = net.parseip(ip_str)
   if not ip then
     log("invalid IP:", ip_str)
-    unix.write(client_fd, "HTTP/1.1 502 Bad Gateway\r\n\r\nInvalid IP\r\n")
+    client:send("HTTP/1.1 502 Bad Gateway\r\n\r\nInvalid IP\r\n")
     return
   end
 
-  local upstream_fd = unix.socket(unix.AF_INET, unix.SOCK_STREAM, 0)
-  if not upstream_fd or upstream_fd < 0 then
-    log("socket failed")
-    unix.write(client_fd, "HTTP/1.1 502 Bad Gateway\r\n\r\nSocket creation failed\r\n")
+  local upstream, sock_err = net.socket(net.AF_INET, net.SOCK_STREAM) as (Socket, string)
+  if not upstream then
+    log("socket failed:", sock_err)
+    client:send("HTTP/1.1 502 Bad Gateway\r\n\r\nSocket creation failed\r\n")
     return
   end
 
-  local ok = unix.connect(upstream_fd, ip, tonumber(port) as integer)
+  local ok, conn_err = upstream:connect(ip, tonumber(port) as integer)
   if not ok then
-    log("connect failed:", host, port)
-    unix.close(upstream_fd)
-    unix.write(client_fd, "HTTP/1.1 502 Bad Gateway\r\n\r\nConnection failed\r\n")
+    log("connect failed:", host, port, conn_err)
+    upstream:close()
+    client:send("HTTP/1.1 502 Bad Gateway\r\n\r\nConnection failed\r\n")
     return
   end
 
   log("ALLOWED", dest)
-  unix.write(client_fd, "HTTP/1.1 200 Connection Established\r\n\r\n")
+  client:send("HTTP/1.1 200 Connection Established\r\n\r\n")
 
-  relay(client_fd, upstream_fd)
-  unix.close(upstream_fd)
+  relay(client, upstream)
+  upstream:close()
 end
 
 -- Run proxy server on Unix socket
 -- Returns only on error
 function M.serve(socket_path: string): integer
-  unix.unlink(socket_path)
+  fs.unlink(socket_path)
 
-  local server_fd = unix.socket(unix.AF_UNIX, unix.SOCK_STREAM, 0)
-  if not server_fd or server_fd < 0 then
-    io.stderr:write("error: failed to create socket\n")
+  local server, sock_err = net.listen_unix(socket_path) as (Socket, string)
+  if not server then
+    io.stderr:write("error: failed to listen on " .. socket_path .. ": " .. (sock_err or "") .. "\n")
     return 1
   end
 
-  -- unix.bind is overloaded: inet bind(fd, ip, port) vs unix bind(fd, path)
-  -- Teal only sees the inet signature, so cast for the AF_UNIX variant
-  local ok = (unix.bind as function(number, string): boolean)(server_fd, socket_path)
-  if not ok then
-    io.stderr:write("error: failed to bind to " .. socket_path .. "\n")
-    unix.close(server_fd)
-    return 1
-  end
-
-  unix.chmod(socket_path, tonumber("600", 8))
-  unix.listen(server_fd, 128)
+  fs.chmod(socket_path, tonumber("600", 8))
 
   log("listening on", socket_path)
 
   -- Note: forked children become zombies until the proxy is killed.
   -- Acceptable since proxy lifetime is bounded by the work session.
   while true do
-    local client_fd = unix.accept(server_fd, 0)
-    if client_fd and client_fd >= 0 then
-      local pid = unix.fork()
+    local client = server:accept(0) as Socket
+    if client then
+      local pid = child.fork()
       if pid == 0 then
-        unix.close(server_fd)
-        handle_client(client_fd)
-        unix.close(client_fd)
+        server:close()
+        handle_client(client)
+        client:close()
         os.exit(0)
       else
-        unix.close(client_fd)
+        client:close()
       end
     end
   end
