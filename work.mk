@@ -74,9 +74,7 @@ $(do_done): $(plan) $(picked_issue) $(AH)
 $(push_done): $(do_done) $(picked_issue)
 	@mkdir -p $(@D)
 	@echo "==> push"
-	@branch=$$(grep -o '"branch":"[^"]*"' $(picked_issue) | cut -d'"' -f4) && \
-		git diff --quiet origin/main...HEAD || \
-		git push -u origin HEAD:$$branch
+	@git push -u origin HEAD:$$(grep -o '"branch":"[^"]*"' $(picked_issue) | cut -d'"' -f4)
 	@touch $@
 
 $(check_done): $(push_done) $(plan) $(AH)
