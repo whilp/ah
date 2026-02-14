@@ -22,28 +22,27 @@ for attempt in $(seq 1 "$max_retries"); do
 
     mkdir -p o/work/fix
 
-    # run fix agent
-    { echo '/skill:fix'; cat o/work/issue.json; } \
-    | timeout 300 "$ah" -n \
+    timeout 300 "$ah" -n \
+        --skill fix \
         --max-tokens 100000 \
         --unveil o/work/plan:r \
         --unveil o/work/do:r \
         --db o/work/fix/session.db \
+        < o/work/issue.json \
         || true
 
-    # push
     echo "==> push (fix)"
     "$cosmic" lib/work/push.tl
 
-    # re-check
     echo "==> check (after fix)"
     mkdir -p o/work/check
 
-    echo '/skill:check' \
-    | timeout 180 "$ah" -n \
+    timeout 180 "$ah" -n \
+        --skill check \
         --max-tokens 50000 \
         --unveil o/work/plan:r \
         --unveil o/work/do:r \
         --db o/work/check/session.db \
+        < /dev/null \
         || true
 done

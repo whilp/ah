@@ -789,6 +789,7 @@ local record ParsedArgs
   timeout: integer
   allow_hosts: {string}
   unveil_dirs: {string}
+  skill: string
   remaining: {string}
 end
 
@@ -815,6 +816,7 @@ local function parse_args(args: {string}): ParsedArgs, string
     {name = "timeout", has_arg = "required"},
     {name = "allow-host", has_arg = "required"},
     {name = "unveil", has_arg = "required"},
+    {name = "skill", has_arg = "required"},
   }
 
   -- Use + prefix for POSIX mode: stop parsing options at first non-option arg.
@@ -852,6 +854,8 @@ local function parse_args(args: {string}): ParsedArgs, string
       table.insert(result.allow_hosts, optarg)
     elseif opt == "unveil" then
       table.insert(result.unveil_dirs, optarg)
+    elseif opt == "skill" then
+      result.skill = optarg
     elseif opt == "?" then
       return nil, "unknown"
     end
@@ -1467,7 +1471,7 @@ local function main(args: {string}): integer, string
     prompt = input
     -- Trim trailing newline
     prompt = prompt:gsub("%s+$", "")
-    if prompt == "" then
+    if prompt == "" and not parsed.skill then
       usage()
       queue.close(qdb)
       db.close(d)
@@ -1477,6 +1481,11 @@ local function main(args: {string}): integer, string
 
   -- Load skills
   local loaded_skills = skills.load_skills()
+
+  -- --skill flag: prepend /skill:<name> to prompt
+  if parsed.skill then
+    prompt = "/skill:" .. parsed.skill .. "\n" .. prompt
+  end
 
   -- Expand /skill: invocations first
   local skill_expanded, was_skill = skills.expand_skill(prompt, loaded_skills)

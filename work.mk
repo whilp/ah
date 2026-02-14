@@ -62,20 +62,22 @@ $(plan): $(is_doing) $(picked_issue) $(AH)
 	@mkdir -p $(@D)
 	@cp $(picked_issue) $(o)/work/plan/issue.json
 	@echo "==> plan"
-	@{ echo '/skill:plan'; cat $(picked_issue); } \
-	| timeout $(PLAN_TIMEOUT) $(AH) -n \
+	@timeout $(PLAN_TIMEOUT) $(AH) -n \
+		--skill plan \
 		--max-tokens $(PLAN_MAX_TOKENS) \
-		--db $(o)/work/plan/session.db
+		--db $(o)/work/plan/session.db \
+		< $(picked_issue)
 	@test -s $@ || (echo "error: plan.md not created" >&2; exit 1)
 
 $(do_done): $(plan) $(picked_issue) $(AH)
 	@mkdir -p $(@D)
 	@echo "==> do"
-	@{ echo '/skill:do'; cat $(picked_issue); } \
-	| timeout $(DO_TIMEOUT) $(AH) -n \
+	@timeout $(DO_TIMEOUT) $(AH) -n \
+		--skill do \
 		--max-tokens $(DO_MAX_TOKENS) \
 		--unveil $(o)/work/plan:r \
-		--db $(o)/work/do/session.db
+		--db $(o)/work/do/session.db \
+		< $(picked_issue)
 	@touch $@
 
 $(push_done): $(do_done) $(picked_issue) $(cosmic)
@@ -87,12 +89,13 @@ $(push_done): $(do_done) $(picked_issue) $(cosmic)
 $(check_done): $(push_done) $(plan) $(AH)
 	@mkdir -p $(@D)
 	@echo "==> check"
-	@echo '/skill:check' \
-	| timeout $(CHECK_TIMEOUT) $(AH) -n \
+	@timeout $(CHECK_TIMEOUT) $(AH) -n \
+		--skill check \
 		--max-tokens $(CHECK_MAX_TOKENS) \
 		--unveil $(o)/work/plan:r \
 		--unveil $(o)/work/do:r \
-		--db $(o)/work/check/session.db
+		--db $(o)/work/check/session.db \
+		< /dev/null
 	@touch $@
 
 $(fix_done): $(check_done) $(cosmic)
