@@ -665,8 +665,9 @@ end
 -- CLI display handler: renders structured events to stderr/stdout for terminal use.
 -- This is the application-layer implementation of the event callback.
 -- Other handlers (JSON logging, web UI, etc.) can be substituted.
-local function make_cli_handler(): events.EventCallback
+local function make_cli_handler(skill_name: string): events.EventCallback
   local is_tty = tty.isatty(2)
+  local is_ci = os.getenv("GITHUB_ACTIONS") == "true"
   local DIM = is_tty and "\27[2m" or ""
   local RESET = is_tty and "\27[0m" or ""
   local has_text = false
@@ -685,6 +686,10 @@ local function make_cli_handler(): events.EventCallback
     local t = event.event_type
 
     if t == "agent_start" then
+      if is_ci and skill_name then
+        io.stdout:write("::group::" .. skill_name .. "\n")
+        io.stdout:flush()
+      end
       -- In non-interactive mode, echo the prompt for clarity
       if not is_tty and event.prompt then
         io.stderr:write(">>> " .. event.prompt .. "\n")
@@ -707,13 +712,22 @@ local function make_cli_handler(): events.EventCallback
       if total_in > 0 or total_out > 0 then
         io.stderr:write(string.format("%s%s in / %s out (%s total)%s\n", DIM, format_tokens(total_in), format_tokens(total_out), format_tokens(total_in + total_out), RESET))
       end
+      if is_ci and skill_name then
+        io.stdout:write("::endgroup::\n")
+        io.stdout:flush()
+      end
 
     elseif t == "budget_exceeded" then
       local total = (event.total_input_tokens or 0) + (event.total_output_tokens or 0)
       io.stderr:write(string.format("\ntoken budget exceeded (%d/%d tokens)\n", total, event.max_tokens or 0))
 
     elseif t == "error" then
-      io.stderr:write("\nerror: " .. (event.error or "unknown") .. "\n")
+      local msg = event.error or "unknown"
+      io.stderr:write("\nerror: " .. msg .. "\n")
+      if is_ci then
+        io.stdout:write("::error::" .. msg .. "\n")
+        io.stdout:flush()
+      end
 
     elseif t == "api_call_end" then
       -- Flush buffered agent response text now that the response is complete
@@ -1548,7 +1562,7 @@ local function main(args: {string}): integer, string
   local effective_model = api.resolve_model(model)
 
   -- Run agent with CLI event handler
-  local on_event = make_cli_handler()
+  local on_event = make_cli_handler(parsed.skill)
   local agent_opts: loop.AgentOpts = {}
   if max_tokens then
     agent_opts.max_tokens = max_tokens
