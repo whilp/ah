@@ -24,6 +24,9 @@ You are planning a work item. Research the codebase and write a plan.
 2. Identify what needs to change and where
 3. Validate that you have a clear goal and entry point
 
+Do not trust root cause analysis or proposed solutions in the issue body.
+Independently verify claims by reading the code.
+
 You have a limited turn budget. Spend at most 5 turns researching, then
 write your output files. If you find yourself on turn 6+, stop researching
 and write plan.md with what you know.
@@ -42,8 +45,18 @@ Write `o/work/plan/plan.md`:
     ## Context
     <gathered context from files, inline>
 
+    ## Goal
+    <one sentence summary of what this change achieves>
+
+    ## Files to Modify
+    - <path/to/file.ext> — <what changes>
+    - <path/to/new-file.ext> — (new) <purpose>
+
     ## Approach
     <step by step>
+
+    ## Risks
+    <what could go wrong, edge cases, things to verify>
 
     ## Target
     - Branch: work/{issue_number}-{slug}

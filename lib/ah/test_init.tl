@@ -37,6 +37,31 @@ local function test_load_claude_md_missing()
 end
 test_load_claude_md_missing()
 
+local function test_load_agents_md()
+  local cwd = fs.join(TEST_TMPDIR, "cwd_agents")
+  fs.makedirs(cwd)
+  cio.barf(fs.join(cwd, "AGENTS.md"), "# Agents\nDo things this way")
+
+  local content = init.load_claude_md(cwd)
+  assert(content:match("Agent Context"), "should have AGENTS.md header")
+  assert(content:match("Do things this way"), "should include AGENTS.md content")
+end
+test_load_agents_md()
+
+local function test_load_both_claude_and_agents_md()
+  local cwd = fs.join(TEST_TMPDIR, "cwd_both")
+  fs.makedirs(cwd)
+  cio.barf(fs.join(cwd, "CLAUDE.md"), "claude context")
+  cio.barf(fs.join(cwd, "AGENTS.md"), "agents context")
+
+  local content = init.load_claude_md(cwd)
+  assert(content:match("Project Context"), "should have CLAUDE.md header")
+  assert(content:match("claude context"), "should include CLAUDE.md content")
+  assert(content:match("Agent Context"), "should have AGENTS.md header")
+  assert(content:match("agents context"), "should include AGENTS.md content")
+end
+test_load_both_claude_and_agents_md()
+
 local function test_load_system_prompt_with_claude_md()
   local cwd = fs.join(TEST_TMPDIR, "cwd_with_claude")
   fs.makedirs(cwd)
