@@ -1,15 +1,15 @@
 #!/usr/bin/env cosmic
 -- lib/work/work.tl: work pipeline commands
 --
--- subcommands:
+-- subcommands (all write json to stdout):
 --   labels      ensure required labels exist
 --   pr-limit    exit 1 if too many open PRs
---   issues      fetch open todo issues as json (stdout)
---   issue       pick highest priority issue from issues.json (stdout)
+--   issues      fetch open todo issues
+--   issue       pick highest priority issue from issues.json
 --   doing       transition issue label from todo to doing
 --   act         execute actions from check phase
 --
--- env vars: WORK_REPO, WORK_MAX_PRS, WORK_INPUT, WORK_ISSUE
+-- env vars: WORK_REPO, WORK_MAX_PRS, WORK_INPUT, WORK_ISSUE, WORK_ACTIONS
 
 local json = require("cosmic.json")
 
@@ -40,6 +40,10 @@ local function require_env(name: string): string
    return v
 end
 
+local function emit_ok()
+   io.write("{}")
+end
+
 -- --- subcommands ---
 
 local commands: {string: function()}
@@ -51,6 +55,7 @@ commands = {
       for _, label in ipairs(labels) do
          os.execute("gh label create " .. label .. " --repo " .. repo .. " --force 2>/dev/null")
       end
+      emit_ok()
    end,
 
    ["pr-limit"] = function()
@@ -69,13 +74,15 @@ commands = {
       local prs = json.decode(out) as {any}
       if not prs then
          io.stderr:write("warning: could not parse PR list\n")
-         os.exit(0)
+         emit_ok()
+         return
       end
 
       if #prs > max_prs then
          io.stderr:write("pr limit reached: " .. tostring(#prs) .. " open PRs (max " .. tostring(max_prs) .. ")\n")
          os.exit(1)
       end
+      emit_ok()
    end,
 
    issues = function()
@@ -186,6 +193,7 @@ commands = {
 
       io.stderr:write("transitioning issue to doing: " .. url .. "\n")
       os.execute("gh issue edit '" .. url .. "' --remove-label todo --add-label doing")
+      emit_ok()
    end,
 
    act = function()
@@ -194,23 +202,8 @@ commands = {
          return url:match("/issues/(%d+)")
       end
 
-      -- parse --issue and --actions from remaining args
-      local issue_file: string
-      local actions_file: string
-      local i = 2  -- skip subcommand
-      while i <= #arg do
-         if arg[i] == "--issue" or arg[i] == "-i" then
-            i = i + 1; issue_file = arg[i]
-         elseif arg[i] == "--actions" or arg[i] == "-a" then
-            i = i + 1; actions_file = arg[i]
-         end
-         i = i + 1
-      end
-
-      if not issue_file or not actions_file then
-         io.stderr:write("usage: work.tl act --issue <issue.json> --actions <actions.json>\n")
-         os.exit(1)
-      end
+      local issue_file = require_env("WORK_ISSUE")
+      local actions_file = require_env("WORK_ACTIONS")
 
       local issue_raw = read_file(issue_file)
       if not issue_raw then
@@ -282,6 +275,7 @@ commands = {
       else
          run("gh issue edit '" .. issue_url .. "' --add-label failed")
       end
+      emit_ok()
    end,
 }
 

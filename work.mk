@@ -3,6 +3,10 @@
 # implements the PDCA work loop as make targets:
 #   preflight -> issues.json -> issue.json -> plan -> do -> push -> check -> act
 #
+# convention: work.tl subcommands read WORK_* env vars and write json to
+# stdout. a single pattern rule provides the recipe; dependency-only rules
+# add per-target prerequisites.
+#
 # convergence: check writes o/work/do/feedback.md when verdict is needs-fixes.
 # since do depends on feedback.md, the next make run re-executes do -> push -> check.
 # the caller runs `make work` which loops until convergence or a retry limit.
@@ -27,46 +31,37 @@ export WORK_MAX_PRS := $(MAX_PRS)
 export WORK_DEFAULT_BRANCH := $(DEFAULT_BRANCH)
 export WORK_INPUT := $(o)/work/issues.json
 export WORK_ISSUE := $(o)/work/issue.json
+export WORK_ACTIONS := $(o)/work/check/actions.json
 
 # named targets
 all_issues := $(o)/work/issues.json
 picked_issue := $(o)/work/issue.json
-is_doing := $(o)/work/doing.ok
+doing := $(o)/work/doing.json
 plan := $(o)/work/plan/plan.md
 feedback := $(o)/work/do/feedback.md
 on_branch := $(o)/work/branch.ok
 do_done := $(o)/work/do/done
 push_done := $(o)/work/push/done
 check_done := $(o)/work/check/done
-act_done := $(o)/work/act/done
+act_done := $(o)/work/act.json
 
 .DELETE_ON_ERROR:
 
-# --- preflight targets ---
+# --- preflight ---
 
-$(o)/work/labels.ok: $(work_tl) $(cosmic)
+# pattern: run work.tl subcommand, capture json stdout to output file
+$(o)/work/%.json: $(work_tl) $(cosmic)
 	@mkdir -p $(@D)
-	@$(work_tl) labels > $@
+	@$(work_tl) $* > $@
 
-$(o)/work/pr-limit.ok: $(work_tl) $(cosmic)
-	@mkdir -p $(@D)
-	@$(work_tl) pr-limit > $@
-
-$(all_issues): $(o)/work/labels.ok $(o)/work/pr-limit.ok $(work_tl) $(cosmic)
-	@mkdir -p $(@D)
-	@$(work_tl) issues > $@
-
-$(picked_issue): $(all_issues) $(work_tl) $(cosmic)
-	@mkdir -p $(@D)
-	@$(work_tl) issue > $@
-
-$(is_doing): $(picked_issue) $(work_tl) $(cosmic)
-	@mkdir -p $(@D)
-	@$(work_tl) doing > $@
+# per-target dependencies (no recipes)
+$(all_issues): $(o)/work/labels.json $(o)/work/pr-limit.json
+$(picked_issue): $(all_issues)
+$(doing): $(picked_issue)
 
 # --- agent targets ---
 
-$(plan): $(is_doing) $(picked_issue) $(AH)
+$(plan): $(doing) $(picked_issue) $(AH)
 	@mkdir -p $(@D)
 	@cp $(picked_issue) $(o)/work/plan/issue.json
 	@echo "==> plan"
@@ -125,12 +120,8 @@ $(check_done): $(push_done) $(plan) $(AH)
 		< /dev/null
 	@touch $@
 
-$(act_done): $(check_done) $(picked_issue) $(work_tl) $(cosmic)
-	@mkdir -p $(@D)
-	@echo "==> act"
-	@$(work_tl) act --issue $(picked_issue) \
-		--actions $(o)/work/check/actions.json
-	@touch $@
+# act uses the pattern rule; add dependencies here
+$(act_done): $(check_done) $(picked_issue)
 
 # work: converge on act_done, retrying up to 3 times.
 # each attempt rebuilds the full chain (do -> push -> check -> act).
