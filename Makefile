@@ -158,6 +158,8 @@ $(o)/%.tl.teal.ok: %.tl $(cosmic)
 ## Run tests and type checks
 ci: test check-types
 
+include work.mk
+
 .PHONY: clean
 ## Remove all build artifacts
 clean:
