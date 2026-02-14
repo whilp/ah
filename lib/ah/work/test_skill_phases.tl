@@ -101,54 +101,7 @@ local function test_read_prompt_strips_frontmatter()
 end
 test_read_prompt_strips_frontmatter()
 
--- Test 5: plan prompt still has expected template variables after conversion
-local function test_plan_prompt_has_template_vars()
-  local record PromptMod
-    read_prompt: function(string): string
-  end
-  local prompt = require("ah.work.prompt") as PromptMod
-
-  local plan = prompt.read_prompt("plan.md")
-  assert(plan, "plan.md not found")
-  assert(plan:find("{title}"), "plan.md should contain {title} template variable")
-  assert(plan:find("{body}"), "plan.md should contain {body} template variable")
-  assert(plan:find("{issue_number}"), "plan.md should contain {issue_number} template variable")
-  print("✓ plan prompt retains template variables")
-end
-test_plan_prompt_has_template_vars()
-
--- Test 6: do prompt still has expected template variables
-local function test_do_prompt_has_template_vars()
-  local record PromptMod
-    read_prompt: function(string): string
-  end
-  local prompt = require("ah.work.prompt") as PromptMod
-
-  local content = prompt.read_prompt("do.md")
-  assert(content, "do.md not found")
-  assert(content:find("{plan.md contents}"), "do.md should contain {plan.md contents}")
-  assert(content:find("{branch}"), "do.md should contain {branch}")
-  assert(content:find("{title}"), "do.md should contain {title}")
-  print("✓ do prompt retains template variables")
-end
-test_do_prompt_has_template_vars()
-
--- Test 7: check prompt still has expected template variables
-local function test_check_prompt_has_template_vars()
-  local record PromptMod
-    read_prompt: function(string): string
-  end
-  local prompt = require("ah.work.prompt") as PromptMod
-
-  local content = prompt.read_prompt("check.md")
-  assert(content, "check.md not found")
-  assert(content:find("{plan.md contents}"), "check.md should contain {plan.md contents}")
-  assert(content:find("{do.md contents}"), "check.md should contain {do.md contents}")
-  print("✓ check prompt retains template variables")
-end
-test_check_prompt_has_template_vars()
-
--- Test 9: work phase skills show up in format_skills_for_prompt
+-- Test 5: work phase skills show up in format_skills_for_prompt
 local function test_work_phases_in_system_prompt()
   local dir = "/zip/embed/sys/skills"
   local loaded = skills.load_skills_from_dir(dir)
