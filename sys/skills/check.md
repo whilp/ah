@@ -81,4 +81,8 @@ Action rules:
 
 Write `o/work/check/update.md`: 2-4 line summary.
 
+If verdict is "needs-fixes", copy the critical and warning issues into
+`o/work/do/feedback.md` so the do phase can address them on re-run.
+If verdict is "pass" or "fail", write an empty `o/work/do/feedback.md`.
+
 Do NOT modify any source files.
