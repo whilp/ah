@@ -104,10 +104,11 @@ local record PromptMod
   read_prompt_template: function(string): string
   interpolate_prompt: function(string, {string:string}): string
   plan_diagnostic: function(string): string
-  build_do_prompt: function(string, string, string, string): string
+  build_do_prompt: function(string, string, string, string, string): string
   build_check_prompt: function(string, string, string): string
-  build_fix_prompt: function(string, string, string, string, string): string
+  build_fix_prompt: function(string, string, string, string, string, string): string
   build_friction_prompt: function(string, string): string
+  build_plan_prompt: function(string, string, string, string): string
   make_friction_prompt: function(string): string
 end
 
@@ -202,6 +203,7 @@ local function phase_plan(no_sandbox: boolean, repo: string, issue_number: integ
     title = issue.title,
     body = issue.body or "",
     issue_number = tostring(issue.number),
+    repo_root = unix.getcwd() or ".",
   })
 
   util.log("plan prompt interpolated (" .. #tpl .. " bytes) for issue #" .. tostring(issue.number))
@@ -253,7 +255,7 @@ local function phase_do(no_sandbox: boolean, title: string, number: string, mode
 
   local branch = util.extract_branch(plan_contents, number)
 
-  tpl = prompt.build_do_prompt(tpl, title, plan_contents, branch)
+  tpl = prompt.build_do_prompt(tpl, title, plan_contents, branch, unix.getcwd() or ".")
 
   local friction = prompt.make_friction_prompt("o/work/do")
   local ok = sandbox.sandboxed_agent(no_sandbox, tpl, "o/work/do/session.db", {"o/work/plan"}, friction, sandbox.do_limits, model)
@@ -404,7 +406,7 @@ local function phase_fix(no_sandbox: boolean, title: string, number: string, mod
 
   local branch = util.extract_branch(plan_contents, number)
 
-  tpl = prompt.build_fix_prompt(tpl, title, plan_contents, check_contents, branch)
+  tpl = prompt.build_fix_prompt(tpl, title, plan_contents, check_contents, branch, unix.getcwd() or ".")
 
   local friction = prompt.make_friction_prompt("o/work/fix")
   local ok = sandbox.sandboxed_agent(no_sandbox, tpl, "o/work/fix/session.db", {"o/work/plan", "o/work/do"}, friction, sandbox.fix_limits, model)
