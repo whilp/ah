@@ -19,11 +19,10 @@ The issue JSON follows this prompt with fields: `number`, `title`, `body`, `url`
 
 ## Instructions
 
-1. Switch to the feature branch: `git checkout <branch>`
-2. Fix the issues described in the review feedback
-3. Run validation steps from the plan
-4. Stage specific files (not `git add -A`)
-5. Commit with a message describing the fixes
+1. Fix the issues described in the review feedback
+2. Run validation steps from the plan
+3. Stage specific files (not `git add -A`)
+4. Commit with a message describing the fixes
 
 ## Output
 

@@ -22,6 +22,7 @@ all_issues := $(o)/work/issues.json
 picked_issue := $(o)/work/issue.json
 is_doing := $(o)/work/doing.ok
 plan := $(o)/work/plan/plan.md
+on_branch := $(o)/work/branch.ok
 do_done := $(o)/work/do/done
 push_done := $(o)/work/push/done
 check_done := $(o)/work/check/done
@@ -59,7 +60,11 @@ $(plan): $(is_doing) $(picked_issue) $(AH)
 		--db $(o)/work/plan/session.db \
 		< $(picked_issue)
 
-$(do_done): $(plan) $(picked_issue) $(AH)
+$(on_branch): $(plan) $(picked_issue)
+	@git checkout -b $$(grep -o '"branch":"[^"]*"' $(picked_issue) | cut -d'"' -f4) origin/main
+	@touch $@
+
+$(do_done): $(on_branch) $(plan) $(picked_issue) $(AH)
 	@mkdir -p $(@D)
 	@echo "==> do"
 	@timeout 300 $(AH) -n \
@@ -71,10 +76,10 @@ $(do_done): $(plan) $(picked_issue) $(AH)
 		< $(picked_issue)
 	@touch $@
 
-$(push_done): $(do_done) $(picked_issue)
+$(push_done): $(do_done)
 	@mkdir -p $(@D)
 	@echo "==> push"
-	@git push -u origin HEAD:$$(grep -o '"branch":"[^"]*"' $(picked_issue) | cut -d'"' -f4)
+	@git push -u origin HEAD
 	@touch $@
 
 $(check_done): $(push_done) $(plan) $(AH)

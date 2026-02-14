@@ -33,7 +33,7 @@ for attempt in $(seq 1 "$max_retries"); do
         || true
 
     echo "==> push (fix)"
-    git push -u origin HEAD:"$(grep -o '"branch":"[^"]*"' o/work/issue.json | cut -d'"' -f4)"
+    git push -u origin HEAD
 
     echo "==> check (after fix)"
     mkdir -p o/work/check
