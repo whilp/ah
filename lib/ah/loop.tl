@@ -1,6 +1,7 @@
 -- ah/loop.tl: agent loop (tool dispatch, event emission)
 local json = require("cosmic.json")
-local unix = require("cosmo.unix")
+local time = require("cosmic.time")
+local cfs = require("cosmic.fs")
 local db = require("ah.db")
 local api = require("ah.api")
 local tools = require("ah.tools")
@@ -17,7 +18,7 @@ global interrupted: boolean
 local _cwd: string
 local function shorten_path(p: string): string
   if not _cwd then
-    _cwd = unix.getcwd() or ""
+    _cwd = cfs.getcwd() or ""
   end
   if _cwd ~= "" and p:sub(1, #_cwd) == _cwd then
     local rest = p:sub(#_cwd + 1)
@@ -36,7 +37,7 @@ local LOOP_BREAK_THRESHOLD = 5  -- Consecutive identical turns before forced bre
 
 -- Get monotonic time in seconds
 local function now(): number
-  local s, ns = unix.clock_gettime(unix.CLOCK_MONOTONIC)
+  local s, ns = time.monotonic()
   return s + ns / 1e9
 end
 
