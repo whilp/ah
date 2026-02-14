@@ -4,6 +4,7 @@
 local record Work
   main: function({string}): integer
   is_crash_signal: function(integer): boolean
+  count_open_prs: function(string): integer, string
 end
 
 local work = require("ah.work") as Work
@@ -141,5 +142,12 @@ local function test_work_dir_always_created()
   print("✓ o/work/summary.json created even when no issues")
 end
 test_work_dir_always_created()
+
+-- Test that count_open_prs is re-exported from work module
+local function test_count_open_prs_exported()
+  assert(type(work.count_open_prs) == "function", "count_open_prs should be re-exported from work module")
+  print("✓ count_open_prs is re-exported from work module")
+end
+test_count_open_prs_exported()
 
 print("\nAll work tests passed!")

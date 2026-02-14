@@ -68,6 +68,7 @@ local record IssueMod
   fetch_issues: function(string): {RawIssue}, string
   select_issue: function({RawIssue}): Issue
   fetch_issue: function(string, integer): Issue, string
+  count_open_prs: function(string): integer, string
   create_issue_from_prompt: function(string, string, function(string): string): integer, string
   transition_to_doing: function(string)
   update_labels: function(string, boolean)
@@ -823,6 +824,26 @@ local function main(args: {string}): integer
   -- Ensure required labels exist in the repository
   issue_mod.ensure_labels(repo)
 
+  -- Bail if too many open PRs
+  local pr_count, pr_err = issue_mod.count_open_prs(repo)
+  if pr_count and pr_count > 4 then
+    util.log("pr limit reached: " .. tostring(pr_count) .. " open PRs (max 4), bailing")
+    local work_dir_ok2, work_dir_err2 = ensure_dir("o/work")
+    if work_dir_ok2 then
+      local summary = {
+        status = "pr_limit",
+        pr_count = pr_count,
+        repo = repo,
+      }
+      util.write_file("o/work/summary.json", json.encode(summary) .. "\n")
+    else
+      io.stderr:write("error: " .. work_dir_err2 .. "\n")
+    end
+    return 0
+  elseif pr_err then
+    util.log("warning: could not count open PRs: " .. pr_err)
+  end
+
   -- Create issue from prompt template if specified
   if prompt_name then
     if issue_number then
@@ -987,6 +1008,7 @@ return {
   is_crash_signal = is_crash_signal,
   build_summary_comment = build_summary_comment,
   -- re-exported from submodules for backward compatibility
+  count_open_prs = issue_mod.count_open_prs,
   get_priority = issue_mod.get_priority,
   sort_issues = issue_mod.sort_issues,
   select_issue = issue_mod.select_issue,
