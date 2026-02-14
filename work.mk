@@ -10,12 +10,6 @@
 REPO ?= whilp/ah
 MAX_PRS ?= 4
 AH := $(o)/bin/ah
-PLAN_TIMEOUT := 180
-PLAN_MAX_TOKENS := 50000
-DO_TIMEOUT := 300
-DO_MAX_TOKENS := 100000
-CHECK_TIMEOUT := 180
-CHECK_MAX_TOKENS := 50000
 
 # shared env vars for all work scripts
 export WORK_REPO := $(REPO)
@@ -57,9 +51,9 @@ $(plan): $(is_doing) $(picked_issue) $(AH)
 	@mkdir -p $(@D)
 	@cp $(picked_issue) $(o)/work/plan/issue.json
 	@echo "==> plan"
-	@timeout $(PLAN_TIMEOUT) $(AH) -n \
+	@timeout 180 $(AH) -n \
 		--skill plan \
-		--max-tokens $(PLAN_MAX_TOKENS) \
+		--max-tokens 50000 \
 		--db $(o)/work/plan/session.db \
 		< $(picked_issue)
 	@test -s $@ || (echo "error: plan.md not created" >&2; exit 1)
@@ -67,9 +61,9 @@ $(plan): $(is_doing) $(picked_issue) $(AH)
 $(do_done): $(plan) $(picked_issue) $(AH)
 	@mkdir -p $(@D)
 	@echo "==> do"
-	@timeout $(DO_TIMEOUT) $(AH) -n \
+	@timeout 300 $(AH) -n \
 		--skill do \
-		--max-tokens $(DO_MAX_TOKENS) \
+		--max-tokens 100000 \
 		--unveil $(o)/work/plan:r \
 		--db $(o)/work/do/session.db \
 		< $(picked_issue)
@@ -84,9 +78,9 @@ $(push_done): $(do_done) $(picked_issue) $(cosmic)
 $(check_done): $(push_done) $(plan) $(AH)
 	@mkdir -p $(@D)
 	@echo "==> check"
-	@timeout $(CHECK_TIMEOUT) $(AH) -n \
+	@timeout 180 $(AH) -n \
 		--skill check \
-		--max-tokens $(CHECK_MAX_TOKENS) \
+		--max-tokens 50000 \
 		--unveil $(o)/work/plan:r \
 		--unveil $(o)/work/do:r \
 		--db $(o)/work/check/session.db \
