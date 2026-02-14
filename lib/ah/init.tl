@@ -237,6 +237,10 @@ options:
   --steer MSG         send steering message to running session
   --followup MSG      queue followup message for after session completes
   --max-tokens N      stop when cumulative tokens exceed N
+  --sandbox           run inside network sandbox (proxy + unveil + pledge)
+  --timeout N         wall-clock timeout in seconds
+  --allow-host H:P    allow egress to host:port (repeatable, default: api.anthropic.com:443)
+  --unveil PATH:PERM  set filesystem visibility (repeatable, perms: r/w/x/c)
 
 models:
 ]])
@@ -781,12 +785,19 @@ local record ParsedArgs
   steer_msg: string
   followup_msg: string
   max_tokens: integer
+  sandbox: boolean
+  timeout: integer
+  allow_hosts: {string}
+  unveil_dirs: {string}
   remaining: {string}
 end
 
 local function parse_args(args: {string}): ParsedArgs, string
   local result: ParsedArgs = {
     new_session = false,
+    sandbox = false,
+    allow_hosts = {},
+    unveil_dirs = {},
     remaining = {},
   }
 
@@ -800,6 +811,10 @@ local function parse_args(args: {string}): ParsedArgs, string
     {name = "steer", has_arg = "required"},
     {name = "followup", has_arg = "required"},
     {name = "max-tokens", has_arg = "required"},
+    {name = "sandbox", has_arg = "none"},
+    {name = "timeout", has_arg = "required"},
+    {name = "allow-host", has_arg = "required"},
+    {name = "unveil", has_arg = "required"},
   }
 
   -- Use + prefix for POSIX mode: stop parsing options at first non-option arg.
@@ -829,6 +844,14 @@ local function parse_args(args: {string}): ParsedArgs, string
       result.followup_msg = optarg
     elseif opt == "max-tokens" then
       result.max_tokens = tonumber(optarg) as integer
+    elseif opt == "sandbox" then
+      result.sandbox = true
+    elseif opt == "timeout" then
+      result.timeout = tonumber(optarg) as integer
+    elseif opt == "allow-host" then
+      table.insert(result.allow_hosts, optarg)
+    elseif opt == "unveil" then
+      table.insert(result.unveil_dirs, optarg)
     elseif opt == "?" then
       return nil, "unknown"
     end
@@ -849,13 +872,64 @@ local function parse_protect_dirs(value: string): {string}
   return dirs
 end
 
+-- Parse an --unveil entry: "path:perms" or just "path" (defaults to "r").
+-- Returns path, perms.
+local function parse_unveil_entry(entry: string): string, string
+  local path, perms = entry:match("^(.+):([rwxc]+)$")
+  if path and perms then
+    return path, perms
+  end
+  -- No perms suffix, default to read-only
+  return entry, "r"
+end
+
+-- Record types for sandbox supervisor mode (lazy-loaded modules)
+local record SandboxCtx
+  enabled: boolean
+  socket_path: string
+  proxy_pid: number
+  tmpdir: string
+end
+
+local record WorkSandboxMod
+  start_sandbox: function(): SandboxCtx, string
+  stop_sandbox: function(SandboxCtx)
+end
+
+local record WorkUtilMod
+  ah_exe: function(): string
+  setup_git_env: function({string})
+  env_set: function({string}, string, string)
+end
+
+local record EnvMod
+  all: function(): {string}
+end
+
+local record FetchMod
+  unix_proxy: function(string): string, string
+end
+
+local record ChildMod
+  spawn: function({string}, {string:any}): ChildHandle, string
+end
+
+local record ChildHandle
+  stderr: StderrHandle
+  read: function(ChildHandle): boolean, string, string
+end
+
+local record StderrHandle
+  read: function(StderrHandle): string
+end
+
 local function main(args: {string}): integer, string
   -- Enable core dumps for crash debugging
   -- RLIMIT_CORE = 4 on Linux, RLIM_INFINITY = -1
   unix.setrlimit(4, -1, -1)
 
   -- Sandbox mode: when AH_SANDBOX=1, restrict capabilities
-  -- Used by work.tl to run ah with limited network access
+  -- Used by work.tl and --sandbox flag to run ah with limited network access
   if os.getenv("AH_SANDBOX") then
     -- Unveil: restrict filesystem visibility
     local cwd_for_unveil = fs.getcwd()
@@ -864,6 +938,18 @@ local function main(args: {string}): integer, string
     local protect = parse_protect_dirs(os.getenv("AH_PROTECT_DIRS"))
     for _, dir in ipairs(protect) do
       sandbox.unveil(cwd_for_unveil .. "/" .. dir, "r")
+    end
+    -- Custom unveil entries from AH_UNVEIL (comma-separated path:perms)
+    local unveil_env = os.getenv("AH_UNVEIL")
+    if unveil_env then
+      for entry in unveil_env:gmatch("[^,]+") do
+        local u_path, u_perms = parse_unveil_entry(entry)
+        if u_path:sub(1, 1) == "/" then
+          sandbox.unveil(u_path, u_perms)
+        else
+          sandbox.unveil(cwd_for_unveil .. "/" .. u_path, u_perms)
+        end
+      end
     end
     sandbox.unveil("/tmp", "rwxc")           -- proxy socket, temp files, APE binaries
     sandbox.unveil("/usr", "rx")             -- system binaries
@@ -916,6 +1002,112 @@ local function main(args: {string}): integer, string
   local followup_msg = parsed.followup_msg
   local max_tokens = parsed.max_tokens
   local remaining = parsed.remaining
+
+  -- Supervisor mode: --sandbox starts proxy, re-execs as sandboxed child
+  if parsed.sandbox then
+    local work_sandbox = require("ah.work.sandbox") as WorkSandboxMod
+    local work_util = require("ah.work.util") as WorkUtilMod
+    local env_mod = require("cosmic.env") as EnvMod
+    local fetch = require("cosmic.fetch") as FetchMod
+
+    local ctx, sbox_err = work_sandbox.start_sandbox()
+    if not ctx then
+      io.stderr:write("error: sandbox failed to start: " .. (sbox_err or "unknown") .. "\n")
+      return 1
+    end
+    io.stderr:write("[sandbox] proxy started on " .. ctx.socket_path .. "\n")
+
+    -- Build child environment
+    local run_env: {string} = env_mod.all() as {string}
+    work_util.setup_git_env(run_env)
+
+    -- Set TMPDIR for APE binary extraction
+    work_util.env_set(run_env, "TMPDIR", ctx.tmpdir)
+
+    -- Proxy env vars
+    local proxy_url, proxy_err = fetch.unix_proxy(ctx.socket_path)
+    if not proxy_url then
+      io.stderr:write("[sandbox] invalid proxy path: " .. (proxy_err or "unknown") .. "\n")
+      work_sandbox.stop_sandbox(ctx)
+      return 1
+    end
+    work_util.env_set(run_env, "http_proxy", proxy_url)
+    work_util.env_set(run_env, "HTTP_PROXY", proxy_url)
+    work_util.env_set(run_env, "https_proxy", proxy_url)
+    work_util.env_set(run_env, "HTTPS_PROXY", proxy_url)
+    work_util.env_set(run_env, "AH_SANDBOX", "1")
+
+    -- Pass allow-host entries to proxy via env
+    if #parsed.allow_hosts > 0 then
+      work_util.env_set(run_env, "AH_ALLOW_HOSTS", table.concat(parsed.allow_hosts, ","))
+    end
+
+    -- Pass unveil entries to child via env
+    if #parsed.unveil_dirs > 0 then
+      work_util.env_set(run_env, "AH_UNVEIL", table.concat(parsed.unveil_dirs, ","))
+    end
+
+    -- Build child argv: strip sandbox-related flags, keep everything else
+    local child_args: {string} = {}
+    local exe = work_util.ah_exe()
+
+    -- Add timeout wrapper if specified
+    if parsed.timeout and parsed.timeout > 0 then
+      table.insert(child_args, "timeout")
+      table.insert(child_args, tostring(parsed.timeout))
+    end
+
+    table.insert(child_args, exe)
+
+    -- Rebuild args without --sandbox, --timeout, --allow-host, --unveil
+    local i = 1
+    while i <= #args do
+      local a = args[i]
+      if a == "--sandbox" then
+        -- skip
+      elseif a == "--timeout" then
+        i = i + 1  -- skip value too
+      elseif a == "--allow-host" then
+        i = i + 1  -- skip value too
+      elseif a == "--unveil" then
+        i = i + 1  -- skip value too
+      else
+        table.insert(child_args, a)
+      end
+      i = i + 1
+    end
+
+    -- Spawn child and wait
+    local child_mod = require("cosmic.child") as ChildMod
+    io.stderr:write("[sandbox] spawning child: " .. table.concat(child_args, " ") .. "\n")
+    local handle, spawn_err = child_mod.spawn(child_args, {env = run_env})
+    if not handle then
+      io.stderr:write("error: failed to spawn sandboxed child: " .. (spawn_err or "unknown") .. "\n")
+      work_sandbox.stop_sandbox(ctx)
+      return 1
+    end
+
+    local stderr_out = handle.stderr:read()
+    local ok, stdout, exit_str = handle:read()
+    local exit_code = (tonumber(exit_str) or 0) as integer
+
+    -- Forward child output
+    if stdout and stdout ~= "" then
+      io.write(stdout)
+    end
+    if stderr_out and stderr_out ~= "" then
+      io.stderr:write(stderr_out)
+    end
+
+    -- Cleanup
+    io.stderr:write("[sandbox] stopping proxy\n")
+    work_sandbox.stop_sandbox(ctx)
+
+    if not ok or exit_code ~= 0 then
+      return exit_code ~= 0 and exit_code or 1
+    end
+    return 0
+  end
 
   -- Handle commands that don't need db
   local cmd = remaining[1]
@@ -1375,4 +1567,5 @@ return {
   cmd_branch_rm = cmd_branch_rm,
   cmd_diff = cmd_diff,
   parse_protect_dirs = parse_protect_dirs,
+  parse_unveil_entry = parse_unveil_entry,
 }

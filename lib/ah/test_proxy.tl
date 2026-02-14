@@ -6,6 +6,7 @@ local record Proxy
   parse_connect: function(string): string, string
   resolvehost: function(string): string
   is_allowed: function(string): boolean
+  parse_allow_hosts: function(string): {string:boolean}
 end
 
 local proxy = require("ah.proxy") as Proxy
@@ -151,5 +152,46 @@ local function test_is_allowed_ip_literal()
   print("✓ is_allowed: blocks IP literal")
 end
 test_is_allowed_ip_literal()
+
+-- AH_ALLOW_HOSTS env var tests
+
+-- Test: parse_allow_hosts parses comma-separated host:port entries
+local function test_parse_allow_hosts_single()
+  local hosts = proxy.parse_allow_hosts("example.com:443")
+  assert(hosts["example.com:443"] == true, "should allow example.com:443")
+  print("✓ parse_allow_hosts: single host")
+end
+test_parse_allow_hosts_single()
+
+local function test_parse_allow_hosts_multiple()
+  local hosts = proxy.parse_allow_hosts("example.com:443,hooks.slack.com:443")
+  assert(hosts["example.com:443"] == true, "should allow example.com:443")
+  assert(hosts["hooks.slack.com:443"] == true, "should allow hooks.slack.com:443")
+  print("✓ parse_allow_hosts: multiple hosts")
+end
+test_parse_allow_hosts_multiple()
+
+local function test_parse_allow_hosts_empty()
+  local hosts = proxy.parse_allow_hosts("")
+  -- Should be empty (or nil-safe)
+  assert(not hosts["anything:443"], "empty string should produce no hosts")
+  print("✓ parse_allow_hosts: empty string")
+end
+test_parse_allow_hosts_empty()
+
+local function test_parse_allow_hosts_nil()
+  local hosts = proxy.parse_allow_hosts(nil)
+  assert(not hosts["anything:443"], "nil should produce no hosts")
+  print("✓ parse_allow_hosts: nil")
+end
+test_parse_allow_hosts_nil()
+
+local function test_parse_allow_hosts_whitespace()
+  local hosts = proxy.parse_allow_hosts(" example.com:443 , hooks.slack.com:443 ")
+  assert(hosts["example.com:443"] == true, "should trim whitespace")
+  assert(hosts["hooks.slack.com:443"] == true, "should trim whitespace on second entry")
+  print("✓ parse_allow_hosts: trims whitespace")
+end
+test_parse_allow_hosts_whitespace()
 
 print("\nall proxy tests passed")

@@ -254,4 +254,6 @@ return {
   fix_limits = fix_limits,
   sandboxed_agent = sandboxed_agent,
   build_agent_args = build_agent_args,
+  start_sandbox = start_sandbox,
+  stop_sandbox = stop_sandbox,
 }

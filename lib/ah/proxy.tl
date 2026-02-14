@@ -10,11 +10,35 @@ local record M
   parse_connect: function(string): string, string
   resolvehost: function(string): string
   is_allowed: function(string): boolean
+  parse_allow_hosts: function(string): {string:boolean}
 end
 
 local ALLOWLIST: {string:boolean} = {
   ["api.anthropic.com:443"] = true,
 }
+
+-- Parse AH_ALLOW_HOSTS env var: comma-separated host:port entries.
+-- Returns a table of host:port -> true. Trims whitespace.
+local function parse_allow_hosts(value: string): {string:boolean}
+  local hosts: {string:boolean} = {}
+  if not value or value == "" then return hosts end
+  for entry in value:gmatch("[^,]+") do
+    local trimmed = entry:match("^%s*(.-)%s*$")
+    if trimmed and #trimmed > 0 then
+      hosts[trimmed] = true
+    end
+  end
+  return hosts
+end
+
+-- Merge AH_ALLOW_HOSTS into the allowlist at load time
+local allow_hosts_env = os.getenv("AH_ALLOW_HOSTS")
+if allow_hosts_env then
+  local extra = parse_allow_hosts(allow_hosts_env)
+  for host, _ in pairs(extra) do
+    ALLOWLIST[host] = true
+  end
+end
 
 -- DNS: hardcoded for known allowlist entries.
 -- TODO: resolve dynamically via net.getaddrinfo once cosmic exposes it,
@@ -194,5 +218,6 @@ M.resolvehost = resolvehost
 M.is_allowed = function(dest: string): boolean
   return ALLOWLIST[dest] or false
 end
+M.parse_allow_hosts = parse_allow_hosts
 
 return M
