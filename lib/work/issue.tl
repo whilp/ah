@@ -61,25 +61,17 @@ end)
 
 local selected = issues[1]
 
--- short sha of origin/HEAD for unique branch names across runs
-local p = io.popen("git rev-parse --short origin/HEAD 2>/dev/null")
-local head_sha = ""
-if p then
-   head_sha = (p:read("*l") or ""):gsub("%s+$", "")
-   p:close()
-end
-
-local branch = "work/" .. tostring(selected.number)
-if head_sha ~= "" then
-   branch = branch .. "-" .. head_sha
-end
+-- short hash of issue content + timestamp for unique branch names across runs
+local hash = require("cosmic.hash")
+local seed = tostring(selected.number) .. (selected.title or "") .. (selected.body or "") .. tostring(os.time())
+local suffix = hash.sha256_hex(seed):sub(1, 8)
 
 local issue = {
    number = selected.number,
    title = selected.title,
    body = selected.body,
    url = selected.url,
-   branch = branch,
+   branch = "work/" .. tostring(selected.number) .. "-" .. suffix,
 }
 
 io.write(json.encode(issue))
