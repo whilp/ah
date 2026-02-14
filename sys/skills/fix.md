@@ -15,7 +15,7 @@ You are fixing issues found during review. Follow the plan and address the feedb
 
 Read `o/work/plan/plan.md` for the plan. Read `o/work/check/check.md` for the review feedback.
 
-Context JSON follows this prompt on stdin with fields: `branch` (branch to check out).
+The issue JSON follows this prompt with fields: `number`, `title`, `body`, `url`, `branch`.
 
 ## Instructions
 

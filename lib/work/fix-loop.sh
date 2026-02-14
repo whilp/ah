@@ -6,8 +6,6 @@ cosmic="$1"
 ah="$2"
 max_retries="${3:-2}"
 
-branch="work/$(grep -o '"number":[0-9]*' o/work/issue.json | grep -o '[0-9]*')"
-
 check_verdict() {
     local verdict
     verdict=$("$cosmic" lib/work/check-verdict.tl --actions o/work/check/actions.json 2>/dev/null) || return 1
@@ -25,7 +23,7 @@ for attempt in $(seq 1 "$max_retries"); do
     mkdir -p o/work/fix
 
     # run fix agent
-    { echo '/skill:fix'; echo "{\"branch\":\"$branch\"}"; } \
+    { echo '/skill:fix'; cat o/work/issue.json; } \
     | timeout 300 "$ah" -n \
         --max-tokens 100000 \
         --unveil o/work/plan:r \
@@ -35,7 +33,7 @@ for attempt in $(seq 1 "$max_retries"); do
 
     # push
     echo "==> push (fix)"
-    WORK_BRANCH="$branch" "$cosmic" lib/work/push.tl
+    "$cosmic" lib/work/push.tl
 
     # re-check
     echo "==> check (after fix)"

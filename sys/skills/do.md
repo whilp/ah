@@ -13,9 +13,9 @@ You are executing a work item. Follow the plan.
 
 ## Setup
 
-Read `o/work/plan/plan.md` for the full plan. Read `o/work/plan/issue.json` for the issue.
+Read `o/work/plan/plan.md` for the full plan.
 
-Context JSON follows this prompt on stdin with fields: `branch` (branch name to create).
+The issue JSON follows this prompt with fields: `number`, `title`, `body`, `url`, `branch`.
 
 ## Instructions
 

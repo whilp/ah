@@ -39,10 +39,6 @@ check_done := $(o)/work/check/done
 fix_done := $(o)/work/fix/done
 act_done := $(o)/work/act/done
 
-# branch name derived from issue number
-issue_number = $$(grep -o '"number":[0-9]*' $(picked_issue) | grep -o '[0-9]*')
-branch_name = work/$(issue_number)
-
 .DELETE_ON_ERROR:
 
 # pattern: run lib/work/%.tl, capture stdout to output file
@@ -75,17 +71,17 @@ $(plan): $(is_doing) $(picked_issue) $(AH)
 $(do_done): $(plan) $(picked_issue) $(AH)
 	@mkdir -p $(@D)
 	@echo "==> do"
-	@{ echo '/skill:do'; echo '{"branch":"$(branch_name)"}'; } \
+	@{ echo '/skill:do'; cat $(picked_issue); } \
 	| timeout $(DO_TIMEOUT) $(AH) -n \
 		--max-tokens $(DO_MAX_TOKENS) \
 		--unveil $(o)/work/plan:r \
 		--db $(o)/work/do/session.db
 	@touch $@
 
-$(push_done): $(do_done) $(picked_issue)
+$(push_done): $(do_done) $(picked_issue) $(cosmic)
 	@mkdir -p $(@D)
 	@echo "==> push"
-	@WORK_BRANCH=$(branch_name) $(cosmic) lib/work/push.tl
+	@$(cosmic) lib/work/push.tl
 	@touch $@
 
 $(check_done): $(push_done) $(plan) $(AH)

@@ -65,6 +65,7 @@ local issue = {
    title = selected.title,
    body = selected.body,
    url = selected.url,
+   branch = "work/" .. tostring(selected.number),
 }
 
 io.write(json.encode(issue))
