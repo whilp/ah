@@ -1,4 +1,4 @@
-local cosmo = require("cosmo")
+local rand = require("cosmic.rand")
 
 local ENCODING <const> = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 local ENCODING_LEN <const> = 32
@@ -24,7 +24,7 @@ end
 
 local function encode_random(len: integer): string
   local result: {string} = {}
-  local bytes = cosmo.GetRandomBytes(len)
+  local bytes = rand.bytes(len)
   for i = 1, len do
     local byte = bytes:byte(i)
     result[i] = ENCODING:sub((byte % ENCODING_LEN) + 1, (byte % ENCODING_LEN) + 1)
