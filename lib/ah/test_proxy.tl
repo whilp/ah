@@ -1,10 +1,15 @@
 #!/usr/bin/env cosmic
 -- test_proxy.tl: tests for HTTP CONNECT proxy module
 
+local record IpAddr
+  int: function(IpAddr): integer
+  format: function(IpAddr): string
+end
+
 local record Proxy
   serve: function(string): number
   parse_connect: function(string): string, string
-  resolvehost: function(string): string
+  resolvehost: function(string): IpAddr, string
   is_allowed: function(string): boolean
   parse_allow_hosts: function(string): {string:boolean}
 end
@@ -114,16 +119,19 @@ test_is_allowed_suffix()
 
 -- resolvehost: known host
 local function test_resolvehost_known()
-  local ip = proxy.resolvehost("api.anthropic.com")
-  assert(ip == "160.79.104.11", "should resolve to known IP, got: " .. tostring(ip))
+  local addr, err = proxy.resolvehost("api.anthropic.com")
+  assert(addr, "should resolve, got error: " .. tostring(err))
+  local ip_str = addr:format()
+  assert(ip_str:match("^%d+%.%d+%.%d+%.%d+$"), "should format as IPv4, got: " .. ip_str)
   print("✓ resolvehost: resolves known host")
 end
 test_resolvehost_known()
 
 -- resolvehost: unknown host
 local function test_resolvehost_unknown()
-  local ip = proxy.resolvehost("evil.com")
-  assert(ip == nil, "unknown host should return nil")
+  local addr, err = proxy.resolvehost("nonexistent.invalid")
+  assert(addr == nil, "unresolvable host should return nil, got: " .. tostring(addr))
+  assert(err, "should return error message")
   print("✓ resolvehost: nil for unknown host")
 end
 test_resolvehost_unknown()
