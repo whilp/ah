@@ -2,6 +2,10 @@
 #
 # implements the PDCA work loop as make targets:
 #   preflight -> issues.json -> issue.json -> plan -> do -> push -> check -> act
+#
+# convention: pipeline scripts in lib/work/ read env vars (WORK_*) instead
+# of CLI args. pattern rules provide recipes; dependency-only rules add
+# per-target prerequisites.
 
 REPO ?= whilp/ah
 MODEL ?=
@@ -17,32 +21,38 @@ CHECK_MAX_TOKENS := 50000
 FIX_TIMEOUT := 300
 FIX_MAX_TOKENS := 100000
 
-# ensure labels exist
-$(o)/work/labels.ok: $(cosmic)
-	@mkdir -p $(@D)
-	@$(cosmic) lib/work/ensure-labels.tl --repo $(REPO)
-	@touch $@
+# shared env vars for all work scripts
+export WORK_REPO := $(REPO)
+export WORK_MAX_PRS := $(MAX_PRS)
+export WORK_O := $(o)/work
 
-# check PR limit
-$(o)/work/pr-limit.ok: $(cosmic)
-	@mkdir -p $(@D)
-	@$(cosmic) lib/work/check-pr-limit.tl --repo $(REPO) --max $(MAX_PRS)
-	@touch $@
+.DELETE_ON_ERROR:
 
-# fetch open todo issues
-$(o)/work/issues.json: $(o)/work/labels.ok $(o)/work/pr-limit.ok $(cosmic)
+# pattern: run lib/work/%.tl, capture stdout to output file
+$(o)/work/%.json: lib/work/%.tl $(cosmic)
 	@mkdir -p $(@D)
-	@$(cosmic) lib/work/issues.tl --repo $(REPO) > $@
+	@$(cosmic) $< > $@
 
-# select highest priority issue
-$(o)/work/issue.json: $(o)/work/issues.json $(cosmic)
+$(o)/work/%.ok: lib/work/%.tl $(cosmic)
 	@mkdir -p $(@D)
-	@$(cosmic) lib/work/select.tl --input $< > $@
+	@$(cosmic) $< > $@
 
-# transition issue to doing
-$(o)/work/doing.ok: $(o)/work/issue.json $(cosmic)
-	@$(cosmic) lib/work/transition.tl --issue $<
-	@touch $@
+$(o)/work/%.txt: lib/work/%.tl $(cosmic)
+	@mkdir -p $(@D)
+	@$(cosmic) $< > $@
+
+# --- per-target dependencies (no recipes) ---
+
+$(o)/work/issues.json: $(o)/work/labels.ok $(o)/work/pr-limit.ok
+
+$(o)/work/issue.json: $(o)/work/issues.json
+# export WORK_INPUT so issue.tl finds its input
+$(o)/work/issue.json: export WORK_INPUT = $(o)/work/issues.json
+
+$(o)/work/doing.ok: $(o)/work/issue.json
+$(o)/work/doing.ok: export WORK_ISSUE = $(o)/work/issue.json
+
+# --- prompt and agent targets (don't fit pattern) ---
 
 # build plan prompt from issue
 $(o)/work/plan/prompt.txt: $(o)/work/doing.ok $(o)/work/issue.json $(cosmic)

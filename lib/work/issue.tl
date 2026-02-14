@@ -1,6 +1,7 @@
--- lib/work/select.tl: select highest priority issue from issues.json
+-- lib/work/issue.tl: select highest priority issue from issues.json
+-- reads: WORK_INPUT (path to issues.json)
+-- writes: json to stdout
 local json = require("cosmic.json")
-local getopt = require("cosmic.getopt")
 
 local record Label
    name: string
@@ -24,35 +25,18 @@ local function get_priority(labels: {Label}): integer
    return 3
 end
 
-local input_file: string
-
-local longopts = {
-   {name = "input", has_arg = "required", short = "i"},
-}
-local parser = getopt.new(arg, "i:", longopts)
-
-while true do
-   local opt, optarg = parser:next()
-   if not opt then break end
-   if opt == "i" or opt == "input" then
-      input_file = optarg
-   elseif opt == "?" then
-      io.stderr:write("usage: select.tl --input <issues.json>\n")
-      os.exit(1)
-   end
-end
-
-if not input_file then
-   io.stderr:write("usage: select.tl --input <issues.json>\n")
-   os.exit(1)
-end
-
 local function read_file(path: string): string
    local f = io.open(path, "r")
    if not f then return nil end
    local content = f:read("*a")
    f:close()
    return content
+end
+
+local input_file = os.getenv("WORK_INPUT")
+if not input_file or input_file == "" then
+   io.stderr:write("error: WORK_INPUT not set\n")
+   os.exit(1)
 end
 
 local input = read_file(input_file)

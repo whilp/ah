@@ -1,6 +1,6 @@
--- lib/work/transition.tl: transition issue label from todo to doing
+-- lib/work/doing.tl: transition issue label from todo to doing
+-- reads: WORK_ISSUE (path to issue.json)
 local json = require("cosmic.json")
-local getopt = require("cosmic.getopt")
 
 local function read_file(path: string): string
    local f = io.open(path, "r")
@@ -10,26 +10,9 @@ local function read_file(path: string): string
    return content
 end
 
-local issue_file: string
-
-local longopts = {
-   {name = "issue", has_arg = "required", short = "i"},
-}
-local parser = getopt.new(arg, "i:", longopts)
-
-while true do
-   local opt, optarg = parser:next()
-   if not opt then break end
-   if opt == "i" or opt == "issue" then
-      issue_file = optarg
-   elseif opt == "?" then
-      io.stderr:write("usage: transition.tl --issue <issue.json>\n")
-      os.exit(1)
-   end
-end
-
-if not issue_file then
-   io.stderr:write("usage: transition.tl --issue <issue.json>\n")
+local issue_file = os.getenv("WORK_ISSUE")
+if not issue_file or issue_file == "" then
+   io.stderr:write("error: WORK_ISSUE not set\n")
    os.exit(1)
 end
 
