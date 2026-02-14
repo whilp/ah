@@ -4,8 +4,7 @@ set -eo pipefail
 
 cosmic="$1"
 ah="$2"
-model="${3:-}"
-max_retries="${4:-2}"
+max_retries="${3:-2}"
 
 check_verdict() {
     local verdict
@@ -27,7 +26,6 @@ for attempt in $(seq 1 "$max_retries"); do
     # run fix agent
     { echo '/skill:fix'; echo "{\"branch\":\"$branch\"}"; } \
     | timeout 300 "$ah" -n \
-        ${model:+-m "$model"} \
         --max-tokens 100000 \
         --unveil o/work/plan:r \
         --unveil o/work/do:r \
@@ -46,7 +44,6 @@ for attempt in $(seq 1 "$max_retries"); do
 
     echo '/skill:check' \
     | timeout 180 "$ah" -n \
-        ${model:+-m "$model"} \
         --max-tokens 50000 \
         --unveil o/work/plan:r \
         --unveil o/work/do:r \

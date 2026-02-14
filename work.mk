@@ -8,7 +8,6 @@
 # per-target prerequisites.
 
 REPO ?= whilp/ah
-MODEL ?=
 MAX_PRS ?= 4
 AH := $(o)/bin/ah
 PLAN_TIMEOUT := 180
@@ -70,7 +69,6 @@ $(plan): $(is_doing) $(picked_issue) $(AH)
 	@echo "==> plan"
 	@{ echo '/skill:plan'; cat $(picked_issue); } \
 	| timeout $(PLAN_TIMEOUT) $(AH) -n \
-		$(if $(MODEL),-m $(MODEL)) \
 		--max-tokens $(PLAN_MAX_TOKENS) \
 		--db $(o)/work/plan/session.db \
 		|| true
@@ -85,7 +83,6 @@ $(do_done): $(branch) $(plan) $(picked_issue) $(AH)
 	@echo "==> do"
 	@{ echo '/skill:do'; echo '{"branch":"'$$(cat $(branch))'"}'; } \
 	| timeout $(DO_TIMEOUT) $(AH) -n \
-		$(if $(MODEL),-m $(MODEL)) \
 		--max-tokens $(DO_MAX_TOKENS) \
 		--unveil $(o)/work/plan:r \
 		--db $(o)/work/do/session.db \
@@ -103,7 +100,6 @@ $(check_done): $(push_done) $(plan) $(AH)
 	@echo "==> check"
 	@echo '/skill:check' \
 	| timeout $(CHECK_TIMEOUT) $(AH) -n \
-		$(if $(MODEL),-m $(MODEL)) \
 		--max-tokens $(CHECK_MAX_TOKENS) \
 		--unveil $(o)/work/plan:r \
 		--unveil $(o)/work/do:r \
@@ -112,7 +108,7 @@ $(check_done): $(push_done) $(plan) $(AH)
 
 $(fix_done): $(check_done) $(cosmic)
 	@mkdir -p $(@D)
-	@bash lib/work/fix-loop.sh $(cosmic) $(AH) "$(MODEL)" 2
+	@bash lib/work/fix-loop.sh $(cosmic) $(AH) 2
 	@touch $@
 
 $(act_done): $(fix_done) $(picked_issue) $(cosmic)
