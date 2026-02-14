@@ -4,7 +4,7 @@ local cio = require("cosmic.io")
 local getopt = require("cosmic.getopt")
 local tty = require("cosmic.tty")
 local proc = require("cosmic.proc")
-local unix = require("cosmo.unix")  -- kept for sigaction (no cosmic equivalent)
+local signal = require("cosmic.signal")
 
 local zip = require("cosmic.zip")
 local embed = require("cosmic.embed")
@@ -1520,7 +1520,7 @@ local function main(args: {string}): integer, string
   -- 1. Set interrupted flag (checked by loop between iterations and mid-stream)
   -- 2. Immediately abort any running tool processes (SIGTERM -> SIGKILL)
   -- 3. Release session lock
-  unix.sigaction(unix.SIGINT, function()
+  signal.sigaction(signal.SIGINT, function()
     interrupted = true
     tools.abort_running_tools()
     queue.release_lock(qdb)
