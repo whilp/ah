@@ -15,9 +15,16 @@ REPO ?= whilp/ah
 MAX_PRS ?= 4
 AH := $(o)/bin/ah
 
+# detect the remote default branch
+# in CI: DEFAULT_BRANCH is set by the workflow from github.event.repository.default_branch
+# locally: fall back to git symbolic-ref, then origin/main
+DEFAULT_BRANCH ?= $(shell git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/||')
+DEFAULT_BRANCH := $(or $(DEFAULT_BRANCH),origin/main)
+
 # shared env vars for all work scripts
 export WORK_REPO := $(REPO)
 export WORK_MAX_PRS := $(MAX_PRS)
+export WORK_DEFAULT_BRANCH := $(DEFAULT_BRANCH)
 export WORK_INPUT := $(o)/work/issues.json
 export WORK_ISSUE := $(o)/work/issue.json
 
@@ -71,7 +78,7 @@ $(feedback): $(plan)
 	@touch $@
 
 $(on_branch): $(plan) $(picked_issue)
-	@git checkout -b $$(jq -r .branch $(picked_issue)) origin/HEAD
+	@git checkout -b $$(jq -r .branch $(picked_issue)) $(DEFAULT_BRANCH)
 	@touch $@
 
 $(do_done): $(on_branch) $(plan) $(feedback) $(picked_issue) $(AH)
