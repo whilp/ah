@@ -64,7 +64,7 @@ $(o)/%.lua: %.tl $(cosmic)
 # tests
 all_tested := $(patsubst %,$(o)/%.test.ok,$(ah_tests))
 
-export LUA_PATH := $(CURDIR)/o/bin/?.lua;$(CURDIR)/o/lib/?.lua;$(CURDIR)/o/lib/?/init.lua;$(CURDIR)/lib/?.lua;$(CURDIR)/lib/?/init.lua;;
+export LUA_PATH := $(CURDIR)/o/lib/?.lua;$(CURDIR)/o/lib/?/init.lua;$(CURDIR)/lib/?.lua;$(CURDIR)/lib/?/init.lua;;
 
 $(o)/%.tl.test.ok: $(o)/%.lua $(ah_lua) $(cosmic)
 	@mkdir -p $(@D)
