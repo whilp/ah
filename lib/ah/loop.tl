@@ -426,11 +426,13 @@ local function run_agent(d: db.DB, qdb: queue.QueueDB, system_prompt: string, mo
 
     -- Extract usage and metadata from response
     local usage = (resp.usage or {}) as {string:any}
-    last_input_tokens = (usage.input_tokens or 0) as integer
     local cache_creation_tokens = (usage.cache_creation_input_tokens or 0) as integer
     local cache_read_tokens = (usage.cache_read_input_tokens or 0) as integer
+    -- Effective input = uncached + cache read + cache creation (full prompt size)
+    local effective_input_tokens = ((usage.input_tokens or 0) as integer) + cache_creation_tokens + cache_read_tokens
+    last_input_tokens = effective_input_tokens
     local msg_opts: db.MessageOpts = {
-      input_tokens = usage.input_tokens as integer,
+      input_tokens = effective_input_tokens,
       output_tokens = usage.output_tokens as integer,
       stop_reason = resp.stop_reason as string,
       model = resp.model as string,
@@ -492,7 +494,7 @@ local function run_agent(d: db.DB, qdb: queue.QueueDB, system_prompt: string, mo
     )))
 
     -- Accumulate tokens for budget tracking
-    cumulative_input_tokens = cumulative_input_tokens + ((usage.input_tokens or 0) as integer)
+    cumulative_input_tokens = cumulative_input_tokens + effective_input_tokens
     cumulative_output_tokens = cumulative_output_tokens + ((usage.output_tokens or 0) as integer)
 
     -- Check token budget
