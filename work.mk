@@ -25,6 +25,8 @@ FIX_MAX_TOKENS := 100000
 export WORK_REPO := $(REPO)
 export WORK_MAX_PRS := $(MAX_PRS)
 export WORK_O := $(o)/work
+export WORK_INPUT := $(o)/work/issues.json
+export WORK_ISSUE := $(o)/work/issue.json
 
 .DELETE_ON_ERROR:
 
@@ -46,11 +48,8 @@ $(o)/work/%.txt: lib/work/%.tl $(cosmic)
 $(o)/work/issues.json: $(o)/work/labels.ok $(o)/work/pr-limit.ok
 
 $(o)/work/issue.json: $(o)/work/issues.json
-# export WORK_INPUT so issue.tl finds its input
-$(o)/work/issue.json: export WORK_INPUT = $(o)/work/issues.json
 
 $(o)/work/doing.ok: $(o)/work/issue.json
-$(o)/work/doing.ok: export WORK_ISSUE = $(o)/work/issue.json
 
 # --- prompt and agent targets (don't fit pattern) ---
 
