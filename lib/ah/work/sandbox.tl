@@ -1,9 +1,30 @@
--- ah/work/sandbox.tl: sandbox management, agent spawning, and limits
+-- ah/work/sandbox.tl: sandbox management, phase runner, and limits
 local spawn = require("cosmic.child")
 local env = require("cosmic.env")
-local fetch = require("cosmic.fetch")
 local unix = require("cosmo.unix")
 local util = require("ah.work.util")
+
+-- Type declarations for cosmic.child handles
+local record StdinHandle
+  write: function(StdinHandle, string)
+  close: function(StdinHandle)
+end
+
+local record StderrHandle
+  read: function(StderrHandle): string
+end
+
+local record ChildHandle
+  stdin: StdinHandle
+  stderr: StderrHandle
+  read: function(ChildHandle): boolean, string, string
+end
+
+local record ChildMod
+  spawn: function({string}, {string:any}): ChildHandle, string
+end
+
+local child = spawn as ChildMod
 
 -- Sandbox context for network isolation
 local record SandboxCtx
@@ -16,6 +37,17 @@ end
 local record AgentLimits
   max_tokens: integer   -- token budget passed via --max-tokens
   timeout_sec: integer  -- wall-clock timeout via timeout(1) wrapper
+end
+
+-- Phase options for run_phase()
+local record PhaseOpts
+  sandbox: boolean       -- pass --sandbox to ah
+  timeout: integer       -- wall-clock timeout in seconds
+  unveil_dirs: {string}  -- directories to --unveil as read-only
+  db: string             -- session database path
+  prompt: string         -- prompt text (piped via stdin)
+  max_tokens: integer    -- token budget
+  model: string          -- model alias
 end
 
 -- Overall deadline for unified work run (seconds)
@@ -100,147 +132,108 @@ local function stop_sandbox(ctx: SandboxCtx)
   end
 end
 
--- Build the argv for an agent subprocess.
+-- Build the argv for a phase subprocess.
+-- The prompt is NOT included in argv; it is piped via stdin.
 -- Exported for testing.
-local function build_agent_args(exe: string, db: string, prompt: string, new_session: boolean, limits: AgentLimits, model: string): {string}
+local function build_phase_args(exe: string, opts: PhaseOpts): {string}
   local args: {string} = {}
 
   -- Wall-clock timeout wrapper
-  if limits and limits.timeout_sec and limits.timeout_sec > 0 then
+  if opts.timeout and opts.timeout > 0 then
     table.insert(args, "timeout")
-    table.insert(args, tostring(limits.timeout_sec))
+    table.insert(args, tostring(opts.timeout))
   end
 
   table.insert(args, exe)
 
-  if new_session then
-    table.insert(args, "-n")
+  -- Always new session for phase runs
+  table.insert(args, "-n")
+
+  -- Sandbox flag
+  if opts.sandbox then
+    table.insert(args, "--sandbox")
   end
 
   -- Model selection
-  if model then
+  if opts.model then
     table.insert(args, "-m")
-    table.insert(args, model)
+    table.insert(args, opts.model)
   end
 
   -- Token budget
-  if limits and limits.max_tokens and limits.max_tokens > 0 then
+  if opts.max_tokens and opts.max_tokens > 0 then
     table.insert(args, "--max-tokens")
-    table.insert(args, tostring(limits.max_tokens))
+    table.insert(args, tostring(opts.max_tokens))
+  end
+
+  -- Unveil dirs (read-only)
+  if opts.unveil_dirs then
+    for _, dir in ipairs(opts.unveil_dirs) do
+      table.insert(args, "--unveil")
+      table.insert(args, dir .. ":r")
+    end
   end
 
   table.insert(args, "--db")
-  table.insert(args, db)
-  table.insert(args, prompt)
+  table.insert(args, opts.db)
+
+  -- No prompt arg; prompt comes on stdin
 
   return args
 end
 
--- Spawn an ah agent subprocess and wait for completion.
--- When new_session is true, passes -n to start a fresh session.
--- When false, continues the most recent session in the db.
-local function spawn_agent(run_env: {string}, db: string, prompt: string, new_session: boolean, limits: AgentLimits, model: string): boolean, string, integer
-  local args = build_agent_args(util.ah_exe(), db, prompt, new_session, limits, model)
+-- Run a work phase as a standalone ah subprocess.
+-- Builds `ah --sandbox --timeout T --unveil DIR:r ... --db DB` and pipes
+-- the prompt via stdin. Returns (ok, stdout, exit_code).
+local function run_phase(opts: PhaseOpts): boolean, string, integer
+  local args = build_phase_args(util.ah_exe(), opts)
 
-  util.log("spawning agent: db=" .. db .. " prompt_len=" .. #prompt .. " new=" .. tostring(new_session))
-  local handle, spawn_err = spawn.spawn(args, {env = run_env})
-  if not handle then
-    return false, spawn_err as string, -1
-  end
-  local stderr_out = handle.stderr:read()
-  local ok, stdout, exit_str = handle:read()
-  local exit_code = (tonumber(exit_str) or 0) as integer
-
-  -- Detect timeout(1) exit code
-  if exit_code == 124 then
-    util.log("agent timed out (wall-clock limit)")
-  end
-
-  -- Log agent subprocess results for debugging
-  util.log("agent exited: ok=" .. tostring(ok) .. " exit_code=" .. tostring(exit_code))
-  if stderr_out and stderr_out ~= "" then
-    local stderr_tail = stderr_out
-    if #stderr_tail > 2000 then
-      stderr_tail = "...(" .. #stderr_out .. " bytes total)\n" .. stderr_out:sub(-2000)
-    end
-    util.log("agent stderr:\n" .. stderr_tail)
-  end
-  if stdout and stdout ~= "" then
-    local stdout_preview = stdout:sub(1, 500)
-    if #stdout > 500 then stdout_preview = stdout_preview .. "..." end
-    util.log("agent stdout: " .. stdout_preview)
-  end
-
-  return ok and exit_code == 0, stdout, exit_code
-end
-
--- Run an ah agent subprocess inside the network sandbox.
--- Only api.anthropic.com is reachable; filesystem is restricted via pledge/unveil.
--- The sandbox is started and stopped around each agent invocation so that
--- only agent actions run inside the sandbox; all other (deterministic) work
--- executes without network isolation overhead.
--- If friction_prompt is provided, it is sent as a follow-up message in the
--- same session after the main prompt completes.
-local function sandboxed_agent(no_sandbox: boolean, prompt: string, db: string, protect_dirs?: {string}, friction_prompt?: string, limits?: AgentLimits, model?: string): boolean, string, integer
-  local ctx: SandboxCtx = nil
-  if not no_sandbox then
-    local sctx, err = start_sandbox()
-    if not sctx then
-      io.stderr:write("error: sandbox failed to start: " .. (err or "unknown") .. "\n")
-      return false, "sandbox failed to start: " .. (err or "unknown"), 1
-    end
-    ctx = sctx
-    io.stderr:write("[sandbox] proxy started on " .. ctx.socket_path .. "\n")
-  end
+  util.log("run_phase: " .. table.concat(args, " ") .. " (prompt_len=" .. #opts.prompt .. ")")
 
   local run_env: {string} = env.all() as {string}
   util.setup_git_env(run_env)
 
-  -- Set TMPDIR to sandbox tmpdir or a local writable location.
+  -- Set TMPDIR to a local writable location if not already set.
   -- APE binaries (cosmic) need to extract to $TMPDIR/.ape-* on first run;
   -- in restricted environments (GitHub Actions), /tmp may not be writable.
-  if ctx and ctx.tmpdir then
-    util.env_set(run_env, "TMPDIR", ctx.tmpdir)
-  elseif not util.env_get(run_env, "TMPDIR") then
-    -- Fallback: use o/tmp relative to cwd
+  if not util.env_get(run_env, "TMPDIR") then
     local cwd = unix.getcwd() or "."
     local local_tmp = cwd .. "/o/tmp"
     unix.mkdir(local_tmp, tonumber("755", 8))
     util.env_set(run_env, "TMPDIR", local_tmp)
   end
 
-  if ctx and ctx.enabled then
-    local proxy_url, proxy_err = fetch.unix_proxy(ctx.socket_path)
-    if not proxy_url then
-      io.stderr:write("[sandbox] invalid proxy path: " .. (proxy_err or "unknown") .. "\n")
-      stop_sandbox(ctx)
-      return false, "invalid proxy path: " .. (proxy_err or "unknown"), 1
-    end
-    util.env_set(run_env, "http_proxy", proxy_url)
-    util.env_set(run_env, "HTTP_PROXY", proxy_url)
-    util.env_set(run_env, "https_proxy", proxy_url)
-    util.env_set(run_env, "HTTPS_PROXY", proxy_url)
-    util.env_set(run_env, "AH_SANDBOX", "1")
-    local protect = util.format_protect_dirs(protect_dirs)
-    if protect then
-      util.env_set(run_env, "AH_PROTECT_DIRS", protect)
-    end
+  local handle, spawn_err = child.spawn(args, {env = run_env})
+  if not handle then
+    return false, spawn_err as string, -1
   end
 
-  -- Main prompt: new session
-  local ok, stdout, exit_code = spawn_agent(run_env, db, prompt, true, limits, model)
+  -- Pipe prompt via stdin
+  handle.stdin:write(opts.prompt)
+  handle.stdin:close()
 
-  if not ok then
-    if ctx then
-      io.stderr:write("[sandbox] stopping proxy\n")
-      stop_sandbox(ctx)
-    end
-    return false, stdout, exit_code
+  local stderr_out = handle.stderr:read()
+  local ok, stdout, exit_str = handle:read()
+  local exit_code = (tonumber(exit_str) or 0) as integer
+
+  -- Detect timeout(1) exit code
+  if exit_code == 124 then
+    util.log("phase timed out (wall-clock limit)")
   end
 
-  if ctx then
-    io.stderr:write("[sandbox] stopping proxy\n")
-    stop_sandbox(ctx)
+  -- Log subprocess results for debugging
+  util.log("phase exited: ok=" .. tostring(ok) .. " exit_code=" .. tostring(exit_code))
+  if stderr_out and stderr_out ~= "" then
+    local stderr_tail = stderr_out
+    if #stderr_tail > 2000 then
+      stderr_tail = "...(" .. #stderr_out .. " bytes total)\n" .. stderr_out:sub(-2000)
+    end
+    util.log("phase stderr:\n" .. stderr_tail)
+  end
+  if stdout and stdout ~= "" then
+    local stdout_preview = stdout:sub(1, 500)
+    if #stdout > 500 then stdout_preview = stdout_preview .. "..." end
+    util.log("phase stdout: " .. stdout_preview)
   end
 
   return ok and exit_code == 0, stdout, exit_code
@@ -252,8 +245,8 @@ return {
   do_limits = do_limits,
   check_limits = check_limits,
   fix_limits = fix_limits,
-  sandboxed_agent = sandboxed_agent,
-  build_agent_args = build_agent_args,
+  run_phase = run_phase,
+  build_phase_args = build_phase_args,
   start_sandbox = start_sandbox,
   stop_sandbox = stop_sandbox,
 }

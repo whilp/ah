@@ -100,14 +100,24 @@ local record PromptMod
   build_plan_prompt: function(string, string, string, string): string
 end
 
+local record PhaseOpts
+  sandbox: boolean
+  timeout: integer
+  unveil_dirs: {string}
+  db: string
+  prompt: string
+  max_tokens: integer
+  model: string
+end
+
 local record SandboxMod
   overall_timeout_sec: number
   plan_limits: AgentLimits
   do_limits: AgentLimits
   check_limits: AgentLimits
   fix_limits: AgentLimits
-  sandboxed_agent: function(boolean, string, string, {string}, string, AgentLimits, string): boolean, string, integer
-  build_agent_args: function(string, string, string, boolean, AgentLimits, string): {string}
+  run_phase: function(PhaseOpts): boolean, string, integer
+  build_phase_args: function(string, PhaseOpts): {string}
 end
 
 local util = require("ah.work.util") as Util
@@ -165,7 +175,14 @@ local function phase_plan(no_sandbox: boolean, repo: string, issue_number: integ
 
   util.log("plan prompt interpolated (" .. #tpl .. " bytes) for issue #" .. tostring(issue.number))
 
-  local ok = sandbox.sandboxed_agent(no_sandbox, tpl, "o/work/plan/session.db", nil, nil, sandbox.plan_limits, model)
+  local ok = sandbox.run_phase({
+    sandbox = not no_sandbox,
+    timeout = sandbox.plan_limits.timeout_sec,
+    db = "o/work/plan/session.db",
+    prompt = tpl,
+    max_tokens = sandbox.plan_limits.max_tokens,
+    model = model,
+  })
 
   -- Check if plan.md was created, regardless of agent exit status.
   -- The agent may have written plan.md in its final tool call but been
@@ -213,7 +230,15 @@ local function phase_do(no_sandbox: boolean, title: string, number: string, mode
 
   tpl = prompt.build_do_prompt(tpl, title, plan_contents, branch, unix.getcwd() or ".")
 
-  local ok = sandbox.sandboxed_agent(no_sandbox, tpl, "o/work/do/session.db", {"o/work/plan"}, nil, sandbox.do_limits, model)
+  local ok = sandbox.run_phase({
+    sandbox = not no_sandbox,
+    timeout = sandbox.do_limits.timeout_sec,
+    unveil_dirs = {"o/work/plan"},
+    db = "o/work/do/session.db",
+    prompt = tpl,
+    max_tokens = sandbox.do_limits.max_tokens,
+    model = model,
+  })
 
   -- Always write branch.txt so push phase can find the branch
   util.write_file("o/work/do/branch.txt", branch .. "\n")
@@ -312,7 +337,15 @@ local function phase_check(no_sandbox: boolean, model: string, do_dir: string): 
   -- Retry on crash signals (SIGSEGV, SIGBUS, etc.) up to 2 times
   local max_crash_retries = 2
   for attempt = 1, max_crash_retries + 1 do
-    local ok, _, exit_code = sandbox.sandboxed_agent(no_sandbox, tpl, "o/work/check/session.db", protect_dirs, nil, sandbox.check_limits, model)
+    local ok, _, exit_code = sandbox.run_phase({
+      sandbox = not no_sandbox,
+      timeout = sandbox.check_limits.timeout_sec,
+      unveil_dirs = protect_dirs,
+      db = "o/work/check/session.db",
+      prompt = tpl,
+      max_tokens = sandbox.check_limits.max_tokens,
+      model = model,
+    })
 
     if ok then
       return 0
@@ -512,7 +545,15 @@ local function phase_fix(no_sandbox: boolean, title: string, number: string, mod
 
   tpl = prompt.build_fix_prompt(tpl, title, plan_contents, check_contents, branch, unix.getcwd() or ".")
 
-  local ok = sandbox.sandboxed_agent(no_sandbox, tpl, "o/work/fix/session.db", {"o/work/plan", "o/work/do"}, nil, sandbox.fix_limits, model)
+  local ok = sandbox.run_phase({
+    sandbox = not no_sandbox,
+    timeout = sandbox.fix_limits.timeout_sec,
+    unveil_dirs = {"o/work/plan", "o/work/do"},
+    db = "o/work/fix/session.db",
+    prompt = tpl,
+    max_tokens = sandbox.fix_limits.max_tokens,
+    model = model,
+  })
 
   if not ok then
     io.stderr:write("error: fix agent failed\n")
@@ -965,6 +1006,6 @@ return {
   format_run_error = util.format_run_error,
   format_protect_dirs = util.format_protect_dirs,
   build_fix_prompt = prompt.build_fix_prompt,
-  build_agent_args = sandbox.build_agent_args,
+  build_phase_args = sandbox.build_phase_args,
   setup_git_env = util.setup_git_env,
 }
