@@ -1,7 +1,8 @@
 -- ah/queue.tl: steering and followup queue for inter-process coordination
 local sqlite = require("cosmic.sqlite")
 local ulid = require("ulid")
-local unix = require("cosmo.unix")
+local proc = require("cosmic.proc")
+local signal = require("cosmic.signal")
 
 local SCHEMA = [[
 create table if not exists queue_messages (
@@ -124,13 +125,13 @@ local function is_locked(self: QueueDB): boolean, integer
   end
 
   -- Check if owner process is still alive
-  local my_pid = unix.getpid()
+  local my_pid = proc.getpid()
   if info.owner_pid == my_pid then
     return false, nil  -- We own it
   end
 
   -- Try to check if the process exists via kill(pid, 0)
-  local process_exists = unix.kill(info.owner_pid, 0)
+  local process_exists = signal.kill(info.owner_pid, 0)
   if not process_exists then
     -- Process doesn't exist, lock is stale
     return false, info.owner_pid
@@ -143,7 +144,7 @@ end
 -- Returns: true if acquired, false if already held by another process
 local function try_acquire_lock(self: QueueDB): boolean, string
   local now = os.time()
-  local my_pid = unix.getpid()
+  local my_pid = proc.getpid()
 
   local info = get_lock_info(self)
 
@@ -157,7 +158,7 @@ local function try_acquire_lock(self: QueueDB): boolean, string
 
     -- Check if lock is stale
     local age = now - info.heartbeat_at
-    local process_dead = not unix.kill(info.owner_pid, 0)
+    local process_dead = not signal.kill(info.owner_pid, 0)
 
     if age > STALE_THRESHOLD or process_dead then
       -- Claim stale lock
@@ -187,7 +188,7 @@ end
 
 -- Release the session lock
 local function release_lock(self: QueueDB): boolean
-  local my_pid = unix.getpid()
+  local my_pid = proc.getpid()
   local info = get_lock_info(self)
 
   if info and info.owner_pid == my_pid then
@@ -201,7 +202,7 @@ end
 -- Update heartbeat timestamp (call before each API call)
 local function update_heartbeat(self: QueueDB): boolean
   local now = os.time()
-  local my_pid = unix.getpid()
+  local my_pid = proc.getpid()
 
   local ok = self._db:exec(
     "update session_lock set heartbeat_at = ? where key = 'lock' and owner_pid = ?",
