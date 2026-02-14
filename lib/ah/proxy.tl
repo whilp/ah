@@ -16,6 +16,15 @@ local record Socket
   connect: function(self: Socket, ip: number, port: number): boolean, string
 end
 
+local record IpAddr
+  int: function(IpAddr): integer
+  format: function(IpAddr): string
+end
+
+local record IpMod
+  lookup: function(string): IpAddr, string
+end
+
 local record NetMod
   socket: function(number, number, number): Socket, string
   listen_unix: function(string, number): Socket, string
@@ -32,12 +41,13 @@ local record NetMod
 end
 
 local net = require("cosmic.net") as NetMod
+local ip_mod = require("cosmic.ip") as IpMod
 
 local record M
   serve: function(string): integer
   -- exported for testing
   parse_connect: function(string): string, string
-  resolvehost: function(string): string
+  resolvehost: function(string): IpAddr, string
   is_allowed: function(string): boolean
   parse_allow_hosts: function(string): {string:boolean}
 end
@@ -69,15 +79,18 @@ if allow_hosts_env then
   end
 end
 
--- DNS: hardcoded for known allowlist entries.
--- TODO: resolve dynamically via net.getaddrinfo once cosmic exposes it,
--- or resolve in work.tl before pledge and pass IPs via env/args.
-local DNS_CACHE: {string:string} = {
-  ["api.anthropic.com"] = "160.79.104.11",
-}
+-- DNS: resolve via cosmic.ip.lookup, cache results for the process lifetime.
+local DNS_CACHE: {string:IpAddr} = {}
 
-local function resolvehost(host: string): string
-  return DNS_CACHE[host]
+local function resolvehost(host: string): IpAddr, string
+  if DNS_CACHE[host] then
+    return DNS_CACHE[host]
+  end
+  local addr, err = ip_mod.lookup(host)
+  if addr then
+    DNS_CACHE[host] = addr
+  end
+  return addr, err
 end
 
 local function log(...: string)
@@ -158,17 +171,10 @@ local function handle_client(client: Socket)
     return
   end
 
-  local ip_str = resolvehost(host)
-  if not ip_str then
-    log("DNS failed:", host)
+  local addr, dns_err = resolvehost(host)
+  if not addr then
+    log("DNS failed:", host, dns_err or "unknown")
     client:send("HTTP/1.1 502 Bad Gateway\r\n\r\nDNS resolution failed\r\n")
-    return
-  end
-
-  local ip = net.parseip(ip_str)
-  if not ip then
-    log("invalid IP:", ip_str)
-    client:send("HTTP/1.1 502 Bad Gateway\r\n\r\nInvalid IP\r\n")
     return
   end
 
@@ -179,7 +185,7 @@ local function handle_client(client: Socket)
     return
   end
 
-  local ok, conn_err = upstream:connect(ip, tonumber(port) as integer)
+  local ok, conn_err = upstream:connect(addr:int() as number, tonumber(port) as integer)
   if not ok then
     log("connect failed:", host, port, conn_err)
     upstream:close()
