@@ -31,12 +31,7 @@ local function tool_key_param(tool_name: string, tool_input: string, details_jso
     if details then
       if details.path then
         if tool_name == "edit" then
-          -- For edit, include line change info from details
-          local suffix = ""
-          if details.old_lines and details.new_lines then
-            suffix = string.format(" (%d → %d lines)", details.old_lines as integer, details.new_lines as integer)
-          end
-          return (details.path as string) .. suffix
+          return details.path as string
         end
         return details.path as string
       elseif details.command then

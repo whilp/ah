@@ -83,8 +83,7 @@ test_tool_key_param_details_bash_truncate()
 local function test_tool_key_param_details_edit()
   local details = json.encode({path = "/tmp/file.lua", old_lines = 5, new_lines = 7})
   local key = loop.tool_key_param("edit", '{"path":"/tmp/file.lua","old_string":"x","new_string":"y"}', details)
-  assert(key:match("/tmp/file.lua"), "should include path from details")
-  assert(key:match("5 → 7 lines"), "should include line change info: " .. key)
+  assert(key == "/tmp/file.lua", "should show path only from details: " .. key)
 end
 test_tool_key_param_details_edit()
 
