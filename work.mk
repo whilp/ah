@@ -71,10 +71,12 @@ $(do_done): $(plan) $(picked_issue) $(AH)
 		< $(picked_issue)
 	@touch $@
 
-$(push_done): $(do_done) $(picked_issue) $(cosmic)
+$(push_done): $(do_done) $(picked_issue)
 	@mkdir -p $(@D)
 	@echo "==> push"
-	@$(cosmic) lib/work/push.tl
+	@branch=$$(grep -o '"branch":"[^"]*"' $(picked_issue) | cut -d'"' -f4) && \
+		git diff --quiet origin/main...HEAD || \
+		git push -u origin HEAD:$$branch
 	@touch $@
 
 $(check_done): $(push_done) $(plan) $(AH)
