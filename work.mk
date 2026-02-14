@@ -123,15 +123,13 @@ work-push: $(push_done)
 work-check: $(check_done)
 work-act: $(act_done)
 
-# work: converge on check, then act once.
+# work: converge on check, then act.
 # check agent writes feedback.md when verdict is needs-fixes, which makes
-# do_done stale so the next $(MAKE) re-runs do -> push -> check.
+# do_done stale so the next make re-runs do -> push -> check.
+# once converged, make check is a no-op.
 .PHONY: work
 work:
-	@for i in 1 2 3; do \
-		$(MAKE) $(check_done) || exit 1; \
-		verdict=$$(jq -r '.verdict // "unknown"' $(o)/work/check/actions.json 2>/dev/null); \
-		[ "$$verdict" != "needs-fixes" ] && break; \
-		echo "==> needs-fixes (attempt $$i/3), re-running do"; \
-	done
+	@$(MAKE) $(check_done)
+	@$(MAKE) $(check_done)
+	@$(MAKE) $(check_done)
 	@$(MAKE) $(act_done)
