@@ -260,12 +260,21 @@ local function phase_do(no_sandbox: boolean, title: string, number: string, mode
   local friction = prompt.make_friction_prompt("o/work/do")
   local ok = sandbox.sandboxed_agent(no_sandbox, tpl, "o/work/do/session.db", {"o/work/plan"}, friction, sandbox.do_limits, model)
 
+  -- Always write branch.txt so push phase can find the branch
+  util.write_file("o/work/do/branch.txt", branch .. "\n")
+
+  -- Check for partial progress even if agent failed.
+  -- With incremental commits, the branch may have useful commits
+  -- even when the agent hits a transport error or timeout.
   if not ok then
+    local has_commits = util.run({"git", "log", "--oneline", "origin/main..HEAD", "--max-count=1"})
+    if has_commits then
+      util.log("do agent exited non-zero but branch has commits ahead of main, treating as partial success")
+      return 0
+    end
     io.stderr:write("error: do agent failed\n")
     return 1
   end
-
-  util.write_file("o/work/do/branch.txt", branch .. "\n")
 
   return 0
 end

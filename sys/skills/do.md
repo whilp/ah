@@ -18,10 +18,12 @@ You are executing a work item. Follow the plan below.
 ## Instructions
 
 1. Create the feature branch: `git checkout -b {branch} origin/main`
-2. Make the changes described in the plan
+2. For each step in the plan:
+   a. Make the changes for that step
+   b. Stage the specific files changed (not `git add -A`)
+   c. Commit with a descriptive message for that step
 3. Run validation steps from the plan
-4. Stage specific files (not `git add -A`)
-5. Commit with the message from the plan
+4. If validation requires fixes, stage and commit them
 
 ## Output
 
