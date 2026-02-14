@@ -5,20 +5,22 @@ description: Execute a work plan. Create branch, make changes, run validation, c
 
 # Do
 
-You are executing a work item. Follow the plan below.
+You are executing a work item. Follow the plan.
 
 ## Environment
 
-- Working directory: `{repo_root}`
+- Working directory: current directory
 
-## Plan
+## Setup
 
-{plan.md contents}
+Read `o/work/plan/plan.md` for the full plan. Read `o/work/plan/issue.json` for the issue.
+
+Context JSON follows this prompt on stdin with fields: `branch` (branch name to create).
 
 ## Instructions
 
-1. Read every file you intend to modify before editing it
-2. Create the feature branch: `git checkout -b {branch} origin/main`
+1. Read the plan and every file you intend to modify before editing
+2. Create the feature branch: `git checkout -b <branch> origin/main`
 3. For each step in the plan:
    a. Make the changes for that step
    b. Before staging, run `git status` and verify only your files are affected
@@ -36,7 +38,7 @@ Do not use destructive git commands: `git reset --hard`, `git checkout .`,
 
 Write `o/work/do/do.md`:
 
-    # Do: {title}
+    # Do: <issue title>
 
     ## Changes
     <list of files changed>

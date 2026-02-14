@@ -7,13 +7,9 @@ description: Review work execution against the plan. Validate changes, check for
 
 You are checking a work item. Review the execution against the plan.
 
-## Plan
+## Setup
 
-{plan.md contents}
-
-## Execution summary
-
-{do.md contents}
+Read `o/work/plan/plan.md` for the plan. Read `o/work/do/do.md` for the execution summary.
 
 ## Instructions
 

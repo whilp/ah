@@ -11,7 +11,6 @@ REPO ?= whilp/ah
 MODEL ?=
 MAX_PRS ?= 4
 AH := $(o)/bin/ah
-render = $(cosmic) lib/work/render.tl
 PLAN_TIMEOUT := 180
 PLAN_MAX_TOKENS := 50000
 DO_TIMEOUT := 300
@@ -69,7 +68,7 @@ $(plan): $(is_doing) $(picked_issue) $(AH)
 	@mkdir -p $(@D)
 	@cp $(picked_issue) $(o)/work/plan/issue.json
 	@echo "==> plan"
-	@{ cat sys/skills/plan.md; echo '---'; cat $(picked_issue); } \
+	@{ echo '/skill:plan'; cat $(picked_issue); } \
 	| timeout $(PLAN_TIMEOUT) $(AH) -n \
 		$(if $(MODEL),-m $(MODEL)) \
 		--max-tokens $(PLAN_MAX_TOKENS) \
@@ -81,13 +80,10 @@ $(branch): $(plan) $(picked_issue) $(cosmic)
 	@mkdir -p $(@D)
 	@$(cosmic) lib/work/extract-branch.tl --plan $< --issue $(picked_issue) > $@
 
-$(do_done): $(branch) $(plan) $(picked_issue) $(cosmic) $(AH)
+$(do_done): $(branch) $(plan) $(picked_issue) $(AH)
 	@mkdir -p $(@D)
 	@echo "==> do"
-	@$(render) --template sys/skills/do.md \
-		--json-vars $(picked_issue) \
-		--var-file "plan.md contents"=$(plan) \
-		--var branch=$$(cat $(branch)) \
+	@{ echo '/skill:do'; echo '{"branch":"'$$(cat $(branch))'"}'; } \
 	| timeout $(DO_TIMEOUT) $(AH) -n \
 		$(if $(MODEL),-m $(MODEL)) \
 		--max-tokens $(DO_MAX_TOKENS) \
@@ -102,12 +98,10 @@ $(push_done): $(do_done) $(branch)
 	@$(cosmic) lib/work/push.tl --branch-file $(branch)
 	@touch $@
 
-$(check_done): $(push_done) $(plan) $(cosmic) $(AH)
+$(check_done): $(push_done) $(plan) $(AH)
 	@mkdir -p $(@D)
 	@echo "==> check"
-	@$(render) --template sys/skills/check.md \
-		--var-file "plan.md contents"=$(plan) \
-		--var-file "do.md contents"=$(o)/work/do/do.md \
+	@echo '/skill:check' \
 	| timeout $(CHECK_TIMEOUT) $(AH) -n \
 		$(if $(MODEL),-m $(MODEL)) \
 		--max-tokens $(CHECK_MAX_TOKENS) \
