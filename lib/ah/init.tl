@@ -664,6 +664,10 @@ end
 local function make_cli_handler(): events.EventCallback
   local is_tty = unix.isatty(2)
   local DIM = is_tty and "\27[2m" or ""
+  local CYAN = is_tty and "\27[36m" or ""
+  local RED = is_tty and "\27[31m" or ""
+  local YELLOW = is_tty and "\27[33m" or ""
+  local BLUE = is_tty and "\27[34m" or ""
   local RESET = is_tty and "\27[0m" or ""
   local has_text = false
   local text_buffer: {string} = {}
@@ -683,7 +687,7 @@ local function make_cli_handler(): events.EventCallback
     if t == "agent_start" then
       -- In non-interactive mode, echo the prompt for clarity
       if not is_tty and event.prompt then
-        io.stderr:write(">>> " .. event.prompt .. "\n")
+        io.stderr:write(BLUE .. ">>> " .. event.prompt .. RESET .. "\n")
       end
 
     elseif t == "text_delta" then
@@ -706,10 +710,10 @@ local function make_cli_handler(): events.EventCallback
 
     elseif t == "budget_exceeded" then
       local total = (event.total_input_tokens or 0) + (event.total_output_tokens or 0)
-      io.stderr:write(string.format("\ntoken budget exceeded (%d/%d tokens)\n", total, event.max_tokens or 0))
+      io.stderr:write(string.format("\n%stoken budget exceeded (%d/%d tokens)%s\n", YELLOW, total, event.max_tokens or 0, RESET))
 
     elseif t == "error" then
-      io.stderr:write("\nerror: " .. (event.error or "unknown") .. "\n")
+      io.stderr:write(string.format("\n%serror: %s%s\n", RED, event.error or "unknown", RESET))
 
     elseif t == "api_call_end" then
       -- Flush buffered agent response text now that the response is complete
@@ -736,8 +740,8 @@ local function make_cli_handler(): events.EventCallback
       local indent = "  "
       local elapsed = (event.duration_ms or 0) / 1000
 
-      -- Line 1: tool name and timing
-      io.stderr:write(string.format("%s%s%s (%.1fs)%s\n", DIM, prefix, event.tool_name, elapsed, RESET))
+      -- Line 1: tool name and timing (cyan to distinguish from agent text)
+      io.stderr:write(string.format("%s%s%s (%.1fs)%s\n", CYAN, prefix, event.tool_name, elapsed, RESET))
 
       -- Line 2: command (for bash) or key param
       local key = event.tool_key or ""
