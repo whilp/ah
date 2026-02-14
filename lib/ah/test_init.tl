@@ -8,12 +8,15 @@ local db = require("ah.db")
 local TEST_TMPDIR = os.getenv("TEST_TMPDIR") or "/tmp"
 
 local function test_load_system_prompt_default()
-  -- No files exist, should return empty string (system prompt comes from embedded .md)
+  -- No files exist, should still contain runtime context (datetime and cwd)
+  -- but no git info (not a git repo)
   local empty_dir = fs.join(TEST_TMPDIR, "empty")
   fs.makedirs(empty_dir)
 
   local prompt = init.load_system_prompt(empty_dir)
-  assert(prompt == "", "should return empty when no system.md or CLAUDE.md exist")
+  assert(prompt:match("Current date: %d%d%d%d%-%d%d%-%d%d"), "should contain current date")
+  assert(prompt:match("Working directory: "), "should contain working directory")
+  assert(not prompt:match("Git branch:"), "should not contain git branch in non-repo dir")
 end
 test_load_system_prompt_default()
 
