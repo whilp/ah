@@ -89,25 +89,12 @@ local function build_fix_prompt(template: string, title: string, plan_contents: 
   })
 end
 
-local function build_friction_prompt(template: string, friction_path: string): string
-  return interpolate_prompt(template, {
-    friction_path = friction_path,
-  })
-end
-
 local function build_plan_prompt(template: string, title: string, body: string, repo_root: string): string
   return interpolate_prompt(template, {
     title = title,
     body = body,
     repo_root = repo_root or ".",
   })
-end
-
--- Build friction follow-up prompt for a given phase output directory.
-local function make_friction_prompt(phase_dir: string): string
-  local template = read_prompt("friction.md")
-  if not template then return nil end
-  return build_friction_prompt(template, phase_dir .. "/friction.md")
 end
 
 return {
@@ -118,7 +105,5 @@ return {
   build_do_prompt = build_do_prompt,
   build_check_prompt = build_check_prompt,
   build_fix_prompt = build_fix_prompt,
-  build_friction_prompt = build_friction_prompt,
   build_plan_prompt = build_plan_prompt,
-  make_friction_prompt = make_friction_prompt,
 }
