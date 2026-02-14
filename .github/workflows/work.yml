@@ -64,6 +64,7 @@ jobs:
           git config --global user.name "${GITHUB_ACTOR}"
 
       - name: Run work
+        id: work
         env:
           GH_TOKEN: ${{ github.token }}
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -76,12 +77,20 @@ jobs:
             ${prompt:+--prompt "$prompt"} \
             ${model:+--model "$model"}
 
+      - name: Check for work output
+        id: check
+        if: always()
+        run: |
+          if [ -d o/work ]; then
+            echo "has_output=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Collect coredump
         if: always()
         run: mv core* o/ 2>/dev/null || true
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        if: always()
+        if: always() && steps.check.outputs.has_output == 'true'
         with:
           name: work
           path: o/
