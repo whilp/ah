@@ -17,6 +17,7 @@ local record Socket
   listen: function(self: Socket, backlog: number): boolean, string
   accept: function(self: Socket, flags: number): Socket, number, number, string
   connect: function(self: Socket, ip: number, port: number): boolean, string
+  getsockopt: function(self: Socket, level: number, optname: number): number, string
 end
 
 local record M
@@ -26,6 +27,7 @@ local record M
   resolvehost: function(string): ip.Addr, string
   is_allowed: function(string): boolean
   parse_allow_hosts: function(string): {string:boolean}
+  nb_connect: function(Socket, number, integer): boolean, string
 end
 
 local ALLOWLIST: {string:boolean} = {
@@ -77,6 +79,44 @@ end
 local function parse_connect(request: string): string, string
   local host, port = request:match("CONNECT%s+([^:%s]+):(%d+)")
   return host, port
+end
+
+-- Non-blocking connect: initiate connect, poll for completion, check SO_ERROR.
+-- Returns true on success, false + error string on failure.
+local CONNECT_TIMEOUT_MS = 10000
+
+local function nb_connect(sock: Socket, addr: number, port: integer): boolean, string
+  local ok, conn_err = sock:connect(addr, port)
+  if ok then
+    return true
+  end
+
+  -- Non-blocking connect returns false with EINPROGRESS; poll for writability.
+  local fds: {number:number} = { [sock.fd] = net.POLLOUT }
+  local revents, poll_err = net.poll(fds, CONNECT_TIMEOUT_MS)
+  if not revents then
+    return false, "poll failed: " .. (poll_err or "unknown")
+  end
+
+  local ev = revents[sock.fd] or 0
+  if ev == 0 then
+    return false, "connect timed out"
+  end
+
+  if ev & net.POLLERR ~= 0 then
+    local so_err = sock:getsockopt(net.SOL_SOCKET, net.SO_ERROR)
+    return false, "connect error: " .. tostring(so_err or conn_err)
+  end
+
+  if ev & net.POLLOUT ~= 0 then
+    local so_err = sock:getsockopt(net.SOL_SOCKET, net.SO_ERROR)
+    if so_err and so_err ~= 0 then
+      return false, "connect failed: SO_ERROR=" .. tostring(so_err)
+    end
+    return true
+  end
+
+  return false, "connect failed: unexpected poll events=" .. tostring(ev)
 end
 
 local function relay(client: Socket, upstream: Socket)
@@ -161,7 +201,7 @@ local function handle_client(client: Socket)
     return
   end
 
-  local ok, conn_err = upstream:connect(addr:int() as number, tonumber(port) as integer)
+  local ok, conn_err = nb_connect(upstream as Socket, addr:int() as number, tonumber(port) as integer)
   if not ok then
     log("connect failed:", host, port, conn_err)
     upstream:close()
@@ -216,5 +256,6 @@ M.is_allowed = function(dest: string): boolean
   return ALLOWLIST[dest] or false
 end
 M.parse_allow_hosts = parse_allow_hosts
+M.nb_connect = nb_connect
 
 return M

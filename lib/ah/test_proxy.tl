@@ -3,12 +3,24 @@
 
 local ip = require("cosmic.ip")
 
+local net = require("cosmic.net")
+
+local record Socket
+  fd: number
+  close: function(self: Socket): boolean
+  recv: function(self: Socket, bufsiz: number): string, string
+  send: function(self: Socket, data: string): number, string
+  connect: function(self: Socket, ip: number, port: number): boolean, string
+  getsockopt: function(self: Socket, level: number, optname: number): number, string
+end
+
 local record Proxy
   serve: function(string): number
   parse_connect: function(string): string, string
   resolvehost: function(string): ip.Addr, string
   is_allowed: function(string): boolean
   parse_allow_hosts: function(string): {string:boolean}
+  nb_connect: function(Socket, number, integer): boolean, string
 end
 
 local proxy = require("ah.proxy") as Proxy
@@ -198,5 +210,37 @@ local function test_parse_allow_hosts_whitespace()
   print("✓ parse_allow_hosts: trims whitespace")
 end
 test_parse_allow_hosts_whitespace()
+
+-- nb_connect: non-blocking connect to api.anthropic.com succeeds
+local function test_nb_connect()
+  local addr, err = proxy.resolvehost("api.anthropic.com")
+  assert(addr, "DNS should resolve, got: " .. tostring(err))
+
+  local sock = net.socket(net.AF_INET, net.SOCK_STREAM | net.SOCK_NONBLOCK, 0) as Socket
+  assert(sock, "socket creation should succeed")
+
+  local ok, conn_err = proxy.nb_connect(sock, addr:int() as number, 443 as integer)
+  assert(ok, "nb_connect should succeed, got: " .. tostring(conn_err))
+  sock:close()
+  print("✓ nb_connect: non-blocking connect succeeds")
+end
+test_nb_connect()
+
+-- nb_connect: non-blocking connect to unreachable port fails
+local function test_nb_connect_refused()
+  local addr, err = ip.lookup("127.0.0.1")
+  assert(addr, "should resolve localhost, got: " .. tostring(err))
+
+  local sock = net.socket(net.AF_INET, net.SOCK_STREAM | net.SOCK_NONBLOCK, 0) as Socket
+  assert(sock, "socket creation should succeed")
+
+  -- port 1 is almost certainly not listening
+  local ok, conn_err = proxy.nb_connect(sock, addr:int() as number, 1 as integer)
+  assert(not ok, "nb_connect to closed port should fail")
+  assert(conn_err, "should have error message")
+  sock:close()
+  print("✓ nb_connect: connection refused returns error")
+end
+test_nb_connect_refused()
 
 print("\nall proxy tests passed")
