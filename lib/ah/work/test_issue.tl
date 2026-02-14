@@ -28,6 +28,7 @@ local record WorkIssue
   select_issue: function({Issue}): SelectedIssue
   required_labels: {string}
   ensure_labels: function(string): boolean, string
+  count_open_prs: function(string): integer, string
 end
 
 local issue = require("ah.work.issue") as WorkIssue
@@ -131,5 +132,12 @@ local function test_ensure_labels_exported()
   print("✓ ensure_labels is exported")
 end
 test_ensure_labels_exported()
+
+-- Test that count_open_prs is exported as a function
+local function test_count_open_prs_exported()
+  assert(type(issue.count_open_prs) == "function", "count_open_prs should be exported as a function")
+  print("✓ count_open_prs is exported")
+end
+test_count_open_prs_exported()
 
 print("\nAll work-issue tests passed!")
