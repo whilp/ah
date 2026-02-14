@@ -333,6 +333,148 @@ local function phase_check(no_sandbox: boolean, model: string, do_dir: string): 
   return 1
 end
 
+-- Truncate a string to max_len, appending "..." if truncated
+local function truncate(s: string, max_len: integer): string
+  if not s or #s <= max_len then return s end
+  return s:sub(1, max_len) .. "\n..."
+end
+
+-- Extract a section from a markdown document by heading
+local function extract_section(content: string, heading: string, max_len: integer): string
+  if not content then return nil end
+  local pattern = "## " .. heading .. "\n"
+  local start = content:find(pattern, 1, true)
+  if not start then
+    pattern = "# " .. heading .. "\n"
+    start = content:find(pattern, 1, true)
+  end
+  if not start then return nil end
+  local section_start = content:find("\n", start, true)
+  if not section_start then return nil end
+  section_start = section_start + 1
+  -- find next heading
+  local section_end = content:find("\n#", section_start)
+  local section: string
+  if section_end then
+    section = content:sub(section_start, section_end - 1)
+  else
+    section = content:sub(section_start)
+  end
+  return truncate(section:gsub("^%s+", ""):gsub("%s+$", ""), max_len)
+end
+
+-- Build a markdown summary comment from available phase artifacts
+local function build_summary_comment(status: string, phases_completed: {string}): string
+  local lines: {string} = {}
+  local function add(s: string)
+    table.insert(lines, s)
+  end
+
+  -- status emoji
+  local emoji = "❌"
+  if status == "success" then emoji = "✅"
+  elseif status == "no_issues" then emoji = "⚪"
+  end
+
+  add("## 🤖 Work Summary")
+  add("")
+  add("**Status**: " .. emoji .. " `" .. status .. "`")
+
+  -- branch
+  local branch_content = util.read_file("o/work/do/branch.txt")
+  if branch_content then
+    local branch = branch_content:gsub("%s+$", "")
+    if branch ~= "" then
+      add("**Branch**: `" .. branch .. "`")
+    end
+  end
+
+  -- workflow run link
+  local server = os.getenv("GITHUB_SERVER_URL")
+  local repository = os.getenv("GITHUB_REPOSITORY")
+  local run_id = os.getenv("GITHUB_RUN_ID")
+  if server and repository and run_id then
+    add("**Run**: [workflow run](" .. server .. "/" .. repository .. "/actions/runs/" .. run_id .. ")")
+  end
+
+  add("**Phases**: " .. (phases_completed and #phases_completed > 0 and table.concat(phases_completed, " → ") or "none"))
+  add("")
+
+  -- On success, keep it short — the act phase's comment_issue has details
+  if status == "success" then
+    local check_md = util.read_file("o/work/check/check.md")
+    local verdict_text = extract_section(check_md, "Verdict", 200)
+    if verdict_text then
+      add("### Verdict")
+      add(verdict_text)
+      add("")
+    end
+    return truncate(table.concat(lines, "\n"), 4000)
+  end
+
+  -- On failure, include details from available artifacts
+  local plan_md = util.read_file("o/work/plan/plan.md")
+  if plan_md then
+    local goal = extract_section(plan_md, "Goal", 500)
+    if goal then
+      add("### Goal")
+      add(goal)
+      add("")
+    end
+  else
+    add("### Plan")
+    add("Plan phase did not complete.")
+    add("")
+  end
+
+  local do_md = util.read_file("o/work/do/do.md")
+  if do_md then
+    local changes = extract_section(do_md, "Changes", 500)
+    if changes then
+      add("### Changes")
+      add(changes)
+      add("")
+    end
+    local do_status = extract_section(do_md, "Status", 200)
+    if do_status then
+      add("### Implementation Status")
+      add(do_status)
+      add("")
+    end
+  elseif plan_md then
+    add("### Changes")
+    add("Implementation phase did not complete.")
+    add("")
+  end
+
+  local check_md = util.read_file("o/work/check/check.md")
+  if check_md then
+    local verdict_text = extract_section(check_md, "Verdict", 500)
+    if verdict_text then
+      add("### Verdict")
+      add(verdict_text)
+      add("")
+    end
+  end
+
+  return truncate(table.concat(lines, "\n"), 4000)
+end
+
+-- Post a summary comment on the originating issue (best-effort)
+local function post_summary_comment(issue_url: string, status: string, phases_completed: {string})
+  local body = build_summary_comment(status, phases_completed)
+  if not body or body == "" then
+    util.log("post_summary_comment: empty body, skipping")
+    return
+  end
+  local ok, _, _, stderr = util.run({"gh", "issue", "comment", issue_url, "--body", body})
+  if not ok then
+    util.log("post_summary_comment: failed to post comment: " .. (stderr or "unknown error"))
+  else
+    util.log("post_summary_comment: comment posted on " .. issue_url)
+  end
+end
+
 local function read_check_verdict(): string
   local content = util.read_file("o/work/check/actions.json")
   if not content then return nil end
@@ -779,6 +921,22 @@ local function main(args: {string}): integer
   local final_status = pdca_rc == 0 and "success" or "failed"
   write_summary(final_status, issue and issue.number or nil, phases_completed)
 
+  -- Post summary comment on the originating issue (best-effort)
+  local comment_url: string = issue and issue.url or nil
+  if not comment_url then
+    -- Try reading from issue.json written during plan phase
+    local issue_json = util.read_file("o/work/plan/issue.json")
+    if issue_json then
+      local decode_ok, issue_data = pcall(json.decode, issue_json)
+      if decode_ok and type(issue_data) == "table" then
+        comment_url = ((issue_data as {string:any}).url) as string
+      end
+    end
+  end
+  if comment_url then
+    post_summary_comment(comment_url, final_status, phases_completed)
+  end
+
   return pdca_rc
 end
 
@@ -786,6 +944,7 @@ return {
   main = main,
   -- internal functions exported for testing
   is_crash_signal = is_crash_signal,
+  build_summary_comment = build_summary_comment,
   -- re-exported from submodules for backward compatibility
   get_priority = issue_mod.get_priority,
   sort_issues = issue_mod.sort_issues,
