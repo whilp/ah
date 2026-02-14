@@ -661,13 +661,13 @@ end
 -- CLI display handler: renders structured events to stderr/stdout for terminal use.
 -- This is the application-layer implementation of the event callback.
 -- Other handlers (JSON logging, web UI, etc.) can be substituted.
-local function make_cli_handler(): events.EventCallback
-  local is_tty = unix.isatty(2)
+local function make_cli_handler(force_tty?: boolean): events.EventCallback
+  local is_tty = force_tty or unix.isatty(2)
   local DIM = is_tty and "\27[2m" or ""
   local CYAN = is_tty and "\27[36m" or ""
   local RED = is_tty and "\27[31m" or ""
   local YELLOW = is_tty and "\27[33m" or ""
-  local BLUE = is_tty and "\27[34m" or ""
+  local BOLD = is_tty and "\27[1m" or ""
   local RESET = is_tty and "\27[0m" or ""
   local has_text = false
   local text_buffer: {string} = {}
@@ -687,7 +687,7 @@ local function make_cli_handler(): events.EventCallback
     if t == "agent_start" then
       -- In non-interactive mode, echo the prompt for clarity
       if not is_tty and event.prompt then
-        io.stderr:write(BLUE .. ">>> " .. event.prompt .. RESET .. "\n")
+        io.stderr:write(">>> " .. event.prompt .. "\n")
       end
 
     elseif t == "text_delta" then
@@ -739,9 +739,12 @@ local function make_cli_handler(): events.EventCallback
       local prefix = is_tty and "⠋ " or ""
       local indent = "  "
       local elapsed = (event.duration_ms or 0) / 1000
+      local is_err = event.is_error
 
-      -- Line 1: tool name and timing (cyan to distinguish from agent text)
-      io.stderr:write(string.format("%s%s%s (%.1fs)%s\n", CYAN, prefix, event.tool_name, elapsed, RESET))
+      -- Line 1: tool name and timing
+      -- Red for errors, cyan for success
+      local name_color = is_err and RED or CYAN
+      io.stderr:write(string.format("%s%s%s (%.1fs)%s\n", name_color, prefix, event.tool_name, elapsed, RESET))
 
       -- Line 2: command (for bash) or key param
       local key = event.tool_key or ""
@@ -751,6 +754,8 @@ local function make_cli_handler(): events.EventCallback
       end
 
       -- Show truncated output (first 3 lines, then count)
+      -- Use red for error output, dim for normal output
+      local out_color = is_err and RED or DIM
       local result = event.tool_output or ""
       if result ~= "" and result ~= "(no output)" then
         local lines: {string} = {}
@@ -763,10 +768,10 @@ local function make_cli_handler(): events.EventCallback
           if #line > 80 then
             line = line:sub(1, 77) .. "..."
           end
-          io.stderr:write(string.format("%s%s%s%s\n", DIM, indent, line, RESET))
+          io.stderr:write(string.format("%s%s%s%s\n", out_color, indent, line, RESET))
         end
         if #lines > max_lines then
-          io.stderr:write(string.format("%s%s... (%d more lines)%s\n", DIM, indent, #lines - max_lines, RESET))
+          io.stderr:write(string.format("%s%s... (%d more lines)%s\n", out_color, indent, #lines - max_lines, RESET))
         end
       end
 
@@ -1379,4 +1384,5 @@ return {
   cmd_branch_rm = cmd_branch_rm,
   cmd_diff = cmd_diff,
   parse_protect_dirs = parse_protect_dirs,
+  make_cli_handler = make_cli_handler,
 }
