@@ -205,8 +205,12 @@ local write_tool: Tool = {
       return "error: failed to write file: " .. file_path, true, nil
     end
 
-    return "wrote " .. tostring(#content) .. " bytes to " .. file_path, false,
-      {path = file_path, bytes = #content} as ToolDetails
+    -- Count lines for display
+    local line_count = 1
+    for _ in content:gmatch("\n") do line_count = line_count + 1 end
+
+    return string.format("%d lines", line_count), false,
+      {path = file_path, bytes = #content, line_count = line_count} as ToolDetails
   end,
 }
 
