@@ -12,6 +12,10 @@ concurrency:
 env:
   REPO: ${{ github.repository }}
   PATH: o/bin:${{ github.workspace }}/o/bin:/usr/local/bin:/usr/bin:/bin
+  GIT_AUTHOR_NAME: ${{ github.actor }}
+  GIT_AUTHOR_EMAIL: ${{ github.actor }}@users.noreply.github.com
+  GIT_COMMITTER_NAME: ${{ github.actor }}
+  GIT_COMMITTER_EMAIL: ${{ github.actor }}@users.noreply.github.com
 
 permissions:
   contents: write
@@ -29,11 +33,6 @@ jobs:
 
       - name: Build ah
         run: make ah
-
-      - name: Configure git identity
-        run: |
-          git config --global user.email "${GITHUB_ACTOR}@users.noreply.github.com"
-          git config --global user.name "${GITHUB_ACTOR}"
 
       - name: Run work
         id: work
