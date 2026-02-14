@@ -60,12 +60,26 @@ table.sort(issues, function(a: RawIssue, b: RawIssue): boolean
 end)
 
 local selected = issues[1]
+
+-- short sha of origin/HEAD for unique branch names across runs
+local p = io.popen("git rev-parse --short origin/HEAD 2>/dev/null")
+local head_sha = ""
+if p then
+   head_sha = (p:read("*l") or ""):gsub("%s+$", "")
+   p:close()
+end
+
+local branch = "work/" .. tostring(selected.number)
+if head_sha ~= "" then
+   branch = branch .. "-" .. head_sha
+end
+
 local issue = {
    number = selected.number,
    title = selected.title,
    body = selected.body,
    url = selected.url,
-   branch = "work/" .. tostring(selected.number),
+   branch = branch,
 }
 
 io.write(json.encode(issue))
