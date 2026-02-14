@@ -63,7 +63,7 @@ local function main(...: string): integer, string
   local args = {...}
   local dir: string = nil
 
-  local longopts = {{"dir", "required"}}
+  local longopts = {{name = "dir", has_arg = "required"}}
   local parser = getopt.new(args, "", longopts)
 
   while true do
