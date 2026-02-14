@@ -35,4 +35,4 @@ if not issues then
    os.exit(1)
 end
 
-io.write(json.encode(issues))
+io.write((json.encode(issues)))
