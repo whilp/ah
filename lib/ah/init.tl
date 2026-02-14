@@ -1112,7 +1112,7 @@ local function main(args: {string}): integer, string
     local child_mod = require("cosmic.child") as ChildMod
     io.stderr:write("[sandbox] spawning child: " .. table.concat(child_args, " ") .. "\n")
     io.stderr:write("[sandbox] stdin: " .. (parent_stdin and (tostring(#parent_stdin) .. " bytes") or "none") .. "\n")
-    local handle, spawn_err = child_mod.spawn(child_args, {env = run_env, stdin = parent_stdin})
+    local handle, spawn_err = child_mod.spawn(child_args, {env = run_env, stdin = parent_stdin or ""})
     if not handle then
       io.stderr:write("error: failed to spawn sandboxed child: " .. (spawn_err or "unknown") .. "\n")
       work_sandbox.stop_sandbox(ctx)
