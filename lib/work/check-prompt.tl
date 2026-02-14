@@ -1,4 +1,6 @@
 -- lib/work/check-prompt.tl: build check prompt from plan.md and do.md
+local getopt = require("cosmic.getopt")
+
 local function read_file(path: string): string
    local f = io.open(path, "r")
    if not f then return nil end
@@ -24,10 +26,30 @@ local function interpolate(template: string, vars: {string:string}): string
    return template
 end
 
-local plan_file = arg[1]
-local do_file = arg[2]
+local plan_file: string
+local do_file: string
+
+local longopts = {
+   {name = "plan", has_arg = "required", short = "p"},
+   {name = "do-file", has_arg = "required", short = "d"},
+}
+local parser = getopt.new(arg, "p:d:", longopts)
+
+while true do
+   local opt, optarg = parser:next()
+   if not opt then break end
+   if opt == "p" or opt == "plan" then
+      plan_file = optarg
+   elseif opt == "d" or opt == "do-file" then
+      do_file = optarg
+   elseif opt == "?" then
+      io.stderr:write("usage: check-prompt.tl --plan <plan.md> --do-file <do.md>\n")
+      os.exit(1)
+   end
+end
+
 if not plan_file or not do_file then
-   io.stderr:write("usage: check-prompt.tl <plan.md> <do.md>\n")
+   io.stderr:write("usage: check-prompt.tl --plan <plan.md> --do-file <do.md>\n")
    os.exit(1)
 end
 

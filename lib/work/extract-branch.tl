@@ -1,6 +1,7 @@
 -- lib/work/extract-branch.tl: extract branch name from plan.md
 -- outputs just the branch name to stdout
 local json = require("cosmic.json")
+local getopt = require("cosmic.getopt")
 
 local function read_file(path: string): string
    local f = io.open(path, "r")
@@ -10,11 +11,30 @@ local function read_file(path: string): string
    return content
 end
 
-local plan_file = arg[1]
-local issue_file = arg[2]
+local plan_file: string
+local issue_file: string
+
+local longopts = {
+   {name = "plan", has_arg = "required", short = "p"},
+   {name = "issue", has_arg = "required", short = "i"},
+}
+local parser = getopt.new(arg, "p:i:", longopts)
+
+while true do
+   local opt, optarg = parser:next()
+   if not opt then break end
+   if opt == "p" or opt == "plan" then
+      plan_file = optarg
+   elseif opt == "i" or opt == "issue" then
+      issue_file = optarg
+   elseif opt == "?" then
+      io.stderr:write("usage: extract-branch.tl --plan <plan.md> [--issue <issue.json>]\n")
+      os.exit(1)
+   end
+end
 
 if not plan_file then
-   io.stderr:write("usage: extract-branch.tl <plan.md> [issue.json]\n")
+   io.stderr:write("usage: extract-branch.tl --plan <plan.md> [--issue <issue.json>]\n")
    os.exit(1)
 end
 

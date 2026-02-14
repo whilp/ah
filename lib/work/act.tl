@@ -1,6 +1,6 @@
 -- lib/work/act.tl: execute actions from check phase
--- args: issue.json actions.json branch.txt
 local json = require("cosmic.json")
+local getopt = require("cosmic.getopt")
 
 local function read_file(path: string): string
    local f = io.open(path, "r")
@@ -23,14 +23,38 @@ local function issue_number_from_url(url: string): string
    return url:match("/issues/(%d+)")
 end
 
-local issue_file = arg[1]
-local actions_file = arg[2]
-local branch_file = arg[3]
+local issue_file: string
+local actions_file: string
+local output_file: string
+
+local longopts = {
+   {name = "issue", has_arg = "required", short = "i"},
+   {name = "actions", has_arg = "required", short = "a"},
+   {name = "output", has_arg = "required", short = "o"},
+}
+local parser = getopt.new(arg, "i:a:o:", longopts)
+
+while true do
+   local opt, optarg = parser:next()
+   if not opt then break end
+   if opt == "i" or opt == "issue" then
+      issue_file = optarg
+   elseif opt == "a" or opt == "actions" then
+      actions_file = optarg
+   elseif opt == "o" or opt == "output" then
+      output_file = optarg
+   elseif opt == "?" then
+      io.stderr:write("usage: act.tl --issue <issue.json> --actions <actions.json> [--output <results.json>]\n")
+      os.exit(1)
+   end
+end
 
 if not issue_file or not actions_file then
-   io.stderr:write("usage: act.tl <issue.json> <actions.json> [branch.txt]\n")
+   io.stderr:write("usage: act.tl --issue <issue.json> --actions <actions.json> [--output <results.json>]\n")
    os.exit(1)
 end
+
+output_file = output_file or "o/work/act/results.json"
 
 local issue_raw = read_file(issue_file)
 if not issue_raw then
@@ -107,7 +131,7 @@ end
 
 -- write results
 local results = json.encode({verdict = verdict, success = success})
-local f = io.open("o/work/act/results.json", "w")
+local f = io.open(output_file, "w")
 if f then
    f:write(results .. "\n")
    f:close()

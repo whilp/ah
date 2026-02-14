@@ -1,5 +1,6 @@
 -- lib/work/plan-prompt.tl: build plan prompt from issue.json and template
 local json = require("cosmic.json")
+local getopt = require("cosmic.getopt")
 
 local function strip_frontmatter(content: string): string
    if content:sub(1, 4) == "---\n" then
@@ -26,10 +27,26 @@ local function interpolate(template: string, vars: {string:string}): string
    return template
 end
 
--- read issue from argument
-local issue_file = arg[1]
+local issue_file: string
+
+local longopts = {
+   {name = "issue", has_arg = "required", short = "i"},
+}
+local parser = getopt.new(arg, "i:", longopts)
+
+while true do
+   local opt, optarg = parser:next()
+   if not opt then break end
+   if opt == "i" or opt == "issue" then
+      issue_file = optarg
+   elseif opt == "?" then
+      io.stderr:write("usage: plan-prompt.tl --issue <issue.json>\n")
+      os.exit(1)
+   end
+end
+
 if not issue_file then
-   io.stderr:write("usage: plan-prompt.tl <issue.json>\n")
+   io.stderr:write("usage: plan-prompt.tl --issue <issue.json>\n")
    os.exit(1)
 end
 
@@ -45,7 +62,6 @@ if not issue then
    os.exit(1)
 end
 
--- read template from skills
 local template = read_file("sys/skills/plan.md")
 if not template then
    io.stderr:write("could not read sys/skills/plan.md\n")

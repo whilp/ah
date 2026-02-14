@@ -1,5 +1,6 @@
--- lib/work/select.tl: select highest priority issue from issues.json on stdin
+-- lib/work/select.tl: select highest priority issue from issues.json
 local json = require("cosmic.json")
+local getopt = require("cosmic.getopt")
 
 local record Label
    name: string
@@ -23,7 +24,38 @@ local function get_priority(labels: {Label}): integer
    return 3
 end
 
-local input = io.read("*a")
+local input_file: string
+
+local longopts = {
+   {name = "input", has_arg = "required", short = "i"},
+}
+local parser = getopt.new(arg, "i:", longopts)
+
+while true do
+   local opt, optarg = parser:next()
+   if not opt then break end
+   if opt == "i" or opt == "input" then
+      input_file = optarg
+   elseif opt == "?" then
+      io.stderr:write("usage: select.tl --input <issues.json>\n")
+      os.exit(1)
+   end
+end
+
+if not input_file then
+   io.stderr:write("usage: select.tl --input <issues.json>\n")
+   os.exit(1)
+end
+
+local function read_file(path: string): string
+   local f = io.open(path, "r")
+   if not f then return nil end
+   local content = f:read("*a")
+   f:close()
+   return content
+end
+
+local input = read_file(input_file)
 if not input or input == "" then
    io.stderr:write("no input\n")
    os.exit(1)

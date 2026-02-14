@@ -9,7 +9,7 @@ max_retries="${4:-2}"
 
 check_verdict() {
     local verdict
-    verdict=$("$cosmic" lib/work/check-verdict.tl o/work/check/actions.json 2>/dev/null) || return 1
+    verdict=$("$cosmic" lib/work/check-verdict.tl --actions o/work/check/actions.json 2>/dev/null) || return 1
     echo "$verdict"
 }
 
@@ -23,7 +23,10 @@ for attempt in $(seq 1 "$max_retries"); do
 
     # build fix prompt
     mkdir -p o/work/fix
-    "$cosmic" lib/work/fix-prompt.tl o/work/issue.json o/work/plan/plan.md o/work/check/check.md \
+    "$cosmic" lib/work/fix-prompt.tl \
+        --issue o/work/issue.json \
+        --plan o/work/plan/plan.md \
+        --check o/work/check/check.md \
         > o/work/fix/prompt.txt
 
     # run fix agent
@@ -36,11 +39,11 @@ for attempt in $(seq 1 "$max_retries"); do
         < o/work/fix/prompt.txt || true
 
     # extract branch and push
-    branch=$("$cosmic" lib/work/extract-branch.tl o/work/plan/plan.md o/work/issue.json)
+    branch=$("$cosmic" lib/work/extract-branch.tl --plan o/work/plan/plan.md --issue o/work/issue.json)
     echo "$branch" > o/work/fix/branch.txt
 
     echo "==> push (fix)"
-    "$cosmic" lib/work/push.tl o/work/fix/branch.txt
+    "$cosmic" lib/work/push.tl --branch-file o/work/fix/branch.txt
 
     # re-check
     echo "==> check (after fix)"
@@ -50,7 +53,9 @@ for attempt in $(seq 1 "$max_retries"); do
     if [ ! -f "$do_md" ]; then
         do_md="o/work/do/do.md"
     fi
-    "$cosmic" lib/work/check-prompt.tl o/work/plan/plan.md "$do_md" \
+    "$cosmic" lib/work/check-prompt.tl \
+        --plan o/work/plan/plan.md \
+        --do-file "$do_md" \
         > o/work/check/prompt.txt
 
     timeout 180 "$ah" -n \

@@ -19,34 +19,34 @@ FIX_MAX_TOKENS := 100000
 # ensure labels exist
 $(o)/work/labels.ok: $(cosmic)
 	@mkdir -p $(@D)
-	@$(cosmic) lib/work/ensure-labels.tl $(REPO)
+	@$(cosmic) lib/work/ensure-labels.tl --repo $(REPO)
 	@touch $@
 
 # check PR limit
 $(o)/work/pr-limit.ok: $(cosmic)
 	@mkdir -p $(@D)
-	@$(cosmic) lib/work/check-pr-limit.tl $(REPO) $(MAX_PRS)
+	@$(cosmic) lib/work/check-pr-limit.tl --repo $(REPO) --max $(MAX_PRS)
 	@touch $@
 
 # fetch open todo issues
 $(o)/work/issues.json: $(o)/work/labels.ok $(o)/work/pr-limit.ok $(cosmic)
 	@mkdir -p $(@D)
-	@$(cosmic) lib/work/issues.tl $(REPO) > $@
+	@$(cosmic) lib/work/issues.tl --repo $(REPO) > $@
 
 # select highest priority issue
 $(o)/work/issue.json: $(o)/work/issues.json $(cosmic)
 	@mkdir -p $(@D)
-	@$(cosmic) lib/work/select.tl < $< > $@
+	@$(cosmic) lib/work/select.tl --input $< > $@
 
 # transition issue to doing
 $(o)/work/doing.ok: $(o)/work/issue.json $(cosmic)
-	@$(cosmic) lib/work/transition.tl $<
+	@$(cosmic) lib/work/transition.tl --issue $<
 	@touch $@
 
 # build plan prompt from issue
 $(o)/work/plan/prompt.txt: $(o)/work/doing.ok $(o)/work/issue.json $(cosmic)
 	@mkdir -p $(@D)
-	@$(cosmic) lib/work/plan-prompt.tl $(o)/work/issue.json > $@
+	@$(cosmic) lib/work/plan-prompt.tl --issue $(o)/work/issue.json > $@
 
 # run plan agent
 $(o)/work/plan/plan.md: $(o)/work/plan/prompt.txt $(AH)
@@ -63,12 +63,12 @@ $(o)/work/plan/plan.md: $(o)/work/plan/prompt.txt $(AH)
 # build do prompt from plan
 $(o)/work/do/prompt.txt: $(o)/work/plan/plan.md $(o)/work/issue.json $(cosmic)
 	@mkdir -p $(@D)
-	@$(cosmic) lib/work/do-prompt.tl $(o)/work/issue.json $< > $@
+	@$(cosmic) lib/work/do-prompt.tl --issue $(o)/work/issue.json --plan $< > $@
 
 # extract branch name
 $(o)/work/do/branch.txt: $(o)/work/plan/plan.md $(o)/work/issue.json $(cosmic)
 	@mkdir -p $(@D)
-	@$(cosmic) lib/work/extract-branch.tl $< $(o)/work/issue.json > $@
+	@$(cosmic) lib/work/extract-branch.tl --plan $< --issue $(o)/work/issue.json > $@
 
 # run do agent
 $(o)/work/do/done: $(o)/work/do/prompt.txt $(o)/work/do/branch.txt $(AH)
@@ -85,13 +85,13 @@ $(o)/work/do/done: $(o)/work/do/prompt.txt $(o)/work/do/branch.txt $(AH)
 $(o)/work/push/done: $(o)/work/do/done $(o)/work/do/branch.txt
 	@mkdir -p $(@D)
 	@echo "==> push"
-	@$(cosmic) lib/work/push.tl $(o)/work/do/branch.txt
+	@$(cosmic) lib/work/push.tl --branch-file $(o)/work/do/branch.txt
 	@touch $@
 
 # build check prompt
 $(o)/work/check/prompt.txt: $(o)/work/push/done $(o)/work/plan/plan.md $(cosmic)
 	@mkdir -p $(@D)
-	@$(cosmic) lib/work/check-prompt.tl $(o)/work/plan/plan.md $(o)/work/do/do.md > $@
+	@$(cosmic) lib/work/check-prompt.tl --plan $(o)/work/plan/plan.md --do-file $(o)/work/do/do.md > $@
 
 # run check agent
 $(o)/work/check/done: $(o)/work/check/prompt.txt $(AH)
@@ -115,8 +115,8 @@ $(o)/work/fix/done: $(o)/work/check/done $(cosmic)
 $(o)/work/act/done: $(o)/work/fix/done $(o)/work/issue.json $(cosmic)
 	@mkdir -p $(@D)
 	@echo "==> act"
-	@$(cosmic) lib/work/act.tl $(o)/work/issue.json $(o)/work/check/actions.json \
-		$(o)/work/do/branch.txt
+	@$(cosmic) lib/work/act.tl --issue $(o)/work/issue.json \
+		--actions $(o)/work/check/actions.json
 	@touch $@
 
 # top-level work target

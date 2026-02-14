@@ -1,5 +1,6 @@
 -- lib/work/fix-prompt.tl: build fix prompt from plan.md and check.md
 local json = require("cosmic.json")
+local getopt = require("cosmic.getopt")
 
 local function read_file(path: string): string
    local f = io.open(path, "r")
@@ -30,12 +31,34 @@ local function extract_branch(plan: string, issue_number: string): string
    return plan:match("Branch: ([^\n]+)") or ("work/" .. issue_number)
 end
 
--- args: issue.json plan.md check.md
-local issue_file = arg[1]
-local plan_file = arg[2]
-local check_file = arg[3]
+local issue_file: string
+local plan_file: string
+local check_file: string
+
+local longopts = {
+   {name = "issue", has_arg = "required", short = "i"},
+   {name = "plan", has_arg = "required", short = "p"},
+   {name = "check", has_arg = "required", short = "c"},
+}
+local parser = getopt.new(arg, "i:p:c:", longopts)
+
+while true do
+   local opt, optarg = parser:next()
+   if not opt then break end
+   if opt == "i" or opt == "issue" then
+      issue_file = optarg
+   elseif opt == "p" or opt == "plan" then
+      plan_file = optarg
+   elseif opt == "c" or opt == "check" then
+      check_file = optarg
+   elseif opt == "?" then
+      io.stderr:write("usage: fix-prompt.tl --issue <issue.json> --plan <plan.md> --check <check.md>\n")
+      os.exit(1)
+   end
+end
+
 if not issue_file or not plan_file or not check_file then
-   io.stderr:write("usage: fix-prompt.tl <issue.json> <plan.md> <check.md>\n")
+   io.stderr:write("usage: fix-prompt.tl --issue <issue.json> --plan <plan.md> --check <check.md>\n")
    os.exit(1)
 end
 

@@ -1,5 +1,5 @@
 -- lib/work/push.tl: push work branch to origin
--- reads branch name from branch.txt file argument
+local getopt = require("cosmic.getopt")
 
 local function read_file(path: string): string
    local f = io.open(path, "r")
@@ -14,9 +14,26 @@ local function run(cmd: string): boolean
    return rc == 0 or rc == true
 end
 
-local branch_file = arg[1]
+local branch_file: string
+
+local longopts = {
+   {name = "branch-file", has_arg = "required", short = "b"},
+}
+local parser = getopt.new(arg, "b:", longopts)
+
+while true do
+   local opt, optarg = parser:next()
+   if not opt then break end
+   if opt == "b" or opt == "branch-file" then
+      branch_file = optarg
+   elseif opt == "?" then
+      io.stderr:write("usage: push.tl --branch-file <branch.txt>\n")
+      os.exit(1)
+   end
+end
+
 if not branch_file then
-   io.stderr:write("usage: push.tl <branch.txt>\n")
+   io.stderr:write("usage: push.tl --branch-file <branch.txt>\n")
    os.exit(1)
 end
 
