@@ -32,9 +32,7 @@ test_tool_key_param_write()
 
 local function test_tool_key_param_edit()
   local key = loop.tool_key_param("edit", '{"path":"/tmp/file.lua","old_string":"foo","new_string":"bar"}', nil)
-  assert(key:match("/tmp/file.lua"), "should include path")
-  assert(key:match("foo"), "should include old_string preview")
-  assert(key:match("bar"), "should include new_string preview")
+  assert(key == "/tmp/file.lua", "should show path only: " .. key)
 end
 test_tool_key_param_edit()
 
@@ -241,6 +239,46 @@ end
 test_thresholds()
 
 print("all loop tests passed")
+
+-- Tests for shorten_path
+local unix = require("cosmo.unix")
+local function test_shorten_path_under_cwd()
+  local cwd = unix.getcwd() or "/tmp"
+  local p = cwd .. "/foo/bar.txt"
+  local short = loop.shorten_path(p)
+  assert(short == "foo/bar.txt", "should strip cwd prefix: " .. short)
+end
+test_shorten_path_under_cwd()
+
+local function test_shorten_path_outside_cwd()
+  local p = "/not/under/cwd/file.txt"
+  local short = loop.shorten_path(p)
+  assert(short == p, "should leave paths outside cwd unchanged: " .. short)
+end
+test_shorten_path_outside_cwd()
+
+local function test_shorten_path_cwd_itself()
+  local cwd = unix.getcwd() or "/tmp"
+  local short = loop.shorten_path(cwd)
+  assert(short == ".", "should return . for cwd itself: " .. short)
+end
+test_shorten_path_cwd_itself()
+
+local function test_shorten_path_relative()
+  local short = loop.shorten_path("relative/path.txt")
+  assert(short == "relative/path.txt", "should leave relative paths unchanged: " .. short)
+end
+test_shorten_path_relative()
+
+-- Test that tool_key_param shortens paths under cwd
+local function test_tool_key_param_shortens_path()
+  local cwd = unix.getcwd() or "/tmp"
+  local json = require("cosmic.json")
+  local details = json.encode({path = cwd .. "/lib/ah/loop.tl"})
+  local key = loop.tool_key_param("read", '{}', details)
+  assert(key == "lib/ah/loop.tl", "should shorten path in details: " .. key)
+end
+test_tool_key_param_shortens_path()
 
 -- Test that run_agent returns a stop_reason string
 local function test_run_agent_signature()
