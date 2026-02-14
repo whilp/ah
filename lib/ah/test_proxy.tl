@@ -1,15 +1,12 @@
 #!/usr/bin/env cosmic
 -- test_proxy.tl: tests for HTTP CONNECT proxy module
 
-local record IpAddr
-  int: function(IpAddr): integer
-  format: function(IpAddr): string
-end
+local ip = require("cosmic.ip")
 
 local record Proxy
   serve: function(string): number
   parse_connect: function(string): string, string
-  resolvehost: function(string): IpAddr, string
+  resolvehost: function(string): ip.Addr, string
   is_allowed: function(string): boolean
   parse_allow_hosts: function(string): {string:boolean}
 end

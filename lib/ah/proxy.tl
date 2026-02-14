@@ -3,8 +3,11 @@
 
 local fs = require("cosmic.fs")
 local child = require("cosmic.child")
+local net = require("cosmic.net")
+local ip = require("cosmic.ip")
 
--- Type declarations for cosmic.net (Socket is not exported as a named type)
+-- TODO: use net.Socket once cosmic exports it on NetModule
+-- https://github.com/whilp/cosmic/issues/230
 local record Socket
   fd: number
   close: function(self: Socket): boolean
@@ -16,38 +19,11 @@ local record Socket
   connect: function(self: Socket, ip: number, port: number): boolean, string
 end
 
-local record IpAddr
-  int: function(IpAddr): integer
-  format: function(IpAddr): string
-end
-
-local record IpMod
-  lookup: function(string): IpAddr, string
-end
-
-local record NetMod
-  socket: function(number, number, number): Socket, string
-  listen_unix: function(string, number): Socket, string
-  poll: function({number:number}, number): {number:number}, string
-  parseip: function(string): number, string
-  AF_INET: number
-  AF_UNIX: number
-  SOCK_STREAM: number
-  SOCK_NONBLOCK: number
-  POLLIN: number
-  POLLERR: number
-  POLLHUP: number
-  POLLNVAL: number
-end
-
-local net = require("cosmic.net") as NetMod
-local ip_mod = require("cosmic.ip") as IpMod
-
 local record M
   serve: function(string): integer
   -- exported for testing
   parse_connect: function(string): string, string
-  resolvehost: function(string): IpAddr, string
+  resolvehost: function(string): ip.Addr, string
   is_allowed: function(string): boolean
   parse_allow_hosts: function(string): {string:boolean}
 end
@@ -80,13 +56,13 @@ if allow_hosts_env then
 end
 
 -- DNS: resolve via cosmic.ip.lookup, cache results for the process lifetime.
-local DNS_CACHE: {string:IpAddr} = {}
+local DNS_CACHE: {string:ip.Addr} = {}
 
-local function resolvehost(host: string): IpAddr, string
+local function resolvehost(host: string): ip.Addr, string
   if DNS_CACHE[host] then
     return DNS_CACHE[host]
   end
-  local addr, err = ip_mod.lookup(host)
+  local addr, err = ip.lookup(host)
   if addr then
     DNS_CACHE[host] = addr
   end
@@ -196,7 +172,7 @@ local function handle_client(client: Socket)
   log("ALLOWED", dest)
   client:send("HTTP/1.1 200 Connection Established\r\n\r\n")
 
-  relay(client, upstream)
+  relay(client, upstream as Socket)
   upstream:close()
 end
 
@@ -223,7 +199,7 @@ function M.serve(socket_path: string): integer
       local pid = child.fork()
       if pid == 0 then
         server:close()
-        handle_client(client)
+        handle_client(client as Socket)
         client:close()
         os.exit(0)
       else
