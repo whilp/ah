@@ -5,17 +5,12 @@
 local fs = require("cosmic.fs")
 local json = require("cosmic.json")
 local getopt = require("cosmic.getopt")
-local unix = require("cosmo.unix")
 
 -- Helper to create directory with error handling and verification
--- TODO: fix cosmic fs.makedirs to return (ok, err) instead of silent failure
--- see https://github.com/anthropics/cosmic/issues/XXX (file issue)
 local function ensure_dir(path: string): boolean, string
-  fs.makedirs(path)
-  -- TODO: remove this stat workaround once cosmic fs.makedirs returns errors
-  local stat = unix.stat(path)
-  if not stat then
-    return false, "failed to create directory: " .. path
+  local ok, err = fs.makedirs(path)
+  if not ok then
+    return false, "failed to create directory: " .. path .. ": " .. (err or "")
   end
   return true, nil
 end
@@ -171,7 +166,7 @@ local function phase_plan(no_sandbox: boolean, repo: string, issue_number: integ
     title = issue.title,
     body = issue.body or "",
     issue_number = tostring(issue.number),
-    repo_root = unix.getcwd() or ".",
+    repo_root = fs.getcwd() or ".",
   })
 
   util.log("plan prompt interpolated (" .. #tpl .. " bytes) for issue #" .. tostring(issue.number))
@@ -229,7 +224,7 @@ local function phase_do(no_sandbox: boolean, title: string, number: string, mode
 
   local branch = util.extract_branch(plan_contents, number)
 
-  tpl = prompt.build_do_prompt(tpl, title, plan_contents, branch, unix.getcwd() or ".")
+  tpl = prompt.build_do_prompt(tpl, title, plan_contents, branch, fs.getcwd() or ".")
 
   local ok = sandbox.run_phase({
     sandbox = not no_sandbox,
@@ -544,7 +539,7 @@ local function phase_fix(no_sandbox: boolean, title: string, number: string, mod
 
   local branch = util.extract_branch(plan_contents, number)
 
-  tpl = prompt.build_fix_prompt(tpl, title, plan_contents, check_contents, branch, unix.getcwd() or ".")
+  tpl = prompt.build_fix_prompt(tpl, title, plan_contents, check_contents, branch, fs.getcwd() or ".")
 
   local ok = sandbox.run_phase({
     sandbox = not no_sandbox,

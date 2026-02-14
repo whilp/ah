@@ -3,11 +3,10 @@
 -- subprocess didn't exit cleanly.
 
 local fs = require("cosmic.fs")
-local unix = require("cosmo.unix")
 local util = require("ah.work.util")
 
 local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp/test_plan_success"
-unix.rmrf(tmpdir)
+fs.rmrf(tmpdir)
 fs.makedirs(tmpdir)
 
 -- Helper: check if plan output is valid
@@ -51,6 +50,6 @@ assert(not is_plan_valid(empty_plan_dir), "empty plan should be invalid")
 print("  ✓ empty plan.md is invalid")
 
 -- Cleanup
-unix.rmrf(tmpdir)
+fs.rmrf(tmpdir)
 
 print("\nAll tests passed!")

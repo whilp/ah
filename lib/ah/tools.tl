@@ -2,8 +2,9 @@
 local fs = require("cosmic.fs")
 local cio = require("cosmic.io")
 local child = require("cosmic.child")
-local unix = require("cosmo.unix")
-local cosmo = require("cosmo")
+local codec = require("cosmic.codec")
+local signal = require("cosmic.signal")
+local time = require("cosmic.time")
 local json = require("cosmic.json")
 local env = require("cosmic.env")
 
@@ -104,7 +105,7 @@ local read_tool: Tool = {
         return "error: failed to read file: " .. file_path, true, nil
       end
 
-      local base64_data = cosmo.EncodeBase64(content)
+      local base64_data = codec.encode_base64(content)
       local image_block = {
         __image__ = true,
         content = {{
@@ -189,14 +190,11 @@ local write_tool: Tool = {
     end
 
     -- Create parent directories if needed
-    -- TODO: fix cosmic fs.makedirs to return (ok, err) instead of silent failure
     local dir = fs.dirname(file_path)
     if dir and dir ~= "" then
-      fs.makedirs(dir)
-      -- TODO: remove this stat workaround once cosmic fs.makedirs returns errors
-      local stat = unix.stat(dir)
-      if not stat then
-        return "error: failed to create directory: " .. dir, true, nil
+      local mk_ok, mk_err = fs.makedirs(dir)
+      if not mk_ok then
+        return "error: failed to create directory: " .. dir .. ": " .. (mk_err or ""), true, nil
       end
     end
 
@@ -762,11 +760,11 @@ local function abort_running_tools()
 
   -- Phase 1: SIGTERM all running processes
   for _, pid in ipairs(pids) do
-    pcall(function() unix.kill(pid, unix.SIGTERM) end)
+    pcall(function() signal.kill(pid, child.SIGTERM) end)
   end
 
   -- Phase 2: Wait up to 2 seconds for graceful exit
-  local deadline_s, deadline_ns = unix.clock_gettime(unix.CLOCK_MONOTONIC)
+  local deadline_s, deadline_ns = time.monotonic()
   deadline_s = deadline_s + 2
 
   while true do
@@ -788,19 +786,19 @@ local function abort_running_tools()
     end
 
     -- Check deadline
-    local now_s, now_ns = unix.clock_gettime(unix.CLOCK_MONOTONIC)
+    local now_s, now_ns = time.monotonic()
     if now_s > deadline_s or (now_s == deadline_s and now_ns >= deadline_ns) then
       break
     end
 
     -- Brief sleep before rechecking (50ms)
-    unix.nanosleep(0, 50000000)
+    time.sleep(0, 50000000)
   end
 
   -- Phase 3: SIGKILL any survivors
   for _, pid in ipairs(pids) do
     if running_processes[pid] then
-      pcall(function() unix.kill(pid, unix.SIGKILL) end)
+      pcall(function() signal.kill(pid, child.SIGKILL) end)
       pcall(function() child.wait(pid, 0) end)
       running_processes[pid] = nil
     end

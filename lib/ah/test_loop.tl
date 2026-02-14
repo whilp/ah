@@ -241,9 +241,9 @@ test_thresholds()
 print("all loop tests passed")
 
 -- Tests for shorten_path
-local unix = require("cosmo.unix")
+local cfs = require("cosmic.fs")
 local function test_shorten_path_under_cwd()
-  local cwd = unix.getcwd() or "/tmp"
+  local cwd = cfs.getcwd() or "/tmp"
   local p = cwd .. "/foo/bar.txt"
   local short = loop.shorten_path(p)
   assert(short == "foo/bar.txt", "should strip cwd prefix: " .. short)
@@ -258,7 +258,7 @@ end
 test_shorten_path_outside_cwd()
 
 local function test_shorten_path_cwd_itself()
-  local cwd = unix.getcwd() or "/tmp"
+  local cwd = cfs.getcwd() or "/tmp"
   local short = loop.shorten_path(cwd)
   assert(short == ".", "should return . for cwd itself: " .. short)
 end
@@ -272,7 +272,7 @@ test_shorten_path_relative()
 
 -- Test that tool_key_param shortens paths under cwd
 local function test_tool_key_param_shortens_path()
-  local cwd = unix.getcwd() or "/tmp"
+  local cwd = cfs.getcwd() or "/tmp"
   local json = require("cosmic.json")
   local details = json.encode({path = cwd .. "/lib/ah/loop.tl"})
   local key = loop.tool_key_param("read", '{}', details)

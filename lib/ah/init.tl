@@ -2,12 +2,12 @@
 local fs = require("cosmic.fs")
 local cio = require("cosmic.io")
 local getopt = require("cosmic.getopt")
-local unix = require("cosmo.unix")
+local tty = require("cosmic.tty")
+local proc = require("cosmic.proc")
+local unix = require("cosmo.unix")  -- kept for sigaction (no cosmic equivalent)
 
-local cosmo = require("cosmo")
 local zip = require("cosmic.zip")
 local embed = require("cosmic.embed")
-local pathlib = require("cosmo.path")
 local db = require("ah.db")
 local api = require("ah.api")
 local tools = require("ah.tools")
@@ -134,7 +134,7 @@ local function list_sessions(cwd?: string): {Session}
   local ah_dir = fs.join(cwd, ".ah")
   local sessions: {Session} = {}
 
-  local dir = unix.opendir(ah_dir)
+  local dir = fs.opendir(ah_dir)
   if not dir then
     return sessions
   end
@@ -666,7 +666,7 @@ end
 -- This is the application-layer implementation of the event callback.
 -- Other handlers (JSON logging, web UI, etc.) can be substituted.
 local function make_cli_handler(): events.EventCallback
-  local is_tty = unix.isatty(2)
+  local is_tty = tty.isatty(2)
   local DIM = is_tty and "\27[2m" or ""
   local RESET = is_tty and "\27[0m" or ""
   local has_text = false
@@ -926,7 +926,7 @@ end
 local function main(args: {string}): integer, string
   -- Enable core dumps for crash debugging
   -- RLIMIT_CORE = 4 on Linux, RLIM_INFINITY = -1
-  unix.setrlimit(4, -1, -1)
+  proc.setrlimit(4, -1, -1)
 
   -- Sandbox mode: when AH_SANDBOX=1, restrict capabilities
   -- Used by work.tl and --sandbox flag to run ah with limited network access
@@ -1124,11 +1124,11 @@ local function main(args: {string}): integer, string
       return 1
     end
     -- Create temp structure with embed/ prefix
-    local tmpdir = unix.mkdtemp("/tmp/ah-embed-XXXXXX")
-    local embed_link = pathlib.join(tmpdir, "embed")
-    unix.symlink(fs.realpath(src_dir), embed_link)
+    local tmpdir = fs.mkdtemp("/tmp/ah-embed-XXXXXX")
+    local embed_link = fs.join(tmpdir, "embed")
+    fs.symlink(fs.realpath(src_dir), embed_link)
     local result = embed.run({tmpdir}, output_path)
-    unix.rmrf(tmpdir)
+    fs.rmrf(tmpdir)
     if result.ok then
       io.write(result.message .. "\n")
       return 0
@@ -1163,7 +1163,7 @@ local function main(args: {string}): integer, string
     end
     -- Extract only files from embed/ prefix
     local exe_path = arg[-1]
-    local exe_data = cosmo.Slurp(exe_path)
+    local exe_data = cio.slurp(exe_path)
     if not exe_data then
       io.stderr:write("extract: cannot read executable\n")
       return 1
@@ -1181,10 +1181,10 @@ local function main(args: {string}): integer, string
         local content = reader:read(name)
         if content then
           local rel_name = name:sub(#prefix + 1)
-          local filepath = pathlib.join(output_dir, rel_name)
-          local dir = pathlib.dirname(filepath)
-          unix.makedirs(dir)
-          cosmo.Barf(filepath, content)
+          local filepath = fs.join(output_dir, rel_name)
+          local dir = fs.dirname(filepath)
+          fs.makedirs(dir)
+          cio.barf(filepath, content)
           count = count + 1
         end
       end
@@ -1452,7 +1452,7 @@ local function main(args: {string}): integer, string
   -- If no prompt, read from stdin
   if prompt == "" then
     -- Show prompt indicator if stdin is a tty
-    if unix.isatty(0) then
+    if tty.isatty(0) then
       io.stderr:write(">>> ")
       io.stderr:flush()
     end

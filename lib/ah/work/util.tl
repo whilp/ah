@@ -1,7 +1,7 @@
 -- ah/work/util.tl: shared utilities for the work subsystem
 local spawn = require("cosmic.child")
 local env = require("cosmic.env")
-local unix = require("cosmo.unix")
+local time = require("cosmic.time")
 
 local function log(msg: string)
   io.stderr:write("[work] " .. msg .. "\n")
@@ -129,7 +129,7 @@ local function slice(t: {string}, from: integer): {string}
 end
 
 local function now_sec(): number
-  local s, ns = unix.clock_gettime(unix.CLOCK_MONOTONIC)
+  local s, ns = time.monotonic()
   return s + ns / 1e9
 end
 

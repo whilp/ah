@@ -1,7 +1,7 @@
 -- ah/api.lua: Claude Messages API with streaming
 local json = require("cosmic.json")
 local fetch = require("cosmic.fetch")
-local unix = require("cosmo.unix")
+local time = require("cosmic.time")
 local auth = require("ah.auth")
 
 -- Detect proxy from environment (set by work.tl for sandboxed processes)
@@ -46,7 +46,7 @@ end
 
 -- Get monotonic time in milliseconds
 local function now_ms(): integer
-  local s, ns = unix.clock_gettime(unix.CLOCK_MONOTONIC)
+  local s, ns = time.monotonic()
   return math.floor(s * 1000 + ns / 1e6) as integer
 end
 
@@ -141,7 +141,7 @@ end
 local function sleep_ms(ms: integer)
   local seconds = math.floor(ms / 1000)
   local nanos = (ms % 1000) * 1000000
-  unix.nanosleep(seconds, nanos)
+  time.sleep(seconds, nanos)
 end
 
 -- Parse API error response to extract clean message
