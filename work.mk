@@ -28,6 +28,20 @@ export WORK_O := $(o)/work
 export WORK_INPUT := $(o)/work/issues.json
 export WORK_ISSUE := $(o)/work/issue.json
 
+# named targets
+has_labels := $(o)/work/labels.ok
+below_wip_limit := $(o)/work/pr-limit.ok
+all_issues := $(o)/work/issues.json
+picked_issue := $(o)/work/issue.json
+is_doing := $(o)/work/doing.ok
+plan := $(o)/work/plan/plan.md
+branch := $(o)/work/do/branch.txt
+do_done := $(o)/work/do/done
+push_done := $(o)/work/push/done
+check_done := $(o)/work/check/done
+fix_done := $(o)/work/fix/done
+act_done := $(o)/work/act/done
+
 .DELETE_ON_ERROR:
 
 # pattern: run lib/work/%.tl, capture stdout to output file
@@ -45,22 +59,19 @@ $(o)/work/%.txt: lib/work/%.tl $(cosmic)
 
 # --- per-target dependencies (no recipes) ---
 
-$(o)/work/issues.json: $(o)/work/labels.ok $(o)/work/pr-limit.ok
+$(all_issues): $(has_labels) $(below_wip_limit)
+$(picked_issue): $(all_issues)
+$(is_doing): $(picked_issue)
 
-$(o)/work/issue.json: $(o)/work/issues.json
+# --- agent targets ---
 
-$(o)/work/doing.ok: $(o)/work/issue.json
-
-# --- prompt and agent targets (don't fit pattern) ---
-
-# run plan agent
-$(o)/work/plan/plan.md: $(o)/work/doing.ok $(o)/work/issue.json $(cosmic) $(AH)
+$(plan): $(is_doing) $(picked_issue) $(cosmic) $(AH)
 	@mkdir -p $(@D)
-	@cp $(o)/work/issue.json $(o)/work/plan/issue.json
+	@cp $(picked_issue) $(o)/work/plan/issue.json
 	@echo "==> plan"
 	@$(render) --template sys/skills/plan.md \
-		--json-vars $(o)/work/issue.json \
-		--var issue_number=$$($(cosmic) lib/work/jq.tl --file $(o)/work/issue.json --field number) \
+		--json-vars $(picked_issue) \
+		--var issue_number=$$($(cosmic) lib/work/jq.tl --file $(picked_issue) --field number) \
 	| timeout $(PLAN_TIMEOUT) $(AH) -n \
 		$(if $(MODEL),-m $(MODEL)) \
 		--max-tokens $(PLAN_MAX_TOKENS) \
@@ -68,19 +79,17 @@ $(o)/work/plan/plan.md: $(o)/work/doing.ok $(o)/work/issue.json $(cosmic) $(AH)
 		|| true
 	@test -s $@ || (echo "error: plan.md not created" >&2; exit 1)
 
-# extract branch name
-$(o)/work/do/branch.txt: $(o)/work/plan/plan.md $(o)/work/issue.json $(cosmic)
+$(branch): $(plan) $(picked_issue) $(cosmic)
 	@mkdir -p $(@D)
-	@$(cosmic) lib/work/extract-branch.tl --plan $< --issue $(o)/work/issue.json > $@
+	@$(cosmic) lib/work/extract-branch.tl --plan $< --issue $(picked_issue) > $@
 
-# run do agent
-$(o)/work/do/done: $(o)/work/do/branch.txt $(o)/work/plan/plan.md $(o)/work/issue.json $(cosmic) $(AH)
+$(do_done): $(branch) $(plan) $(picked_issue) $(cosmic) $(AH)
 	@mkdir -p $(@D)
 	@echo "==> do"
 	@$(render) --template sys/skills/do.md \
-		--json-vars $(o)/work/issue.json \
-		--var-file "plan.md contents"=$(o)/work/plan/plan.md \
-		--var branch=$$(cat $(o)/work/do/branch.txt) \
+		--json-vars $(picked_issue) \
+		--var-file "plan.md contents"=$(plan) \
+		--var branch=$$(cat $(branch)) \
 	| timeout $(DO_TIMEOUT) $(AH) -n \
 		$(if $(MODEL),-m $(MODEL)) \
 		--max-tokens $(DO_MAX_TOKENS) \
@@ -89,19 +98,17 @@ $(o)/work/do/done: $(o)/work/do/branch.txt $(o)/work/plan/plan.md $(o)/work/issu
 		|| true
 	@touch $@
 
-# push work branch
-$(o)/work/push/done: $(o)/work/do/done $(o)/work/do/branch.txt
+$(push_done): $(do_done) $(branch)
 	@mkdir -p $(@D)
 	@echo "==> push"
-	@$(cosmic) lib/work/push.tl --branch-file $(o)/work/do/branch.txt
+	@$(cosmic) lib/work/push.tl --branch-file $(branch)
 	@touch $@
 
-# run check agent
-$(o)/work/check/done: $(o)/work/push/done $(o)/work/plan/plan.md $(cosmic) $(AH)
+$(check_done): $(push_done) $(plan) $(cosmic) $(AH)
 	@mkdir -p $(@D)
 	@echo "==> check"
 	@$(render) --template sys/skills/check.md \
-		--var-file "plan.md contents"=$(o)/work/plan/plan.md \
+		--var-file "plan.md contents"=$(plan) \
 		--var-file "do.md contents"=$(o)/work/do/do.md \
 	| timeout $(CHECK_TIMEOUT) $(AH) -n \
 		$(if $(MODEL),-m $(MODEL)) \
@@ -111,41 +118,25 @@ $(o)/work/check/done: $(o)/work/push/done $(o)/work/plan/plan.md $(cosmic) $(AH)
 		--db $(o)/work/check/session.db
 	@touch $@
 
-# fix loop: retry fix/push/check if verdict is needs-fixes
-$(o)/work/fix/done: $(o)/work/check/done $(cosmic)
+$(fix_done): $(check_done) $(cosmic)
 	@mkdir -p $(@D)
 	@bash lib/work/fix-loop.sh $(cosmic) $(AH) "$(MODEL)" 2
 	@touch $@
 
-# run act phase (deterministic, no agent)
-$(o)/work/act/done: $(o)/work/fix/done $(o)/work/issue.json $(cosmic)
+$(act_done): $(fix_done) $(picked_issue) $(cosmic)
 	@mkdir -p $(@D)
 	@echo "==> act"
-	@$(cosmic) lib/work/act.tl --issue $(o)/work/issue.json \
+	@$(cosmic) lib/work/act.tl --issue $(picked_issue) \
 		--actions $(o)/work/check/actions.json
 	@touch $@
 
-# top-level work target
-.PHONY: work
-work: $(o)/work/act/done
-
-.PHONY: work-issues
-work-issues: $(o)/work/issues.json
-
-.PHONY: work-select
-work-select: $(o)/work/issue.json
-
-.PHONY: work-plan
-work-plan: $(o)/work/plan/plan.md
-
-.PHONY: work-do
-work-do: $(o)/work/do/done
-
-.PHONY: work-push
-work-push: $(o)/work/push/done
-
-.PHONY: work-check
-work-check: $(o)/work/check/done
-
-.PHONY: work-act
-work-act: $(o)/work/act/done
+# top-level targets
+.PHONY: work work-issues work-select work-plan work-do work-push work-check work-act
+work: $(act_done)
+work-issues: $(all_issues)
+work-select: $(picked_issue)
+work-plan: $(plan)
+work-do: $(do_done)
+work-push: $(push_done)
+work-check: $(check_done)
+work-act: $(act_done)
