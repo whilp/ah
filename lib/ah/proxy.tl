@@ -121,6 +121,7 @@ end
 
 local function relay(client: Socket, upstream: Socket)
   local BUFSIZ = 65536
+  local bytes_relayed: integer = 0
 
   while true do
     local fds: {number:number} = {
@@ -130,7 +131,7 @@ local function relay(client: Socket, upstream: Socket)
 
     local revents, err = net.poll(fds, 30000)
     if not revents then
-      log("poll error:", err)
+      log("relay poll error:", err, "after", tostring(bytes_relayed), "bytes")
       break
     end
 
@@ -139,25 +140,36 @@ local function relay(client: Socket, upstream: Socket)
 
     -- Timeout: no activity on either fd
     if client_ev == 0 and upstream_ev == 0 then
+      log("relay timeout (30s idle) after", tostring(bytes_relayed), "bytes")
       break
     end
 
     if client_ev & (net.POLLERR | net.POLLHUP | net.POLLNVAL) ~= 0 then
+      log("relay client event:", tostring(client_ev), "after", tostring(bytes_relayed), "bytes")
       break
     end
     if upstream_ev & (net.POLLERR | net.POLLHUP | net.POLLNVAL) ~= 0 then
+      log("relay upstream event:", tostring(upstream_ev), "after", tostring(bytes_relayed), "bytes")
       break
     end
 
     if client_ev & net.POLLIN ~= 0 then
       local data = client:recv(BUFSIZ)
-      if not data or data == "" then break end
+      if not data or data == "" then
+        log("relay client closed after", tostring(bytes_relayed), "bytes")
+        break
+      end
+      bytes_relayed = bytes_relayed + #data
       upstream:send(data)
     end
 
     if upstream_ev & net.POLLIN ~= 0 then
       local data = upstream:recv(BUFSIZ)
-      if not data or data == "" then break end
+      if not data or data == "" then
+        log("relay upstream closed after", tostring(bytes_relayed), "bytes")
+        break
+      end
+      bytes_relayed = bytes_relayed + #data
       client:send(data)
     end
   end
@@ -213,6 +225,7 @@ local function handle_client(client: Socket)
   client:send("HTTP/1.1 200 Connection Established\r\n\r\n")
 
   relay(client, upstream as Socket)
+  log("relay done:", dest)
   upstream:close()
 end
 

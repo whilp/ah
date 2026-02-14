@@ -84,6 +84,11 @@ $(on_branch): $(plan) $(picked_issue)
 $(do_done): $(on_branch) $(plan) $(feedback) $(picked_issue) $(AH)
 	@mkdir -p $(@D)
 	@echo "==> do"
+	@if [ -f $(o)/work/do/session.db ] && ! git diff --quiet $(DEFAULT_BRANCH)..HEAD 2>/dev/null; then \
+		echo "  (retrying: resetting branch to $(DEFAULT_BRANCH))"; \
+		git reset --hard $(DEFAULT_BRANCH); \
+		rm -f $(o)/work/do/session.db; \
+	fi
 	@timeout 300 $(AH) -n \
 		--sandbox \
 		--skill do \
@@ -120,13 +125,13 @@ $(act_done): $(check_done) $(picked_issue) $(cosmic)
 		--actions $(o)/work/check/actions.json
 	@touch $@
 
-# work: converge on check, then act.
-# check agent writes feedback.md when verdict is needs-fixes, which makes
-# do_done stale so the next make re-runs do -> push -> check.
-# once converged, make check is a no-op.
+# work: converge on act_done, retrying up to 3 times.
+# each attempt rebuilds the full chain (do -> push -> check -> act).
+# earlier attempts tolerate failure; only the last must succeed.
+# when check writes feedback.md, do_done becomes stale and re-runs.
 .PHONY: work
+converge := $(MAKE) $(act_done)
 work:
-	@$(MAKE) $(check_done)
-	@$(MAKE) $(check_done)
-	@$(MAKE) $(check_done)
-	@$(MAKE) $(act_done)
+	-@$(converge)
+	-@$(converge)
+	@$(converge)
