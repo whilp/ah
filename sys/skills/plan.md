@@ -7,6 +7,11 @@ description: Plan a work item. Research the codebase, identify goals and entry p
 
 You are planning a work item. Research the codebase and write a plan.
 
+## Environment
+
+- Working directory: `{repo_root}`
+- Only paths under the working directory are accessible.
+
 ## Issue
 
 **{title}**

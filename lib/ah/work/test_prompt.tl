@@ -4,10 +4,11 @@
 local record WorkPrompt
   interpolate_prompt: function(string, {string:string}): string
   plan_diagnostic: function(string): string
-  build_do_prompt: function(string, string, string, string): string
+  build_do_prompt: function(string, string, string, string, string): string
   build_check_prompt: function(string, string, string): string
-  build_fix_prompt: function(string, string, string, string, string): string
+  build_fix_prompt: function(string, string, string, string, string, string): string
   build_friction_prompt: function(string, string): string
+  build_plan_prompt: function(string, string, string, string): string
 end
 
 local prompt = require("ah.work.prompt") as WorkPrompt
@@ -139,7 +140,7 @@ test_diagnostic_with_update()
 local function test_do_prompt_percent_in_plan()
   local template = "Title: {title}\nPlan:\n{plan.md contents}\nBranch: {branch}"
   local plan = "increase test coverage to 100%"
-  local ok, result = pcall(prompt.build_do_prompt, template, "fix tests", plan, "work/42")
+  local ok, result = pcall(prompt.build_do_prompt, template, "fix tests", plan, "work/42", ".")
   assert(ok, "build_do_prompt should not crash with % in plan, got error: " .. tostring(result))
   assert(result == "Title: fix tests\nPlan:\nincrease test coverage to 100%\nBranch: work/42",
     "wrong result: " .. tostring(result))
@@ -150,7 +151,7 @@ test_do_prompt_percent_in_plan()
 -- Test build_do_prompt handles %1 capture ref in title
 local function test_do_prompt_capture_ref_in_title()
   local template = "Title: {title}\nPlan:\n{plan.md contents}\nBranch: {branch}"
-  local ok, result = pcall(prompt.build_do_prompt, template, "fix %1 regex", "plan text", "work/42")
+  local ok, result = pcall(prompt.build_do_prompt, template, "fix %1 regex", "plan text", "work/42", ".")
   assert(ok, "build_do_prompt should not crash with %1 in title, got error: " .. tostring(result))
   assert(result == "Title: fix %1 regex\nPlan:\nplan text\nBranch: work/42",
     "wrong result: " .. tostring(result))
@@ -173,7 +174,7 @@ test_check_prompt_percent_in_do()
 -- Test build_fix_prompt interpolates all variables
 local function test_build_fix_prompt_basic()
   local template = "Title: {title}\nPlan:\n{plan.md contents}\nFeedback:\n{check.md contents}\nBranch: {branch}"
-  local result = prompt.build_fix_prompt(template, "fix docs", "the plan", "model name is wrong", "work/79")
+  local result = prompt.build_fix_prompt(template, "fix docs", "the plan", "model name is wrong", "work/79", ".")
   assert(result == "Title: fix docs\nPlan:\nthe plan\nFeedback:\nmodel name is wrong\nBranch: work/79",
     "should interpolate all vars, got: " .. tostring(result))
   print("✓ build_fix_prompt interpolates all variables")
@@ -184,7 +185,7 @@ test_build_fix_prompt_basic()
 local function test_build_fix_prompt_percent()
   local template = "Plan:\n{plan.md contents}\nFeedback:\n{check.md contents}"
   local check = "coverage dropped from 100% to 50%"
-  local ok, result = pcall(prompt.build_fix_prompt, template, "t", "p", check, "work/1")
+  local ok, result = pcall(prompt.build_fix_prompt, template, "t", "p", check, "work/1", ".")
   assert(ok, "should not crash with % in check feedback, got: " .. tostring(result))
   print("✓ build_fix_prompt handles % in check feedback")
 end
@@ -241,5 +242,73 @@ local function test_fix_prompt_uses_fix_directory()
   print("✓ fix.md prompt writes to o/work/fix/ directory")
 end
 test_fix_prompt_uses_fix_directory()
+
+-- Test build_do_prompt includes repo_root
+local function test_do_prompt_includes_repo_root()
+  local template = "Root: {repo_root}\nTitle: {title}\nPlan:\n{plan.md contents}\nBranch: {branch}"
+  local result = prompt.build_do_prompt(template, "fix thing", "the plan", "work/42", "/home/runner/work/ah/ah")
+  assert(result:find("/home/runner/work/ah/ah", 1, true),
+    "build_do_prompt should interpolate repo_root, got: " .. result)
+  print("✓ build_do_prompt interpolates repo_root")
+end
+test_do_prompt_includes_repo_root()
+
+-- Test build_fix_prompt includes repo_root
+local function test_fix_prompt_includes_repo_root()
+  local template = "Root: {repo_root}\nTitle: {title}\nPlan:\n{plan.md contents}\nFeedback:\n{check.md contents}\nBranch: {branch}"
+  local result = prompt.build_fix_prompt(template, "fix docs", "the plan", "model name is wrong", "work/79", "/srv/repo")
+  assert(result:find("/srv/repo", 1, true),
+    "build_fix_prompt should interpolate repo_root, got: " .. result)
+  print("✓ build_fix_prompt interpolates repo_root")
+end
+test_fix_prompt_includes_repo_root()
+
+-- Test build_plan_prompt exists and interpolates repo_root
+local function test_plan_prompt_includes_repo_root()
+  local template = "Root: {repo_root}\nIssue: {title}\n\n{body}"
+  local result = prompt.build_plan_prompt(template, "fix bug", "details here", "/workspace")
+  assert(result:find("/workspace", 1, true),
+    "build_plan_prompt should interpolate repo_root, got: " .. result)
+  assert(result:find("fix bug", 1, true),
+    "build_plan_prompt should interpolate title, got: " .. result)
+  print("✓ build_plan_prompt interpolates repo_root, title, body")
+end
+test_plan_prompt_includes_repo_root()
+
+-- Test do.md skill prompt contains {repo_root} placeholder
+local function test_do_skill_has_repo_root()
+  local f = io.open("sys/skills/do.md", "r")
+  assert(f, "should be able to read sys/skills/do.md")
+  local content = f:read("*a")
+  f:close()
+  assert(content:find("{repo_root}", 1, true),
+    "do.md should contain {repo_root} placeholder")
+  print("✓ do.md skill prompt contains {repo_root} placeholder")
+end
+test_do_skill_has_repo_root()
+
+-- Test plan.md skill prompt contains {repo_root} placeholder
+local function test_plan_skill_has_repo_root()
+  local f = io.open("sys/skills/plan.md", "r")
+  assert(f, "should be able to read sys/skills/plan.md")
+  local content = f:read("*a")
+  f:close()
+  assert(content:find("{repo_root}", 1, true),
+    "plan.md should contain {repo_root} placeholder")
+  print("✓ plan.md skill prompt contains {repo_root} placeholder")
+end
+test_plan_skill_has_repo_root()
+
+-- Test fix.md skill prompt contains {repo_root} placeholder
+local function test_fix_skill_has_repo_root()
+  local f = io.open("sys/skills/fix.md", "r")
+  assert(f, "should be able to read sys/skills/fix.md")
+  local content = f:read("*a")
+  f:close()
+  assert(content:find("{repo_root}", 1, true),
+    "fix.md should contain {repo_root} placeholder")
+  print("✓ fix.md skill prompt contains {repo_root} placeholder")
+end
+test_fix_skill_has_repo_root()
 
 print("\nAll work-prompt tests passed!")

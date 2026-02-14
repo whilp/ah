@@ -7,6 +7,10 @@ description: Execute a work plan. Create branch, make changes, run validation, c
 
 You are executing a work item. Follow the plan below.
 
+## Environment
+
+- Working directory: `{repo_root}`
+
 ## Plan
 
 {plan.md contents}

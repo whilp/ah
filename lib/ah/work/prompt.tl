@@ -63,11 +63,12 @@ end
 -- Prompt building for do/check/fix phases
 -- Extracted for testability.
 
-local function build_do_prompt(template: string, title: string, plan_contents: string, branch: string): string
+local function build_do_prompt(template: string, title: string, plan_contents: string, branch: string, repo_root: string): string
   return interpolate_prompt(template, {
     title = title,
     ["plan.md contents"] = plan_contents,
     branch = branch,
+    repo_root = repo_root or ".",
   })
 end
 
@@ -78,18 +79,27 @@ local function build_check_prompt(template: string, plan_contents: string, do_co
   })
 end
 
-local function build_fix_prompt(template: string, title: string, plan_contents: string, check_contents: string, branch: string): string
+local function build_fix_prompt(template: string, title: string, plan_contents: string, check_contents: string, branch: string, repo_root: string): string
   return interpolate_prompt(template, {
     title = title,
     ["plan.md contents"] = plan_contents,
     ["check.md contents"] = check_contents,
     branch = branch,
+    repo_root = repo_root or ".",
   })
 end
 
 local function build_friction_prompt(template: string, friction_path: string): string
   return interpolate_prompt(template, {
     friction_path = friction_path,
+  })
+end
+
+local function build_plan_prompt(template: string, title: string, body: string, repo_root: string): string
+  return interpolate_prompt(template, {
+    title = title,
+    body = body,
+    repo_root = repo_root or ".",
   })
 end
 
@@ -109,5 +119,6 @@ return {
   build_check_prompt = build_check_prompt,
   build_fix_prompt = build_fix_prompt,
   build_friction_prompt = build_friction_prompt,
+  build_plan_prompt = build_plan_prompt,
   make_friction_prompt = make_friction_prompt,
 }

@@ -7,6 +7,10 @@ description: Fix issues found during review. Address check feedback, re-validate
 
 You are fixing issues found during review. Follow the plan and address the feedback below.
 
+## Environment
+
+- Working directory: `{repo_root}`
+
 ## Plan
 
 {plan.md contents}
