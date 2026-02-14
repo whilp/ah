@@ -15,9 +15,9 @@ TMP ?= /tmp
 export TMPDIR := $(TMP)
 
 # cosmic dependency
-cosmic_version := 2026-02-13-5f7b857
+cosmic_version := 2026-02-14-bbc4d7b
 cosmic_url := https://github.com/whilp/cosmic/releases/download/$(cosmic_version)/cosmic-lua
-cosmic_sha := 2ef4e697c34f6ce9ed81ce98d9ab8df4407955922c08bd0cc994bdfd171c398c
+cosmic_sha := beef0b672272de763d620c2d333f0690c883bb7dd464cdde6d55bae8a7ccbdab
 cosmic := $(o)/bin/cosmic
 
 .PHONY: cosmic
@@ -31,7 +31,7 @@ $(cosmic):
 
 # cosmic-debug dependency (with debug symbols)
 cosmic_debug_url := https://github.com/whilp/cosmic/releases/download/$(cosmic_version)/cosmic-lua-debug
-cosmic_debug_sha := d722747849d4409cfd613ab96ffccb1f62086c17b95d092c8ffafd8d9692dfc5
+cosmic_debug_sha := bf76b446a87116d874b02fde3a6ccfc9e32f353989c051b1d4cc7803a3a321cd
 cosmic_debug := $(o)/bin/cosmic-debug
 
 .PHONY: cosmic-debug
@@ -119,7 +119,7 @@ ah_sys := $(patsubst sys/%,$(o)/embed/embed/sys/%,$(ah_sys_files))
 
 $(o)/bin/ah: $(o)/embed/main.lua $(ah_lib_lua) $(ah_dep_lua) $(ah_sys) $(cosmic)
 	@echo "==> embedding ah"
-	@$(cosmic) --embed $(o)/embed --output $@
+	@$(cosmic) --embed $(o)/embed --output $@.tmp && mv $@.tmp $@
 
 .PHONY: ah
 ## Build ah executable archive
@@ -127,7 +127,7 @@ ah: $(o)/bin/ah
 
 $(o)/bin/ah-debug: $(o)/embed/main.lua $(ah_lib_lua) $(ah_dep_lua) $(ah_sys) $(cosmic_debug)
 	@echo "==> embedding ah-debug"
-	@$(cosmic_debug) --embed $(o)/embed --output $@
+	@$(cosmic_debug) --embed $(o)/embed --output $@.tmp && mv $@.tmp $@
 
 .PHONY: ah-debug
 ## Build ah executable archive with debug symbols
