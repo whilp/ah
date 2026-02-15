@@ -81,11 +81,20 @@ end
 
 local function test_bash_exit_code()
   local result, is_error, details = tools.execute_tool("bash", {command = "exit 1"})
-  assert(is_error, "should report error for non-zero exit")
+  assert(not is_error, "exit 1 should not be treated as error")
   assert(result:match("exit code: 1"), "should report exit code")
-  assert(details, "bash error should still return details")
+  assert(details, "bash should still return details")
   assert(details.exit_code == 1, "details should have exit_code 1: " .. tostring(details.exit_code))
-  print("✓ bash tool handles exit codes")
+  print("✓ bash tool treats exit 1 as non-error")
+end
+
+local function test_bash_exit_code_2()
+  local result, is_error, details = tools.execute_tool("bash", {command = "exit 2"})
+  assert(is_error, "exit 2 should be treated as error")
+  assert(result:match("exit code: 2"), "should report exit code")
+  assert(details, "bash error should still return details")
+  assert(details.exit_code == 2, "details should have exit_code 2: " .. tostring(details.exit_code))
+  print("✓ bash tool treats exit 2 as error")
 end
 
 local function test_tool_definitions()
@@ -123,6 +132,7 @@ test_edit_tool()
 test_edit_tool_percent_in_replacement()
 test_bash_tool()
 test_bash_exit_code()
+test_bash_exit_code_2()
 
 -- Custom tool tests
 local function test_is_valid_tool()

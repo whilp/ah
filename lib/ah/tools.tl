@@ -396,7 +396,7 @@ local bash_tool: Tool = {
       result = "(no output)"
     end
 
-    return result, exit_code ~= 0,
+    return result, exit_code >= 2,
       {command = command, exit_code = exit_code} as ToolDetails
   end,
 }
@@ -544,7 +544,7 @@ local function load_cli_tools_from_dir(dir: string): {Tool}
           result = "(no output)"
         end
 
-        return result, exit_code ~= 0,
+        return result, exit_code >= 2,
           {command = tool_name .. " " .. args_str, exit_code = exit_code} as ToolDetails
       end,
     }
