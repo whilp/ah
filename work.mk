@@ -83,7 +83,7 @@ $(feedback): $(plan)
 	@touch $@
 
 $(on_branch): $(plan) $(picked_issue)
-	@git checkout -b $$(jq -r .branch $(picked_issue)) $(DEFAULT_BRANCH)
+	@git checkout -B $$(jq -r .branch $(picked_issue)) $(DEFAULT_BRANCH)
 	@touch $@
 
 $(do_done): $(on_branch) $(plan) $(feedback) $(picked_issue) $(AH)
