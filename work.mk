@@ -63,7 +63,6 @@ $(doing): $(picked_issue)
 
 $(plan): $(doing) $(picked_issue) $(AH)
 	@mkdir -p $(@D)
-	@cp $(picked_issue) $(o)/work/plan/issue.json
 	@echo "==> plan"
 	@timeout 180 $(AH) -n \
 		--sandbox \
