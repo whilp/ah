@@ -260,8 +260,12 @@ commands = {
 
             local ok, out = run("gh pr create --head '" .. branch .. "' --title '" .. title:gsub("'", "'\\''") .. "' --body '" .. body:gsub("'", "'\\''") .. "'")
             if not ok then
-               io.stderr:write("  failed: " .. (out or "") .. "\n")
-               all_ok = false
+               if out and out:find("already exists") then
+                  io.stderr:write("  pr already exists, treating as success\n")
+               else
+                  io.stderr:write("  failed: " .. (out or "") .. "\n")
+                  all_ok = false
+               end
             end
          else
             io.stderr:write("  skipped unknown action: " .. action_type .. "\n")
