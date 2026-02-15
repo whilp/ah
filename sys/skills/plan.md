@@ -14,7 +14,7 @@ You are planning a work item. Research the codebase and write a plan.
 
 ## Issue
 
-The issue JSON follows this prompt after a `---` separator. Fields: `number`, `title`, `body`, `url`.
+The issue JSON follows this prompt after a `---` separator. Fields: `number`, `title`, `body`, `url`, `branch`.
 
 ## Instructions
 
@@ -61,7 +61,7 @@ Write `o/work/plan/plan.md`:
     <what could go wrong, edge cases, things to verify>
 
     ## Target
-    - Branch: work/<issue_number>-<slug>
+    - Branch: <branch from issue JSON>
 
     ## Commit
     <commit message>
