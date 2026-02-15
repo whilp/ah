@@ -19,20 +19,7 @@ Read `o/work/plan/plan.md` for the plan. Read `o/work/do/do.md` for the executio
    ```
 2. Run validation steps from the plan
 3. Check for unintended changes
-4. Analyze friction from session databases:
-
-        # for each existing phase db (plan, do):
-        # session files are named session-N.db (one per attempt)
-        for db in o/work/<phase>/session-*.db; do
-          sqlite3 "$db" \
-            "select tool_name, substr(tool_input,1,200), substr(tool_output,1,200) from content_blocks where is_error = 1;"
-          sqlite3 "$db" \
-            "select tool_name, duration_ms, substr(tool_input,1,200) from content_blocks where duration_ms > 30000 order by duration_ms desc limit 5;"
-          sqlite3 "$db" \
-            "select stop_reason, count(*) from messages where role='assistant' group by stop_reason;"
-        done
-
-5. Write your assessment
+4. Write your assessment
 
 ## Output
 
@@ -60,11 +47,6 @@ Write `o/work/check/check.md`:
 
     (write "none" for empty sections)
 
-    ## Friction
-    <friction identified from session database analysis: errors, slow operations,
-     wasted retries, tool failures. cite specific evidence from the queries above.
-     write "none" if the work was smooth.>
-
     ## Verdict
     <pass|needs-fixes|fail>
 
@@ -72,7 +54,6 @@ Write `o/work/check/actions.json`:
 
     {
       "verdict": "pass|needs-fixes|fail",
-      "friction": ["<friction item>", ...],
       "actions": [
         {"action": "comment_issue", "body": "..."},
         {"action": "create_pr", "branch": "...", "title": "...", "body": "..."}
@@ -80,10 +61,8 @@ Write `o/work/check/actions.json`:
     }
 
 Action rules:
-- Always include `comment_issue` with verdict, summary, and any friction items
+- Always include `comment_issue` with verdict and summary
 - Include `create_pr` only when verdict is "pass" and changes were committed
-- `friction` array: one short string per friction item, or empty array if none
-- Friction items must cite evidence from session database queries, not self-reports
 
 Write `o/work/check/update.md`: 2-4 line summary.
 
