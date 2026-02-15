@@ -68,7 +68,7 @@ $(plan): $(doing) $(picked_issue) $(AH)
 		--sandbox \
 		--skill plan \
 		--must-produce $@ \
-		--max-tokens 50000 \
+		--max-tokens 100000 \
 		--db $(o)/work/plan/session.db \
 		< $(picked_issue)
 

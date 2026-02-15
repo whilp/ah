@@ -36,11 +36,6 @@ local record Issue
   url: string
 end
 
-local record AgentLimits
-  max_tokens: integer
-  timeout_sec: integer
-end
-
 -- Submodule interfaces
 local record Util
   log: function(string)
@@ -107,11 +102,6 @@ local record PhaseOpts
 end
 
 local record SandboxMod
-  overall_timeout_sec: number
-  plan_limits: AgentLimits
-  do_limits: AgentLimits
-  check_limits: AgentLimits
-  fix_limits: AgentLimits
   run_phase: function(PhaseOpts): boolean, string, integer
   build_phase_args: function(string, PhaseOpts): {string}
 end
@@ -173,10 +163,10 @@ local function phase_plan(no_sandbox: boolean, repo: string, issue_number: integ
 
   local ok = sandbox.run_phase({
     sandbox = not no_sandbox,
-    timeout = sandbox.plan_limits.timeout_sec,
+    timeout = 180,
     db = "o/work/plan/session.db",
     prompt = tpl,
-    max_tokens = sandbox.plan_limits.max_tokens,
+    max_tokens = 100000,
     model = model,
   })
 
@@ -228,11 +218,11 @@ local function phase_do(no_sandbox: boolean, title: string, number: string, mode
 
   local ok = sandbox.run_phase({
     sandbox = not no_sandbox,
-    timeout = sandbox.do_limits.timeout_sec,
+    timeout = 300,
     unveil_dirs = {"o/work/plan"},
     db = "o/work/do/session.db",
     prompt = tpl,
-    max_tokens = sandbox.do_limits.max_tokens,
+    max_tokens = 100000,
     model = model,
   })
 
@@ -335,11 +325,11 @@ local function phase_check(no_sandbox: boolean, model: string, do_dir: string): 
   for attempt = 1, max_crash_retries + 1 do
     local ok, _, exit_code = sandbox.run_phase({
       sandbox = not no_sandbox,
-      timeout = sandbox.check_limits.timeout_sec,
+      timeout = 180,
       unveil_dirs = protect_dirs,
       db = "o/work/check/session.db",
       prompt = tpl,
-      max_tokens = sandbox.check_limits.max_tokens,
+      max_tokens = 50000,
       model = model,
     })
 
@@ -543,11 +533,11 @@ local function phase_fix(no_sandbox: boolean, title: string, number: string, mod
 
   local ok = sandbox.run_phase({
     sandbox = not no_sandbox,
-    timeout = sandbox.fix_limits.timeout_sec,
+    timeout = 300,
     unveil_dirs = {"o/work/plan", "o/work/do"},
     db = "o/work/fix/session.db",
     prompt = tpl,
-    max_tokens = sandbox.fix_limits.max_tokens,
+    max_tokens = 100000,
     model = model,
   })
 
@@ -855,7 +845,7 @@ local function main(args: {string}): integer
   end
 
   local start_time = util.now_sec()
-  local deadline = start_time + sandbox.overall_timeout_sec
+  local deadline = start_time + 1200  -- 20 minutes
 
   local function check_deadline(phase: string): boolean
     if util.now_sec() > deadline then

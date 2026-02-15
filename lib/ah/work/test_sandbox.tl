@@ -1,11 +1,6 @@
 #!/usr/bin/env cosmic
 -- test_sandbox.tl: tests for ah.work.sandbox module
 
-local record AgentLimits
-  max_tokens: integer
-  timeout_sec: integer
-end
-
 local record PhaseOpts
   sandbox: boolean
   timeout: integer

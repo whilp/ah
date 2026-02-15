@@ -1,4 +1,4 @@
--- ah/work/sandbox.tl: sandbox management, phase runner, and limits
+-- ah/work/sandbox.tl: sandbox management and phase runner
 local spawn = require("cosmic.child")
 local env = require("cosmic.env")
 local cfs = require("cosmic.fs")
@@ -37,11 +37,6 @@ local record SandboxCtx
   tmpdir: string
 end
 
-local record AgentLimits
-  max_tokens: integer   -- token budget passed via --max-tokens
-  timeout_sec: integer  -- wall-clock timeout via timeout(1) wrapper
-end
-
 -- Phase options for run_phase()
 local record PhaseOpts
   sandbox: boolean       -- pass --sandbox to ah
@@ -52,16 +47,6 @@ local record PhaseOpts
   max_tokens: integer    -- token budget
   model: string          -- model alias
 end
-
--- Overall deadline for unified work run (seconds)
-local overall_timeout_sec = 1200  -- 20 minutes
-
--- Per-phase limits
-local plan_limits: AgentLimits  = {max_tokens = 50000,  timeout_sec = 180}
-local do_limits: AgentLimits    = {max_tokens = 100000, timeout_sec = 300}
-local check_limits: AgentLimits = {max_tokens = 50000,  timeout_sec = 180}
-local fix_limits: AgentLimits   = {max_tokens = 100000, timeout_sec = 300}
-
 
 -- Start sandbox proxy
 -- Returns sandbox context or nil on error
@@ -261,11 +246,6 @@ local function prepare_child_stdin(): string
 end
 
 return {
-  overall_timeout_sec = overall_timeout_sec,
-  plan_limits = plan_limits,
-  do_limits = do_limits,
-  check_limits = check_limits,
-  fix_limits = fix_limits,
   run_phase = run_phase,
   build_phase_args = build_phase_args,
   start_sandbox = start_sandbox,
