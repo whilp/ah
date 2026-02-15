@@ -1,0 +1,53 @@
+# Makefile for ah work loop.
+# Adapt this template to your repository.
+
+SHELL := /bin/bash
+.SHELLFLAGS := -o pipefail -ec
+
+# ah binary
+# Get the latest release from: https://github.com/whilp/ah/releases
+# Replace VERSION and SHA256 with current values.
+ah_version := VERSION
+ah_url := https://github.com/whilp/ah/releases/download/$(ah_version)/ah
+ah_sha := SHA256
+ah := o/bin/ah
+
+$(ah):
+	@mkdir -p $(@D)
+	@echo "==> fetching ah $(ah_version)"
+	@curl -fsSL -o $@ $(ah_url)
+	@echo "$(ah_sha)  $@" | sha256sum -c - >/dev/null
+	@chmod +x $@
+
+# work: run the ah work loop
+.PHONY: work
+work: $(ah)
+	$(ah) work --repo $(REPO)
+
+# test: run your project's tests (customize these)
+.PHONY: test
+test:
+	@echo "TODO: add test commands"
+
+# lint: run your project's linters (customize these)
+.PHONY: lint
+lint:
+	@echo "TODO: add lint commands"
+
+# ci: run all checks (used by test.yml workflow)
+.PHONY: ci
+ci: test lint
+
+# clean: remove build artifacts
+.PHONY: clean
+clean:
+	rm -rf o/
+
+.PHONY: help
+help:
+	@echo "targets:"
+	@echo "  work   - run ah work loop"
+	@echo "  test   - run tests"
+	@echo "  lint   - run linters"
+	@echo "  ci     - run all checks"
+	@echo "  clean  - remove build artifacts"

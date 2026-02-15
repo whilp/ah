@@ -1,0 +1,45 @@
+# GitHub Actions workflow for CI tests.
+# Adapt this template to your repository's test/lint commands.
+
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Add language/runtime setup steps here. Examples:
+      #
+      # Node.js:
+      #   - uses: actions/setup-node@v4
+      #     with:
+      #       node-version: '22'
+      #   - run: npm ci
+      #
+      # Python:
+      #   - uses: actions/setup-python@v5
+      #     with:
+      #       python-version: '3.12'
+      #   - run: pip install -r requirements.txt
+      #
+      # Go:
+      #   - uses: actions/setup-go@v5
+      #     with:
+      #       go-version: '1.22'
+      #
+      # Rust:
+      #   - uses: dtolnay/rust-toolchain@stable
+
+      # Replace with your test/lint commands:
+      - name: Test
+        run: make test
+
+      - name: Lint
+        run: make lint
