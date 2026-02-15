@@ -549,11 +549,13 @@ local function run_agent(d: db.DB, qdb: queue.QueueDB, system_prompt: string, mo
       cache_read_tokens
     )))
 
-    -- Accumulate tokens for budget tracking
-    cumulative_input_tokens = cumulative_input_tokens + effective_input_tokens
+    -- Track tokens for budget enforcement
+    -- Use last call's effective input (current context size) rather than
+    -- cumulative input, which would double-count the growing conversation.
+    cumulative_input_tokens = effective_input_tokens
     cumulative_output_tokens = cumulative_output_tokens + ((usage.output_tokens or 0) as integer)
 
-    -- Check token budget
+    -- Check token budget: current context size + total output generated
     if max_tokens and (cumulative_input_tokens + cumulative_output_tokens) > max_tokens then
       emit(on_event, events.budget_exceeded(cumulative_input_tokens, cumulative_output_tokens, max_tokens))
       db.log_event(d, "budget_exceeded", assistant_msg.id,
