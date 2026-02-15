@@ -249,6 +249,8 @@ options:
   --steer MSG         send steering message to running session
   --followup MSG      queue followup message for after session completes
   --max-tokens N      stop when cumulative tokens exceed N
+  --skill NAME        invoke a skill by name (prepends /skill:<name> to prompt)
+  --must-produce FILE require the agent to write FILE before finishing
   --sandbox           run inside network sandbox (proxy + unveil + pledge)
   --timeout N         wall-clock timeout in seconds
   --allow-host H:P    allow egress to host:port (repeatable, default: api.anthropic.com:443)
