@@ -43,8 +43,7 @@ lib/ah/work/util.tl        shared utilities (logging, file I/O, git env setup)
 lib/ulid.tl                ULID generation and parsing
 lib/build/reporter.tl      test/type-check result reporter
 lib/build/make-help.tl     Makefile help generator
-sys/system.md              default system prompt (embedded at /zip/embed/sys/system.md)
-sys/claude.md              base CLAUDE.md (embedded, prepended to project CLAUDE.md)
+sys/system.md              system prompt: persona, tool rules, skills (embedded at /zip/embed/sys/system.md)
 sys/skills/*.md            built-in skills (plan, do, check, fix, pr, etc.)
 sys/work/prompts/*.md      prompt templates for work phases
 work.mk                    make-based PDCA work loop (alternative to `ah work`)
@@ -211,9 +210,10 @@ the reporter aggregates results.
   but other handlers (JSON, web UI) can be substituted.
 - **progressive disclosure**: system prompt lists skill names and descriptions.
   the agent loads full skill content with the `read` tool when needed.
-- **prompt layering**: system prompt = embedded `sys/system.md` + embedded
-  `sys/claude.md` + project `CLAUDE.md` + project `AGENTS.md` + runtime
-  context (date, cwd, git branch/commit/remote) + skill list.
+- **prompt layering**: system prompt = embedded `sys/system.md` + project
+  context file + runtime context (date, cwd, git branch/commit/remote) +
+  skill list. the project context file is `CLAUDE.md` if present, otherwise
+  `AGENTS.md`. only one is loaded; `CLAUDE.md` supersedes `AGENTS.md`.
 - **session isolation**: each session has its own `.ah/<ulid>.db` and
   `.ah/<ulid>.queue.db`. sessions can be listed, resumed, named, and forked.
 - **inter-process coordination**: steering messages interrupt a running
