@@ -10,13 +10,12 @@ local function test_tool_key_param_bash()
 end
 test_tool_key_param_bash()
 
-local function test_tool_key_param_bash_truncate()
+local function test_tool_key_param_bash_no_truncate()
   local long_cmd = string.rep("x", 100)
   local key = loop.tool_key_param("bash", '{"command":"' .. long_cmd .. '"}', nil)
-  assert(#key == 80, "should truncate to 80 chars: got " .. #key)
-  assert(key:sub(-3) == "...", "should end with ellipsis")
+  assert(key == long_cmd, "should return full command without truncation: got " .. #key .. " chars")
 end
-test_tool_key_param_bash_truncate()
+test_tool_key_param_bash_no_truncate()
 
 local function test_tool_key_param_read()
   local key = loop.tool_key_param("read", '{"path":"/tmp/foo.txt"}', nil)
@@ -69,14 +68,13 @@ local function test_tool_key_param_details_bash()
 end
 test_tool_key_param_details_bash()
 
-local function test_tool_key_param_details_bash_truncate()
+local function test_tool_key_param_details_bash_no_truncate()
   local long_cmd = string.rep("y", 100)
   local details = json.encode({command = long_cmd, exit_code = 0})
   local key = loop.tool_key_param("bash", '{"command":"x"}', details)
-  assert(#key == 80, "should truncate details command to 80 chars: got " .. #key)
-  assert(key:sub(-3) == "...", "should end with ellipsis")
+  assert(key == long_cmd, "should return full command from details without truncation: got " .. #key .. " chars")
 end
-test_tool_key_param_details_bash_truncate()
+test_tool_key_param_details_bash_no_truncate()
 
 local function test_tool_key_param_details_edit()
   local details = json.encode({path = "/tmp/file.lua", old_lines = 5, new_lines = 7})
@@ -289,3 +287,58 @@ local function test_run_agent_signature()
   print("✓ run_agent is exported as a function")
 end
 test_run_agent_signature()
+
+-- Tests for wrap_command
+local function test_wrap_command_short()
+  local cmd = "ls -la"
+  local result = loop.wrap_command(cmd, 80, "    ")
+  assert(result == cmd, "short command should be unchanged: " .. result)
+end
+test_wrap_command_short()
+
+local function test_wrap_command_long_with_flags()
+  local cmd = "gh issue list --repo whilp/ah --label todo --state open --json number,title,body,url --limit 100"
+  local result = loop.wrap_command(cmd, 60, "    ")
+  assert(result:find("\\\n"), "should contain backslash continuation: " .. result)
+  -- Each line of wrapped output should fit within width (plus \ and trailing space)
+  for line in result:gmatch("[^\n]+") do
+    local clean = line:gsub(" \\$", "")
+    assert(#clean <= 60, "line should fit within width: " .. #clean .. " chars: " .. line)
+  end
+end
+test_wrap_command_long_with_flags()
+
+local function test_wrap_command_no_flags()
+  -- Long command with no flag boundaries
+  local cmd = "echo " .. string.rep("word ", 20)
+  cmd = cmd:gsub("%s+$", "")
+  local result = loop.wrap_command(cmd, 40, "    ")
+  assert(result:find("\\\n"), "should wrap at space boundaries: " .. result)
+end
+test_wrap_command_no_flags()
+
+local function test_wrap_command_preserves_tokens()
+  local cmd = "gh issue list --repo whilp/ah --label todo --state open"
+  local result = loop.wrap_command(cmd, 40, "    ")
+  -- All original tokens should be present
+  for token in cmd:gmatch("%S+") do
+    assert(result:find(token, 1, true), "should preserve token: " .. token)
+  end
+end
+test_wrap_command_preserves_tokens()
+
+local function test_wrap_command_exact_width()
+  -- Command exactly at width should not wrap
+  local cmd = string.rep("x", 80)
+  local result = loop.wrap_command(cmd, 80, "    ")
+  assert(result == cmd, "command at exact width should not wrap")
+end
+test_wrap_command_exact_width()
+
+local function test_wrap_command_default_width()
+  -- Should wrap a long command at width 80
+  local cmd = "gh issue list --repo whilp/ah --label todo --state open --json number,title,body,url,labels,createdAt --limit 100"
+  local result = loop.wrap_command(cmd, 80, "    ")
+  assert(result:find("\\\n"), "should wrap at width 80: " .. result)
+end
+test_wrap_command_default_width()
