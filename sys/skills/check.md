@@ -22,12 +22,15 @@ Read `o/work/plan/plan.md` for the plan. Read `o/work/do/do.md` for the executio
 4. Analyze friction from session databases:
 
         # for each existing phase db (plan, do):
-        sqlite3 o/work/<phase>/session.db \
-          "select tool_name, substr(tool_input,1,200), substr(tool_output,1,200) from content_blocks where is_error = 1;"
-        sqlite3 o/work/<phase>/session.db \
-          "select tool_name, duration_ms, substr(tool_input,1,200) from content_blocks where duration_ms > 30000 order by duration_ms desc limit 5;"
-        sqlite3 o/work/<phase>/session.db \
-          "select stop_reason, count(*) from messages where role='assistant' group by stop_reason;"
+        # session files are named session-N.db (one per attempt)
+        for db in o/work/<phase>/session-*.db; do
+          sqlite3 "$db" \
+            "select tool_name, substr(tool_input,1,200), substr(tool_output,1,200) from content_blocks where is_error = 1;"
+          sqlite3 "$db" \
+            "select tool_name, duration_ms, substr(tool_input,1,200) from content_blocks where duration_ms > 30000 order by duration_ms desc limit 5;"
+          sqlite3 "$db" \
+            "select stop_reason, count(*) from messages where role='assistant' group by stop_reason;"
+        done
 
 5. Write your assessment
 
