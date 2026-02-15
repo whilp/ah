@@ -60,7 +60,13 @@ local function execute_create_pr(branch: string, title: string, body: string): b
   if not title then return false, "missing title" end
   if not body then return false, "missing body" end
   local ok, stdout, _, stderr = util.run({"gh", "pr", "create", "--head", branch, "--title", title, "--body", body})
-  if not ok then return false, util.format_run_error("gh pr create failed", stdout, stderr) end
+  if not ok then
+    local combined = (stdout or "") .. (stderr or "")
+    if combined:find("already exists") then
+      return true
+    end
+    return false, util.format_run_error("gh pr create failed", stdout, stderr)
+  end
   return true
 end
 
