@@ -224,6 +224,62 @@ local function run_agent(d: db.DB, qdb: queue.QueueDB, system_prompt: string, mo
     ::continue::
   end
 
+  -- Repair dangling tool_use: if an assistant message has tool_use blocks
+  -- but the next message is not a user message with matching tool_results,
+  -- inject synthetic error tool_results. This handles corruption from
+  -- budget_exceeded, crashes, or other interrupted exits.
+  for i = 1, #api_messages - 1 do
+    local msg = api_messages[i] as {string:any}
+    if msg.role == "assistant" then
+      -- Collect tool_use IDs from this assistant message
+      local tool_use_ids: {string} = {}
+      local msg_content = msg.content as {any}
+      for _, block in ipairs(msg_content) do
+        local b = block as {string:any}
+        if b.type == "tool_use" then
+          table.insert(tool_use_ids, b.id as string)
+        end
+      end
+
+      if #tool_use_ids > 0 then
+        -- Check if next message has matching tool_results
+        local next_msg = api_messages[i + 1] as {string:any}
+        local has_tool_results = false
+        if next_msg.role == "user" then
+          local next_content = next_msg.content as {any}
+          for _, block in ipairs(next_content) do
+            local b = block as {string:any}
+            if b.type == "tool_result" then
+              has_tool_results = true
+              break
+            end
+          end
+        end
+
+        if not has_tool_results then
+          -- Inject a synthetic tool_result message after this assistant message
+          local synthetic_results: {any} = {}
+          for _, tid in ipairs(tool_use_ids) do
+            table.insert(synthetic_results, {
+              type = "tool_result",
+              tool_use_id = tid,
+              content = "error: tool execution was interrupted (session resumed)",
+              is_error = true,
+            })
+          end
+          -- Insert the synthetic user message right after the assistant message
+          table.insert(api_messages, i + 1, {
+            role = "user",
+            content = synthetic_results,
+          })
+          emit(on_event, events.error_event(string.format(
+            "repaired %d dangling tool_use block(s) in message history",
+            #tool_use_ids)))
+        end
+      end
+    end
+  end
+
   -- Track final stop reason for agent_end event
   local final_stop_reason = "unknown"
 
@@ -502,6 +558,29 @@ local function run_agent(d: db.DB, qdb: queue.QueueDB, system_prompt: string, mo
       emit(on_event, events.budget_exceeded(cumulative_input_tokens, cumulative_output_tokens, max_tokens))
       db.log_event(d, "budget_exceeded", assistant_msg.id,
         events.to_json(events.budget_exceeded(cumulative_input_tokens, cumulative_output_tokens, max_tokens)))
+
+      -- Persist stub tool_results for any tool_use blocks in the assistant
+      -- message so the DB stays consistent for session resume.
+      local pending_tool_ids: {string} = {}
+      for _, blk in ipairs(assistant_blocks) do
+        if blk.block_type == "tool_use" then
+          table.insert(pending_tool_ids, blk.tool_id as string)
+        end
+      end
+      if #pending_tool_ids > 0 then
+        db.begin_transaction(d)
+        local stub_msg = db.create_message(d, "user", assistant_msg.id)
+        for _, tid in ipairs(pending_tool_ids) do
+          db.add_content_block(d, stub_msg.id, "tool_result", {
+            tool_id = tid,
+            tool_output = "error: tool execution skipped (token budget exceeded)",
+            is_error = true,
+            duration_ms = 0,
+          })
+        end
+        db.commit(d)
+      end
+
       final_stop_reason = "budget_exceeded"
       break
     end
