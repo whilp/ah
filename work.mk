@@ -3,9 +3,9 @@
 # implements the PDCA work loop as make targets:
 #   preflight -> issues.json -> issue.json -> plan -> do -> push -> check -> act
 #
-# convention: pipeline scripts in lib/work/ read env vars (WORK_*) instead
-# of CLI args. pattern rules provide recipes; dependency-only rules add
-# per-target prerequisites.
+# convention: work.tl subcommands read WORK_* env vars and write json to
+# stdout. a single pattern rule provides the recipe; dependency-only rules
+# add per-target prerequisites.
 #
 # convergence: check writes o/work/do/feedback.md when verdict is needs-fixes.
 # since do depends on feedback.md, the next make run re-executes do -> push -> check.
@@ -14,6 +14,10 @@
 REPO ?= whilp/ah
 MAX_PRS ?= 4
 AH := $(o)/bin/ah
+work_tl := lib/work/work.tl
+
+# put o/bin on PATH so shebangs (#!/usr/bin/env cosmic) work
+export PATH := $(CURDIR)/$(o)/bin:$(PATH)
 
 # detect the remote default branch
 # in CI: DEFAULT_BRANCH is set by the workflow from github.event.repository.default_branch
@@ -27,41 +31,38 @@ export WORK_MAX_PRS := $(MAX_PRS)
 export WORK_DEFAULT_BRANCH := $(DEFAULT_BRANCH)
 export WORK_INPUT := $(o)/work/issues.json
 export WORK_ISSUE := $(o)/work/issue.json
+export WORK_ACTIONS := $(o)/work/check/actions.json
 
 # named targets
 all_issues := $(o)/work/issues.json
 picked_issue := $(o)/work/issue.json
-is_doing := $(o)/work/doing.ok
+doing := $(o)/work/doing.json
 plan := $(o)/work/plan/plan.md
 feedback := $(o)/work/do/feedback.md
 on_branch := $(o)/work/branch.ok
 do_done := $(o)/work/do/done
 push_done := $(o)/work/push/done
 check_done := $(o)/work/check/done
-act_done := $(o)/work/act/done
+act_done := $(o)/work/act.json
 
 .DELETE_ON_ERROR:
 
-# pattern: run lib/work/%.tl, capture stdout to output file
-$(o)/work/%.json: lib/work/%.tl $(cosmic)
+# --- preflight ---
+
+# pattern: run work.tl subcommand, capture json stdout to output file
+$(o)/work/%.json: $(work_tl) $(cosmic)
 	@mkdir -p $(@D)
-	@$(cosmic) $< > $@
+	@$(work_tl) $* > $@
 
-$(o)/work/%.ok: lib/work/%.tl $(cosmic)
-	@mkdir -p $(@D)
-	@$(cosmic) $< > $@
-
-# --- per-target dependencies (no recipes) ---
-
-$(all_issues): $(o)/work/labels.ok $(o)/work/pr-limit.ok
+# per-target dependencies (no recipes)
+$(all_issues): $(o)/work/labels.json $(o)/work/pr-limit.json
 $(picked_issue): $(all_issues)
-$(is_doing): $(picked_issue)
+$(doing): $(picked_issue)
 
 # --- agent targets ---
 
-$(plan): $(is_doing) $(picked_issue) $(AH)
+$(plan): $(doing) $(picked_issue) $(AH)
 	@mkdir -p $(@D)
-	@cp $(picked_issue) $(o)/work/plan/issue.json
 	@echo "==> plan"
 	@timeout 180 $(AH) -n \
 		--sandbox \
@@ -118,12 +119,8 @@ $(check_done): $(push_done) $(plan) $(AH)
 		< /dev/null
 	@touch $@
 
-$(act_done): $(check_done) $(picked_issue) $(cosmic)
-	@mkdir -p $(@D)
-	@echo "==> act"
-	@$(cosmic) lib/work/act.tl --issue $(picked_issue) \
-		--actions $(o)/work/check/actions.json
-	@touch $@
+# act uses the pattern rule; add dependencies here
+$(act_done): $(check_done) $(picked_issue)
 
 # work: converge on act_done, retrying up to 3 times.
 # each attempt rebuilds the full chain (do -> push -> check -> act).
