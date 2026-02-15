@@ -218,8 +218,9 @@ local function format_tokens(n: integer): string
   end
 end
 
-local function usage()
-  io.stderr:write([[usage: ah [options] [command] [args...]
+local function usage_text(): string
+  local parts: {string} = {}
+  table.insert(parts, [[usage: ah [options] [command] [args...]
 
 commands:
   <prompt>            send prompt to agent
@@ -246,6 +247,7 @@ options:
   --name NAME         set or match session by name
   --db PATH           use custom database path (default: .ah/<ulid>.db)
   -m, --model MODEL   set model (default: sonnet)
+  -o, --output FILE   output file (used with embed)
   --steer MSG         send steering message to running session
   --followup MSG      queue followup message for after session completes
   --max-tokens N      stop when cumulative tokens exceed N
@@ -259,8 +261,13 @@ options:
 models:
 ]])
   for alias, full in pairs(api.MODEL_ALIASES) do
-    io.stderr:write(string.format("  %-18s  %s\n", alias, full))
+    table.insert(parts, string.format("  %-18s  %s\n", alias, full))
   end
+  return table.concat(parts)
+end
+
+local function usage()
+  io.stderr:write(usage_text())
 end
 
 -- List messages in current branch (ancestry from current message)
@@ -1665,4 +1672,5 @@ return {
   cmd_diff = cmd_diff,
   parse_protect_dirs = parse_protect_dirs,
   parse_unveil_entry = parse_unveil_entry,
+  usage_text = usage_text,
 }

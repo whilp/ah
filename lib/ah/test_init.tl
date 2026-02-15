@@ -437,4 +437,37 @@ local function test_parse_unveil_entry_no_perms()
 end
 test_parse_unveil_entry_no_perms()
 
+-- Help text completeness: every defined option must appear in usage_text()
+
+local function test_usage_text_contains_all_options()
+  local help = init.usage_text()
+  assert(type(help) == "string", "usage_text() should return a string")
+  assert(#help > 0, "usage_text() should not be empty")
+
+  -- every long option defined in the parser must appear as --name in help
+  local defined_options = {
+    "help", "new", "session", "name", "db", "model", "output",
+    "steer", "followup", "max-tokens", "sandbox", "timeout",
+    "allow-host", "unveil", "skill", "must-produce",
+  }
+  for _, opt in ipairs(defined_options) do
+    assert(help:find("--" .. opt, 1, true),
+      "help text missing option: --" .. opt)
+  end
+  print("✓ usage_text contains all defined options")
+end
+test_usage_text_contains_all_options()
+
+local function test_usage_text_contains_short_options()
+  local help = init.usage_text()
+  -- short aliases must also appear
+  local short_options = {"-h", "-n", "-S", "-m", "-o"}
+  for _, opt in ipairs(short_options) do
+    assert(help:find(opt, 1, true),
+      "help text missing short option: " .. opt)
+  end
+  print("✓ usage_text contains all short options")
+end
+test_usage_text_contains_short_options()
+
 print("all init tests passed")
