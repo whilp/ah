@@ -47,6 +47,10 @@ act_done := $(o)/work/act.json
 
 .DELETE_ON_ERROR:
 
+# LOOP: set by the work target (1, 2, 3) to give each convergence
+# attempt its own session database. defaults to 1 for manual runs.
+LOOP ?= 1
+
 # --- preflight ---
 
 # pattern: run work.tl subcommand, capture json stdout to output file
@@ -69,7 +73,7 @@ $(plan): $(doing) $(picked_issue) $(AH)
 		--skill plan \
 		--must-produce $@ \
 		--max-tokens 100000 \
-		--db $(o)/work/plan/session.db \
+		--db $(o)/work/plan/session-$(LOOP).db \
 		< $(picked_issue)
 
 # feedback.md: created empty after plan, updated by check agent.
@@ -85,17 +89,16 @@ $(on_branch): $(plan) $(picked_issue)
 $(do_done): $(on_branch) $(plan) $(feedback) $(picked_issue) $(AH)
 	@mkdir -p $(@D)
 	@echo "==> do"
-	@if [ -f $(o)/work/do/session.db ] && ! git diff --quiet $(DEFAULT_BRANCH)..HEAD 2>/dev/null; then \
+	@if ! git diff --quiet $(DEFAULT_BRANCH)..HEAD 2>/dev/null; then \
 		echo "  (retrying: resetting branch to $(DEFAULT_BRANCH))"; \
 		git reset --hard $(DEFAULT_BRANCH); \
-		rm -f $(o)/work/do/session.db; \
 	fi
 	@timeout 300 $(AH) -n \
 		--sandbox \
 		--skill do \
-		--max-tokens 100000 \
+		--max-tokens 200000 \
 		--unveil $(o)/work/plan:r \
-		--db $(o)/work/do/session.db \
+		--db $(o)/work/do/session-$(LOOP).db \
 		< $(picked_issue)
 	@touch $@
 
@@ -115,7 +118,7 @@ $(check_done): $(push_done) $(plan) $(AH)
 		--max-tokens 100000 \
 		--unveil $(o)/work/plan:r \
 		--unveil $(o)/work/do:r \
-		--db $(o)/work/check/session.db \
+		--db $(o)/work/check/session-$(LOOP).db \
 		< /dev/null
 	@touch $@
 
@@ -129,6 +132,6 @@ $(act_done): $(check_done) $(picked_issue)
 .PHONY: work
 converge := $(MAKE) $(act_done)
 work:
-	-@$(converge)
-	-@$(converge)
-	@$(converge)
+	-@LOOP=1 $(converge)
+	-@LOOP=2 $(converge)
+	@LOOP=3 $(converge)
