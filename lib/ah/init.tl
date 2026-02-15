@@ -26,6 +26,7 @@ local record Session
   msg_count: integer
   first_prompt: string
   timestamp: number
+  name: string
 end
 
 -- Global for signal handling
@@ -159,6 +160,7 @@ local function list_sessions(cwd?: string): {Session}
               msg_count = db.get_message_count(d),
               first_prompt = db.get_first_user_prompt(d),
               timestamp = ts,
+              name = db.get_context(d, "session_name"),
             })
             db.close(d)
           end
@@ -176,9 +178,25 @@ local function list_sessions(cwd?: string): {Session}
   return sessions
 end
 
--- Resolve partial ULID prefix to full session ULID
+-- Resolve session by name or partial ULID prefix
 local function resolve_session(cwd: string, prefix: string): string, string
   local sessions = list_sessions(cwd)
+
+  -- First pass: exact name match
+  local name_matches: {string} = {}
+  for _, s in ipairs(sessions) do
+    if s.name and s.name == prefix then
+      table.insert(name_matches, s.ulid)
+    end
+  end
+
+  if #name_matches == 1 then
+    return name_matches[1], nil
+  elseif #name_matches > 1 then
+    return nil, "ambiguous name: " .. prefix .. " matches " .. #name_matches .. " sessions"
+  end
+
+  -- Second pass: ULID prefix match
   local matches: {string} = {}
 
   for _, s in ipairs(sessions) do
@@ -188,7 +206,7 @@ local function resolve_session(cwd: string, prefix: string): string, string
   end
 
   if #matches == 0 then
-    return nil, "no session matches prefix: " .. prefix
+    return nil, "no session matches: " .. prefix
   elseif #matches > 1 then
     return nil, "ambiguous prefix: " .. prefix .. " matches " .. #matches .. " sessions"
   end
@@ -232,6 +250,7 @@ options:
   -h, --help          show this help
   -n, --new           start a new session
   -S, --session ULID  use specific session (prefix match)
+  --name NAME         set or match session by name
   --db PATH           use custom database path (default: .ah/<ulid>.db)
   -m, --model MODEL   set model (default: sonnet)
   --steer MSG         send steering message to running session
@@ -369,12 +388,14 @@ local function cmd_sessions(cwd: string, current_ulid: string)
     local marker = s.ulid == current_ulid and ">" or " "
     local decoded = ulid.decode(s.ulid)
     local time_str = decoded and decoded.time or "unknown"
+    local short_ulid = s.ulid:sub(1, 11)
+    local name_str = s.name and string.format("  [%s]", s.name) or ""
     local preview = s.first_prompt:gsub("\n", " "):sub(1, 40)
     if #s.first_prompt > 40 then
       preview = preview .. "..."
     end
-    io.write(string.format("%s %s  %s  %2d msgs  %s\n",
-      marker, s.ulid, time_str, s.msg_count, preview))
+    io.write(string.format("%s %s  %s  %2d msgs%s  %s\n",
+      marker, short_ulid, time_str, s.msg_count, name_str, preview))
   end
 end
 
@@ -796,6 +817,7 @@ local record ParsedArgs
   output_path: string
   new_session: boolean
   session_prefix: string
+  session_name: string
   steer_msg: string
   followup_msg: string
   max_tokens: integer
@@ -821,6 +843,7 @@ local function parse_args(args: {string}): ParsedArgs, string
     {name = "help", has_arg = "none", short = "h"},
     {name = "new", has_arg = "none", short = "n"},
     {name = "session", has_arg = "required", short = "S"},
+    {name = "name", has_arg = "required"},
     {name = "db", has_arg = "required"},
     {name = "model", has_arg = "required", short = "m"},
     {name = "output", has_arg = "required", short = "o"},
@@ -850,6 +873,8 @@ local function parse_args(args: {string}): ParsedArgs, string
       result.new_session = true
     elseif opt == "S" or opt == "session" then
       result.session_prefix = optarg
+    elseif opt == "name" then
+      result.session_name = optarg
     elseif opt == "db" then
       result.db_path = optarg
     elseif opt == "m" or opt == "model" then
@@ -1021,6 +1046,7 @@ local function main(args: {string}): integer, string
   local output_path = parsed.output_path
   local new_session = parsed.new_session
   local session_prefix = parsed.session_prefix
+  local session_name = parsed.session_name
   local steer_msg = parsed.steer_msg
   local followup_msg = parsed.followup_msg
   local max_tokens = parsed.max_tokens
@@ -1228,7 +1254,27 @@ local function main(args: {string}): integer, string
     local ah_dir = fs.join(cwd, ".ah")
     fs.makedirs(ah_dir)
 
-    if new_session then
+    if new_session and session_name then
+      -- --new + --name: error, conflicting intent
+      return 1, "--new and --name cannot be used together"
+    elseif session_name then
+      -- --name NAME: find existing session by name, or create new
+      local sessions = list_sessions(cwd)
+      local found: Session = nil
+      for _, s in ipairs(sessions) do
+        if s.name == session_name then
+          if found then
+            return 1, "duplicate session name: " .. session_name
+          end
+          found = s
+        end
+      end
+      if found then
+        session_ulid = found.ulid
+      else
+        session_ulid = ulid.generate()
+      end
+    elseif new_session then
       -- -n: force new session
       session_ulid = ulid.generate()
     elseif session_prefix then
@@ -1278,6 +1324,14 @@ local function main(args: {string}): integer, string
   local d, err = db.open(db_path)
   if not d then
     return 1, err
+  end
+
+  -- Set session name in context if --name was used on a new session
+  if session_name then
+    local existing_name = db.get_context(d, "session_name")
+    if not existing_name then
+      db.set_context(d, "session_name", session_name)
+    end
   end
 
   -- Clean up any orphan messages from previous crashes
