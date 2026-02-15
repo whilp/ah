@@ -105,7 +105,7 @@ $(do_done): $(on_branch) $(plan) $(feedback) $(picked_issue) $(AH)
 $(push_done): $(do_done)
 	@mkdir -p $(@D)
 	@echo "==> push"
-	@git push -u origin HEAD
+	@git push --force-with-lease -u origin HEAD
 	@touch $@
 
 $(check_done): $(push_done) $(plan) $(AH)
