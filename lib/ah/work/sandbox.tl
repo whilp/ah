@@ -57,7 +57,7 @@ end
 local overall_timeout_sec = 1200  -- 20 minutes
 
 -- Per-phase limits
-local plan_limits: AgentLimits  = {max_tokens = 50000,  timeout_sec = 180}
+local plan_limits: AgentLimits  = {max_tokens = 100000, timeout_sec = 180}
 local do_limits: AgentLimits    = {max_tokens = 100000, timeout_sec = 300}
 local check_limits: AgentLimits = {max_tokens = 50000,  timeout_sec = 180}
 local fix_limits: AgentLimits   = {max_tokens = 100000, timeout_sec = 300}
