@@ -29,6 +29,10 @@ You have a limited turn budget. Spend at most 5 turns researching, then
 write your output files. If you find yourself on turn 6+, stop researching
 and write plan.md with what you know.
 
+If the issue body already contains a detailed plan (file paths, approach,
+specific code references), verify 1-2 key claims by reading the referenced
+files, then write plan.md. Do not re-research what the issue already covers.
+
 ## Bail conditions
 
 If you cannot identify BOTH a clear goal AND an entry point, write ONLY
