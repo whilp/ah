@@ -658,6 +658,8 @@ return {
   cleanup_orphans = cleanup_orphans,
   log_event = log_event,
   get_events = get_events,
+  get_context = get_context,
+  set_context = set_context,
   get_session_state = get_session_state,
   set_session_state = set_session_state,
   get_session_token_totals = get_session_token_totals,
