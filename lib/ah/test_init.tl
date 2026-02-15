@@ -52,6 +52,7 @@ end
 test_load_agents_md()
 
 local function test_load_both_claude_and_agents_md()
+  -- CLAUDE.md supersedes AGENTS.md when both exist
   local cwd = fs.join(TEST_TMPDIR, "cwd_both")
   fs.makedirs(cwd)
   cio.barf(fs.join(cwd, "CLAUDE.md"), "claude context")
@@ -60,8 +61,8 @@ local function test_load_both_claude_and_agents_md()
   local content = init.load_claude_md(cwd)
   assert(content:match("Project Context"), "should have CLAUDE.md header")
   assert(content:match("claude context"), "should include CLAUDE.md content")
-  assert(content:match("Agent Context"), "should have AGENTS.md header")
-  assert(content:match("agents context"), "should include AGENTS.md content")
+  assert(not content:match("Agent Context"), "should NOT have AGENTS.md header")
+  assert(not content:match("agents context"), "should NOT include AGENTS.md content")
 end
 test_load_both_claude_and_agents_md()
 

@@ -35,27 +35,20 @@ global interrupted: boolean = false
 -- Load CLAUDE.md with embedded base prepended
 local function load_claude_md(cwd: string): string
   cwd = cwd or fs.getcwd()
-  local result = ""
 
-  -- Load embedded base claude.md first
-  local sys_claude = cio.slurp("/zip/embed/sys/claude.md")
-  if sys_claude then
-    result = "\n\n" .. sys_claude
-  end
-
-  -- Append project CLAUDE.md
+  -- CLAUDE.md supersedes AGENTS.md when both exist.
+  -- Projects should pick one file; CLAUDE.md is the conventional name.
   local project_claude = cio.slurp(fs.join(cwd, "CLAUDE.md"))
   if project_claude then
-    result = result .. "\n\n# Project Context\n\n" .. project_claude
+    return "\n\n# Project Context\n\n" .. project_claude
   end
 
-  -- Append project AGENTS.md
   local agents_md = cio.slurp(fs.join(cwd, "AGENTS.md"))
   if agents_md then
-    result = result .. "\n\n# Agent Context\n\n" .. agents_md
+    return "\n\n# Agent Context\n\n" .. agents_md
   end
 
-  return result
+  return ""
 end
 
 local child = require("cosmic.child")
@@ -93,7 +86,7 @@ end
 -- Load system prompt with precedence:
 -- 1. /zip/embed/system.md (user override)
 -- 2. /zip/embed/sys/system.md (ah default)
--- CLAUDE.md is always appended
+-- Project CLAUDE.md and AGENTS.md are always appended
 local function load_system_prompt(cwd: string): string
   cwd = cwd or fs.getcwd()
   local claude_md = load_claude_md(cwd)
