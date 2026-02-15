@@ -50,11 +50,7 @@ local function tool_key_param(tool_name: string, tool_input: string, details_jso
       if details.path then
         return shorten_path(details.path as string)
       elseif details.command then
-        local cmd = details.command as string
-        if #cmd > 80 then
-          return cmd:sub(1, 77) .. "..."
-        end
-        return cmd
+        return details.command as string
       end
     end
   end
@@ -67,13 +63,74 @@ local function tool_key_param(tool_name: string, tool_input: string, details_jso
   if tool_name == "read" or tool_name == "write" or tool_name == "edit" then
     return shorten_path((input.path or "") as string)
   elseif tool_name == "bash" then
-    local cmd = (input.command or "") as string
-    if #cmd > 80 then
-      return cmd:sub(1, 77) .. "..."
-    end
-    return cmd
+    return (input.command or "") as string
   end
   return ""
+end
+
+-- Wrap a long command at flag boundaries with \ continuations.
+-- Returns cmd unchanged if it fits within width.
+-- Otherwise splits at spaces before -- or - flags, joining with \<newline> + indent.
+-- Falls back to splitting at any space if no flag boundaries found.
+local function wrap_command(cmd: string, width: integer, indent: string): string
+  width = width or 80
+  indent = indent or "    "
+  if #cmd <= width then
+    return cmd
+  end
+
+  -- Try splitting at flag boundaries (space before - or --)
+  local parts: {string} = {}
+  local current = ""
+  -- Split into tokens by space
+  for token in cmd:gmatch("%S+") do
+    if #parts > 0 and token:sub(1, 1) == "-" and #current + 1 + #token > width then
+      -- This flag would exceed width, start a new line
+      table.insert(parts, current)
+      current = indent .. token
+    elseif current == "" then
+      current = token
+    else
+      local candidate = current .. " " .. token
+      if #candidate > width and #parts > 0 then
+        -- Even without a flag boundary, line is too long
+        table.insert(parts, current)
+        current = indent .. token
+      else
+        current = candidate
+      end
+    end
+  end
+  if current ~= "" then
+    table.insert(parts, current)
+  end
+
+  if #parts > 1 then
+    return table.concat(parts, " \\\n")
+  end
+
+  -- Fallback: split at any space boundary near the width
+  parts = {}
+  current = ""
+  for token in cmd:gmatch("%S+") do
+    if current == "" then
+      current = token
+    elseif #current + 1 + #token > width then
+      table.insert(parts, current)
+      current = indent .. token
+    else
+      current = current .. " " .. token
+    end
+  end
+  if current ~= "" then
+    table.insert(parts, current)
+  end
+
+  if #parts > 1 then
+    return table.concat(parts, " \\\n")
+  end
+
+  return cmd
 end
 
 -- Compute a turn signature from a list of tool calls.
@@ -882,6 +939,7 @@ return {
   run_agent = run_agent,
   AgentOpts = AgentOpts,
   tool_key_param = tool_key_param,
+  wrap_command = wrap_command,
   shorten_path = shorten_path,
   turn_signature = turn_signature,
   check_loop = check_loop,

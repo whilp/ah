@@ -782,6 +782,13 @@ local function make_cli_handler(skill_name: string): events.EventCallback
       local key = event.tool_key or ""
       if key ~= "" then
         local cmd_prefix = event.tool_name == "bash" and "$ " or ""
+        if event.tool_name == "bash" then
+          local term_width = 80
+          local ws = tty.winsize(2)
+          if ws then term_width = ws.cols as integer end
+          local wrap_indent = indent .. "  "
+          key = loop.wrap_command(key, term_width - #indent - #cmd_prefix, wrap_indent)
+        end
         io.stderr:write(string.format("%s%s%s%s%s\n", DIM, indent, cmd_prefix, key, RESET))
       end
 
