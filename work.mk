@@ -65,7 +65,7 @@ $(doing): $(picked_issue)
 
 # --- agent targets ---
 
-$(plan): $(doing) $(picked_issue) $(AH)
+$(plan): $(doing) $(picked_issue) | $(AH)
 	@mkdir -p $(@D)
 	@echo "==> plan"
 	@timeout 180 $(AH) -n \
@@ -86,7 +86,7 @@ $(on_branch): $(plan) $(picked_issue)
 	@git checkout -B $$(jq -r .branch $(picked_issue)) $(DEFAULT_BRANCH)
 	@touch $@
 
-$(do_done): $(on_branch) $(plan) $(feedback) $(picked_issue) $(AH)
+$(do_done): $(on_branch) $(plan) $(feedback) $(picked_issue) | $(AH)
 	@mkdir -p $(@D)
 	@echo "==> do"
 	@if ! git diff --quiet $(DEFAULT_BRANCH)..HEAD 2>/dev/null; then \
@@ -108,7 +108,7 @@ $(push_done): $(do_done)
 	@git push --force-with-lease -u origin HEAD
 	@touch $@
 
-$(check_done): $(push_done) $(plan) $(AH)
+$(check_done): $(push_done) $(plan) | $(AH)
 	@mkdir -p $(@D)
 	@echo "==> check"
 	@timeout 180 $(AH) -n \
