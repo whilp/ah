@@ -120,7 +120,15 @@ $(o)/embed/embed/sys/%: sys/%
 ah_sys_files := $(shell find sys -type f 2>/dev/null)
 ah_sys := $(patsubst sys/%,$(o)/embed/embed/sys/%,$(ah_sys_files))
 
-$(o)/bin/ah: $(o)/embed/main.lua $(ah_lib_lua) $(ah_dep_lua) $(ah_sys) $(cosmic)
+# embed ci reference files (the actual files this repo uses)
+ah_ci_files := Makefile work.mk .github/workflows/work.yml .github/workflows/test.yml
+ah_ci := $(patsubst %,$(o)/embed/embed/ci/%,$(ah_ci_files))
+
+$(o)/embed/embed/ci/%: %
+	@mkdir -p $(@D)
+	@cp $< $@
+
+$(o)/bin/ah: $(o)/embed/main.lua $(ah_lib_lua) $(ah_dep_lua) $(ah_sys) $(ah_ci) $(cosmic)
 	@echo "==> embedding ah"
 	@$(cosmic) --embed $(o)/embed --output $@.tmp && mv $@.tmp $@
 
@@ -128,7 +136,7 @@ $(o)/bin/ah: $(o)/embed/main.lua $(ah_lib_lua) $(ah_dep_lua) $(ah_sys) $(cosmic)
 ## Build ah executable archive
 ah: $(o)/bin/ah
 
-$(o)/bin/ah-debug: $(o)/embed/main.lua $(ah_lib_lua) $(ah_dep_lua) $(ah_sys) $(cosmic_debug)
+$(o)/bin/ah-debug: $(o)/embed/main.lua $(ah_lib_lua) $(ah_dep_lua) $(ah_sys) $(ah_ci) $(cosmic_debug)
 	@echo "==> embedding ah-debug"
 	@$(cosmic_debug) --embed $(o)/embed --output $@.tmp && mv $@.tmp $@
 
