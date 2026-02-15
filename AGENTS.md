@@ -4,6 +4,18 @@ agent-first documentation for working in this repository. read this before
 making changes. everything here is optimized for agent legibility—it is the
 system of record.
 
+## quick reference
+
+```sh
+make ci            # run tests + type checks (canonical validation command)
+make test          # run tests only
+make check-types   # type checks only
+make build         # compile .tl → .lua
+make ah            # build executable
+```
+
+use `make ci` as the default validation command in plans and after changes.
+
 ## what ah is
 
 ah is a minimal agent harness. it manages the lifecycle of an LLM agent

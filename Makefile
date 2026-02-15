@@ -169,6 +169,9 @@ $(o)/%.tl.teal.ok: %.tl $(cosmic)
 ## Run tests and type checks
 ci: test check-types
 
+.PHONY: check
+check: ci
+
 include work.mk
 
 .PHONY: clean
