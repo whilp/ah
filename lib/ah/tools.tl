@@ -613,6 +613,23 @@ local function execute_tool(name: string, input: {string:any}): string, boolean,
   return tool.execute(input)
 end
 
+-- Load tools from a skill's tools/ subdirectory and merge into active tools.
+-- Skill tools override project tools but are overridden by --tool flags.
+local function load_skill_tools(dir: string)
+  local loaded = load_custom_tools_from_dir(dir)
+  if #loaded > 0 then
+    local by_name: {string:Tool} = {}
+    for _, tool in ipairs(tools) do
+      by_name[tool.name] = tool
+    end
+    merge_tools(by_name, loaded)
+    tools = {}
+    for _, tool in pairs(by_name) do
+      table.insert(tools, tool)
+    end
+  end
+end
+
 return {
   get_tool_definitions = get_tool_definitions,
   format_tools_for_prompt = format_tools_for_prompt,
@@ -622,6 +639,7 @@ return {
   init_custom_tools = init_custom_tools,
   add_tool_override = add_tool_override,
   remove_tool = remove_tool,
+  load_skill_tools = load_skill_tools,
   load_custom_tools_from_dir = load_custom_tools_from_dir,
   load_cli_tools_from_dir = load_cli_tools_from_dir,
   is_valid_tool = is_valid_tool,
