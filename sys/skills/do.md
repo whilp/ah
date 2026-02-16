@@ -16,6 +16,15 @@ You are executing a work item. Follow the plan.
 
 Read `o/work/plan/plan.md` for the full plan.
 
+If `o/work/plan/plan.md` does not exist or is empty, you are running without
+a pre-built plan. In this case:
+
+1. Read the issue JSON below to understand the task
+2. Spend 2-3 turns reading relevant code files to scope the work
+3. Form a lightweight inline plan (do not write it to disk)
+4. Keep changes minimal — limit scope to what the issue directly requests
+5. Skip any validation steps you cannot determine from the issue
+
 Read `o/work/do/feedback.md` — if non-empty, it contains review feedback from a
 previous check. Address those issues first, then continue with any remaining plan steps.
 
@@ -23,7 +32,7 @@ The issue JSON follows this prompt with fields: `number`, `title`, `body`, `url`
 
 ## Instructions
 
-1. Read the plan and every file you intend to modify before editing
+1. Read the plan (or use your inline plan) and every file you intend to modify before editing
 2. If feedback.md is non-empty, fix those issues first
 3. For each remaining step in the plan:
    a. Make the changes for that step
