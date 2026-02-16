@@ -1,110 +1,103 @@
 ---
 name: pr
-description: Open a pull request, resolve merge conflicts, and watch CI checks until green.
+description: Open a pull request, resolve merge conflicts, watch CI, or review an incoming PR.
 ---
 
-# PR
+# pr
 
-Open a pull request for the current branch, resolve any merge conflicts,
-and monitor CI checks until they pass.
+two modes: **open** (default) and **review**.
 
-## Prerequisites
+## open mode
 
-- Changes are committed and pushed to a feature branch
-- `gh` CLI is authenticated
+`/skill:pr` — open a PR for the current branch, resolve conflicts, watch CI.
 
-## Instructions
-
-1. **Identify the branch and target**
-
+1. **identify branch and target**
    ```bash
    git branch --show-current
    git log --oneline main..HEAD
    ```
 
-   Confirm you are on a feature branch with commits ahead of main.
-
-2. **Open the pull request**
-
+2. **open the PR** (or find existing one)
    ```bash
    gh pr create --fill --base main
+   gh pr view --json number,url,state  # if already exists
    ```
 
-   If a PR already exists for this branch, skip creation:
-
-   ```bash
-   gh pr view --json number,url,state
-   ```
-
-3. **Check for merge conflicts**
-
+3. **resolve merge conflicts** if any:
    ```bash
    gh pr view --json mergeable,mergeStateStatus
+   git fetch origin main && git rebase origin/main
+   # resolve, git add, git rebase --continue
+   git push --force-with-lease
    ```
 
-   If there are conflicts:
-   - Fetch and rebase onto main:
-     ```bash
-     git fetch origin main
-     git rebase origin/main
-     ```
-   - Resolve conflicts in each file. Read the conflicted file, understand
-     both sides, edit to produce the correct merge.
-   - After resolving all conflicts:
-     ```bash
-     git add <resolved files>
-     git rebase --continue
-     git push --force-with-lease
-     ```
-   - Re-check mergeable status.
-
-4. **Watch CI checks**
-
-   Poll check status until all checks complete (max 10 attempts, 30s apart):
-
+4. **watch CI** until complete:
    ```bash
    gh pr checks --watch --fail-fast
    ```
 
-   If `--watch` is not available, poll manually:
-
+5. **handle failures** — read logs, fix, push, repeat:
    ```bash
-   gh pr checks
+   gh run view <run-id> --log-failed
    ```
 
-   Repeat until all checks show pass or fail.
+### output
 
-5. **Handle check failures**
+write `o/work/pr/pr.md` with url, conflict status, check status, notes.
+write `o/work/pr/update.md` with 2-4 line summary.
 
-   If checks fail:
-   - Read the failing check logs:
-     ```bash
-     gh pr checks --json name,state,conclusion
-     gh run view <run-id> --log-failed
-     ```
-   - Diagnose the failure. If it's a code issue you can fix:
-     - Make the fix, commit, and push
-     - Return to step 4
-   - If it's a flaky test or infrastructure issue, note it and move on.
+## review mode
 
-6. **Report result**
+`/skill:pr <number>` — review an incoming PR.
 
-## Output
+1. **read metadata and linked issues**
+   ```bash
+   gh pr view <number> --json title,body,headRefName,baseRefName,additions,deletions,files,comments,reviews
+   gh issue view <issue-number> --json title,body,labels  # for each linked issue
+   ```
 
-Write `o/work/pr/pr.md`:
+2. **read the diff** (for large diffs, prioritize non-test source files)
+   ```bash
+   gh pr diff <number>
+   ```
 
-    # PR
+3. **read changed files in full** for surrounding context.
 
-    ## URL
-    <PR url>
+4. **analyze** — check for: correctness, regressions, security, error
+   handling, concurrency issues, style consistency.
 
-    ## Conflicts
-    <resolved|none|unresolved>
+5. **check docs** — are docs/changelog updated if behavior changed?
 
-    ## Checks
-    <pass|fail|pending>
+6. **submit review** only if user explicitly asks. default to `--comment`.
+   never `--approve` or `--request-changes` without confirmation.
+   ```bash
+   gh pr review <number> --comment --body "<summary>"
+   ```
 
-    ## Notes
-    <issues encountered>
+### output
 
-Write `o/work/pr/update.md`: 2-4 line summary.
+```
+## Review: PR #<number> — <title>
+
+### Summary
+<1-3 sentences>
+
+### Good
+- <things done well>
+
+### Bad
+- <issues to fix before merge>
+
+### Ugly
+- <concerns, not necessarily blockers>
+
+### Verdict
+<approve | request-changes | comment> — <1 sentence justification>
+```
+
+## rules
+
+- cite specific files and line numbers
+- verify claims by reading code — do not guess
+- do not nitpick style unless it harms readability
+- if the diff is too large to fully review, state what was skipped
