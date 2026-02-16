@@ -2,8 +2,11 @@
 --
 -- Only allows a fixed set of read/triage operations on issues.
 -- Prevents prompt injection from escalating to arbitrary code execution.
+-- Hardcoded to whilp/ah — the tool refuses to operate on other repos.
 local child = require("cosmic.child")
 local env = require("cosmic.env")
+
+local ALLOWED_REPO = "whilp/ah"
 
 local record Allowed
   cmd: string
@@ -54,7 +57,8 @@ end
 return {
   name = "gh",
   description = "Run allowed GitHub CLI commands for issue triage (constrained subset of gh)",
-  system_prompt = "gh runs a restricted subset of the GitHub CLI.\n" ..
+  system_prompt = "gh runs a restricted subset of the GitHub CLI, hardcoded to the whilp/ah repo.\n" ..
+    "You do not need to pass --repo; it is enforced automatically.\n" ..
     "Only the following commands are allowed:\n" ..
     allowed_commands_list() .. "\n\n" ..
     "The args parameter is passed directly to `gh` after validation.\n" ..
@@ -82,6 +86,10 @@ return {
     if err then
       return "error: " .. err, true
     end
+
+    -- strip any --repo flag the caller passes and force the allowed repo
+    args_str = args_str:gsub("%s+%-%-repo%s+%S+", "")
+    args_str = args_str .. " --repo " .. ALLOWED_REPO
 
     local shell = os.getenv("AH_SHELL") or "bash"
     local command = "gh " .. args_str
