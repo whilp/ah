@@ -13,8 +13,8 @@
 
 REPO ?= whilp/ah
 MAX_PRS ?= 4
-AH := $(o)/bin/ah
-work_tl := lib/work/work.tl
+AH ?= $(o)/bin/ah
+work_tl ?= lib/work/work.tl
 
 # put o/bin on PATH so shebangs (#!/usr/bin/env cosmic) work
 export PATH := $(CURDIR)/$(o)/bin:$(PATH)
