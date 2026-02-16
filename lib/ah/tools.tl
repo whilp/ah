@@ -65,6 +65,7 @@ local record Tool
   name: string
   description: string
   input_schema: {string:any}
+  system_prompt: string
   execute: function(input: {string:any}): string, boolean, ToolDetails
 end
 
@@ -76,6 +77,7 @@ local cli_tools: {Tool} = {}
 local read_tool: Tool = {
   name = "read",
   description = "Read contents of a file (supports text and images: jpg, png, gif, webp)",
+  system_prompt = "Use read to examine files before editing. Do not use cat to read files.",
   input_schema = {
     type = "object",
     properties = {
@@ -170,6 +172,7 @@ local read_tool: Tool = {
 local write_tool: Tool = {
   name = "write",
   description = "Write content to a file (creates or overwrites)",
+  system_prompt = "Output plain text directly — do not use cat or bash to display what you wrote.\nPrefer editing existing files over creating new ones.",
   input_schema = {
     type = "object",
     properties = {
@@ -216,6 +219,7 @@ local write_tool: Tool = {
 local edit_tool: Tool = {
   name = "edit",
   description = "Replace text in a file (old_string must be unique)",
+  system_prompt = "The old_string in edit must match the file contents exactly, including whitespace and indentation.\nIf an edit fails with \"old_string is not unique\", re-read the file and include more surrounding context lines in old_string to disambiguate.\nDo not use sed to edit files.",
   input_schema = {
     type = "object",
     properties = {
@@ -330,6 +334,7 @@ end
 local bash_tool: Tool = {
   name = "bash",
   description = "Execute a bash command",
+  system_prompt = "Use bash for system commands, not for file operations.\nAll tools run in the working directory. Use relative paths for project files.",
   input_schema = {
     type = "object",
     properties = {
@@ -455,8 +460,36 @@ local function is_executable(path: string): boolean
   return tonumber(exit_str) == 0
 end
 
+-- Parse simple yaml frontmatter from markdown content.
+-- Returns frontmatter fields and body (content after frontmatter).
+local function parse_frontmatter(content: string): {string:string}, string
+  local fields: {string:string} = {}
+
+  if not content:match("^%-%-%-\n") then
+    return fields, content
+  end
+
+  local fm_end = content:find("\n%-%-%-\n", 4)
+  if not fm_end then
+    return fields, content
+  end
+
+  local fm_block = content:sub(5, fm_end - 1)
+  local body = content:sub(fm_end + 5)
+
+  for line in fm_block:gmatch("[^\n]+") do
+    local key, value = line:match("^([%w_%-]+):%s*(.+)$")
+    if key and value then
+      value = value:match("^[\"'](.+)[\"']$") or value
+      fields[key] = value
+    end
+  end
+
+  return fields, body
+end
+
 -- Load CLI tools from a bin directory
--- Each executable becomes a tool; description from <name>.md or --help
+-- Each executable becomes a tool; description and system_prompt from <name>.md
 local function load_cli_tools_from_dir(dir: string): {Tool}
   local loaded: {Tool} = {}
 
@@ -474,18 +507,29 @@ local function load_cli_tools_from_dir(dir: string): {Tool}
     if name:match("%.md$") then goto continue end
     if not is_executable(bin_path) then goto continue end
 
-    -- Get description from <name>.md or --help
+    -- Get description and system_prompt from <name>.md (frontmatter + body)
     local description = "CLI tool: " .. name
+    local tool_system_prompt: string = nil
     local md_path = fs.join(dir, name .. ".md")
     local md_content = cio.slurp(md_path)
     if md_content then
-      -- Use first non-empty line as description
-      for line in md_content:gmatch("[^\n]+") do
-        local trimmed = line:match("^%s*(.-)%s*$")
-        if trimmed and trimmed ~= "" and not trimmed:match("^#") then
-          description = trimmed
-          break
+      local fields, body = parse_frontmatter(md_content)
+      if fields.description and fields.description ~= "" then
+        description = fields.description
+      else
+        -- Fall back to first non-empty, non-heading line
+        for line in md_content:gmatch("[^\n]+") do
+          local trimmed = line:match("^%s*(.-)%s*$")
+          if trimmed and trimmed ~= "" and not trimmed:match("^#") then
+            description = trimmed
+            break
+          end
         end
+      end
+      -- Body after frontmatter becomes system_prompt guidance
+      local trimmed_body = body:match("^%s*(.-)%s*$")
+      if trimmed_body and trimmed_body ~= "" then
+        tool_system_prompt = trimmed_body
       end
     else
       -- Try --help
@@ -507,6 +551,7 @@ local function load_cli_tools_from_dir(dir: string): {Tool}
     local tool: Tool = {
       name = tool_name,
       description = description,
+      system_prompt = tool_system_prompt,
       input_schema = {
         type = "object",
         properties = {
@@ -557,90 +602,42 @@ local function load_cli_tools_from_dir(dir: string): {Tool}
   return loaded
 end
 
--- Merge CLI tools from global and project directories
-local function load_cli_tools(global_dir: string, project_dir: string): {Tool}
-  local by_name: {string:Tool} = {}
-
-  if global_dir then
-    local global_tools = load_cli_tools_from_dir(global_dir)
-    for _, tool in ipairs(global_tools) do
-      by_name[tool.name] = tool
-    end
+-- Merge tools into a name-indexed map (later calls override earlier)
+local function merge_tools(by_name: {string:Tool}, tools: {Tool})
+  for _, tool in ipairs(tools) do
+    by_name[tool.name] = tool
   end
-
-  if project_dir then
-    local project_tools = load_cli_tools_from_dir(project_dir)
-    for _, tool in ipairs(project_tools) do
-      by_name[tool.name] = tool
-    end
-  end
-
-  local result: {Tool} = {}
-  for _, tool in pairs(by_name) do
-    table.insert(result, tool)
-  end
-  return result
 end
 
--- Merge tools from global and project directories (project overrides global by name)
-local function load_custom_tools(global_dir: string, project_dir: string): {Tool}
-  local by_name: {string:Tool} = {}
+-- Initialize custom tools from standard locations.
+-- Later sources override earlier ones by name:
+--   1. system (/zip/embed/sys/tools)
+--   2. embed  (/zip/embed/tools)
+--   3. project (cwd/tools/)
+-- CLI tools load from system and embed only (no project bin/).
+local function init_custom_tools(cwd?: string)
+  cwd = cwd or fs.getcwd()
 
-  -- Load global tools first
-  if global_dir then
-    local global_tools = load_custom_tools_from_dir(global_dir)
-    for _, tool in ipairs(global_tools) do
-      by_name[tool.name] = tool
-    end
+  -- Lua module tools: system -> embed -> project
+  local lua_by_name: {string:Tool} = {}
+  merge_tools(lua_by_name, load_custom_tools_from_dir("/zip/embed/sys/tools"))
+  merge_tools(lua_by_name, load_custom_tools_from_dir("/zip/embed/tools"))
+  merge_tools(lua_by_name, load_custom_tools_from_dir(fs.join(cwd, "tools")))
+
+  custom_tools = {}
+  for _, tool in pairs(lua_by_name) do
+    table.insert(custom_tools, tool)
   end
 
-  -- Load project tools (override global by name)
-  if project_dir then
-    local project_tools = load_custom_tools_from_dir(project_dir)
-    for _, tool in ipairs(project_tools) do
-      by_name[tool.name] = tool
-    end
+  -- CLI tools: system -> embed (no project override)
+  local cli_by_name: {string:Tool} = {}
+  merge_tools(cli_by_name, load_cli_tools_from_dir("/zip/embed/sys/bin"))
+  merge_tools(cli_by_name, load_cli_tools_from_dir("/zip/embed/bin"))
+
+  cli_tools = {}
+  for _, tool in pairs(cli_by_name) do
+    table.insert(cli_tools, tool)
   end
-
-  -- Convert to array
-  local result: {Tool} = {}
-  for _, tool in pairs(by_name) do
-    table.insert(result, tool)
-  end
-  return result
-end
-
--- Initialize custom tools from standard locations
-local function init_custom_tools()
-  local home = os.getenv("HOME") or ""
-  local cwd = fs.getcwd()
-
-  -- Load Lua module tools: embedded sys -> global -> project (later overrides earlier)
-  local sys_tools = load_custom_tools_from_dir("/zip/embed/sys/tools")
-  local global_tools_dir = fs.join(home, ".ah", "tools")
-  local project_tools_dir = fs.join(cwd, ".ah", "tools")
-  local user_tools = load_custom_tools(global_tools_dir, project_tools_dir)
-
-  -- Merge: user tools override sys tools
-  custom_tools = sys_tools
-  for _, tool in ipairs(user_tools) do
-    local found = false
-    for i, existing in ipairs(custom_tools) do
-      if existing.name == tool.name then
-        custom_tools[i] = tool
-        found = true
-        break
-      end
-    end
-    if not found then
-      table.insert(custom_tools, tool)
-    end
-  end
-
-  -- Load CLI tools from .ah/bin/
-  local global_bin_dir = fs.join(home, ".ah", "bin")
-  local project_bin_dir = fs.join(cwd, ".ah", "bin")
-  cli_tools = load_cli_tools(global_bin_dir, project_bin_dir)
 end
 
 -- Get all tools (builtin + custom)
@@ -692,6 +689,42 @@ local function get_tool_definitions(): {{string:any}}
     })
   end
   return defs
+end
+
+-- Format tool guidance for inclusion in the system prompt.
+-- Generates a "Tools:" summary line and appends any per-tool system_prompt bodies.
+local function format_tools_for_prompt(): string
+  local all = get_all_tools()
+  if #all == 0 then return "" end
+
+  -- Sorted tool names for deterministic output
+  table.sort(all, function(a: Tool, b: Tool): boolean
+    return a.name < b.name
+  end)
+
+  local names: {string} = {}
+  for _, tool in ipairs(all) do
+    table.insert(names, tool.name)
+  end
+
+  local parts: {string} = {}
+  table.insert(parts, "Tools: " .. table.concat(names, ", ") .. ".")
+
+  -- Brief description line for each tool
+  for _, tool in ipairs(all) do
+    table.insert(parts, tool.name .. ": " .. tool.description)
+  end
+
+  -- Append per-tool system_prompt guidance
+  for _, tool in ipairs(all) do
+    if tool.system_prompt and tool.system_prompt ~= "" then
+      table.insert(parts, "")
+      table.insert(parts, "## " .. tool.name)
+      table.insert(parts, tool.system_prompt)
+    end
+  end
+
+  return table.concat(parts, "\n")
 end
 
 -- Validate tool input against its JSON schema.
@@ -846,13 +879,12 @@ end
 
 return {
   get_tool_definitions = get_tool_definitions,
+  format_tools_for_prompt = format_tools_for_prompt,
   execute_tool = execute_tool,
   abort_running_tools = abort_running_tools,
   validate_input = validate_input,
   init_custom_tools = init_custom_tools,
-  load_custom_tools = load_custom_tools,
   load_custom_tools_from_dir = load_custom_tools_from_dir,
-  load_cli_tools = load_cli_tools,
   load_cli_tools_from_dir = load_cli_tools_from_dir,
   is_valid_tool = is_valid_tool,
   Tool = Tool,

@@ -33,7 +33,7 @@ work/init.tl (orchestrator)
 
 1. `bin/ah.tl` calls `init.main(arg)`.
 2. `init.tl` parses CLI args, resolves session, loads system prompt.
-3. system prompt = `sys/system.md` + `CLAUDE.md`/`AGENTS.md` + git context + skills list.
+3. system prompt = `sys/system.md` + tool guidance + `CLAUDE.md`/`AGENTS.md` + git context + skills list.
 4. `loop.run_agent()` enters the agent loop:
    - builds API messages from conversation ancestry in `db.tl`.
    - calls `api.stream()` with system prompt, messages, tool definitions.

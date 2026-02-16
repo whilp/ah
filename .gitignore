@@ -6,3 +6,7 @@ o/
 /ah
 .env
 .ah/
+
+# work loop sandbox artifacts
+work/
+plan.md

@@ -51,9 +51,73 @@ the tool tracks running processes for abort cleanup on ctrl+c.
 
 ## custom tools
 
-`tools.init_custom_tools()` loads tool definitions from `tools/` directories
-at startup. custom tools are defined as JSON files with an `execute` field
-pointing to a script.
+custom tools extend the agent's capabilities. they are lua modules loaded
+from `tools/` directories at startup via `tools.init_custom_tools(cwd)`.
+
+### tool record
+
+each tool is a lua table with these fields:
+
+```lua
+{
+  name = "mytool",
+  description = "Short description for API tool definition",
+  system_prompt = "Usage guidance injected into the system prompt.",
+  input_schema = {type = "object", properties = {...}, required = {...}},
+  execute = function(input) return "result", false end,
+}
+```
+
+- `name`: tool name (used in API calls)
+- `description`: one-line description (shown in tool definition)
+- `system_prompt` (optional): guidance text appended to the system prompt
+- `input_schema`: JSON schema for tool parameters
+- `execute`: function taking input table, returning `(result, is_error)`
+
+### loading tiers
+
+tools load from three directories. later sources override earlier ones by name:
+
+1. `/zip/embed/sys/tools/` — system tools (built into the executable)
+2. `/zip/embed/tools/` — embed overlay (zip packaging)
+3. `cwd/tools/` — project-local tools
+
+each `.lua` file in the directory should return a tool record table.
+
+### CLI tools
+
+CLI tools (shell executables) load from system and embed tiers only:
+
+1. `/zip/embed/sys/bin/` — system CLI tools
+2. `/zip/embed/bin/` — embed overlay
+
+each executable in the directory becomes a tool. a companion `<name>.md`
+file provides metadata via yaml frontmatter:
+
+```markdown
+---
+description: Deploy the application
+---
+
+Run deploy only after all tests pass.
+Never deploy without user confirmation.
+```
+
+- `description` frontmatter field → tool description
+- body after frontmatter → `system_prompt` guidance
+- if no `.md` file exists, falls back to `--help` output for description
+
+### system prompt injection
+
+`tools.format_tools_for_prompt()` generates a tools section for the system
+prompt. it includes:
+
+1. a `Tools:` line listing all tool names
+2. a `name: description` line for each tool
+3. per-tool `## name` sections with `system_prompt` guidance
+
+this is called automatically by `init.tl` and appended to the system prompt
+before skills and other context.
 
 ## truncation
 

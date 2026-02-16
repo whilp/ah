@@ -1590,7 +1590,16 @@ local function main(args: {string}): integer, string
   end
 
   -- Load system prompt
+  -- Initialize custom tools (must happen before format_tools_for_prompt)
+  tools.init_custom_tools(cwd)
+
   local effective_system = load_system_prompt(cwd)
+
+  -- Append dynamic tool guidance to system prompt
+  local tools_prompt = tools.format_tools_for_prompt()
+  if tools_prompt ~= "" then
+    effective_system = effective_system .. "\n\n" .. tools_prompt
+  end
 
   -- Append skills to system prompt
   local skills_prompt = skills.format_skills_for_prompt(loaded_skills)
@@ -1602,9 +1611,6 @@ local function main(args: {string}): integer, string
   if parsed.must_produce then
     effective_system = effective_system .. "\n\nIMPORTANT: You must write the file `" .. parsed.must_produce .. "` before finishing."
   end
-
-  -- Initialize custom tools
-  tools.init_custom_tools()
 
   -- Try to acquire session lock
   local lock_acquired, lock_err = queue.try_acquire_lock(qdb)
