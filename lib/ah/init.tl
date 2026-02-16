@@ -18,6 +18,7 @@ local events = require("ah.events")
 local ulid = require("ulid")
 local queue = require("ah.queue")
 local sandbox = require("cosmic.sandbox")
+local util = require("ah.util")
 
 -- Session record for listing
 local record Session
@@ -744,7 +745,7 @@ local function main(args: {string}): integer, string
       io.stderr:write("error: sandbox failed to start: " .. (sbox_err or "unknown") .. "\n")
       return 1
     end
-    io.stderr:write("[sandbox] proxy started on " .. ctx.socket_path .. "\n")
+    util.debug("[sandbox] proxy started on " .. ctx.socket_path)
 
     -- Build child environment
     local run_env: {string} = env_mod.all() as {string}
@@ -811,8 +812,8 @@ local function main(args: {string}): integer, string
 
     -- Spawn child and wait
     local child_mod = require("cosmic.child") as ChildMod
-    io.stderr:write("[sandbox] spawning child: " .. table.concat(child_args, " ") .. "\n")
-    io.stderr:write("[sandbox] stdin: " .. (#parent_stdin > 0 and (tostring(#parent_stdin) .. " bytes") or "none") .. "\n")
+    util.debug("[sandbox] spawning child: " .. table.concat(child_args, " "))
+    util.debug("[sandbox] stdin: " .. (#parent_stdin > 0 and (tostring(#parent_stdin) .. " bytes") or "none"))
     local handle, spawn_err = child_mod.spawn(child_args, {env = run_env, stdin = parent_stdin})
     if not handle then
       io.stderr:write("error: failed to spawn sandboxed child: " .. (spawn_err or "unknown") .. "\n")
@@ -833,8 +834,8 @@ local function main(args: {string}): integer, string
     end
 
     -- Cleanup
-    io.stderr:write("[sandbox] child exited: " .. tostring(exit_code) .. "\n")
-    io.stderr:write("[sandbox] stopping proxy\n")
+    util.debug("[sandbox] child exited: " .. tostring(exit_code))
+    util.debug("[sandbox] stopping proxy")
     sbox.stop_sandbox(ctx)
 
     if not ok or exit_code ~= 0 then
