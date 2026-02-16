@@ -4,7 +4,7 @@ source: `lib/ah/tools.tl`, `sys/tools/`, `lib/ah/truncate.tl`
 
 ## built-in tools
 
-ah provides four tools to the agent, defined in `sys/tools/`:
+ah provides five tools to the agent, defined in `sys/tools/`:
 
 ### read (`sys/tools/read.tl`)
 
@@ -50,6 +50,21 @@ parameters:
 the tool tracks running processes via `running_processes` for abort
 cleanup on ctrl+c. `tools.abort_running_tools()` finds this table by
 iterating loaded tools.
+
+### skill (`sys/tools/skill.tl`)
+
+loads a skill by name from the available skill paths (system → embed →
+project). returns the skill body (frontmatter stripped) with a metadata
+header showing the source path, base directory, and line count. on
+error, lists available skill names for discoverability.
+
+parameters:
+- `name` (required): skill name (e.g. `plan`, `do`, `check`)
+
+the tool caches the loaded skills map on first invocation. details
+returned include `path` and `line_count`.
+
+## tool format
 
 ## tool format
 
