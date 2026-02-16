@@ -69,6 +69,7 @@ local record EventData
   -- token budget
   total_input_tokens: integer
   total_output_tokens: integer
+  total_cache_read_tokens: integer
   max_tokens: integer
 end
 
@@ -92,11 +93,14 @@ local function agent_start(model: string, prompt: string, parent_id: string): Ev
   return e
 end
 
-local function agent_end(stop_reason: string, total_input_tokens: integer, total_output_tokens: integer, error_message: string): EventData
+local function agent_end(stop_reason: string, total_input_tokens: integer, total_output_tokens: integer, error_message: string, total_cache_read_tokens: integer): EventData
   local e = make_event("agent_end")
   e.stop_reason = stop_reason
   e.total_input_tokens = total_input_tokens
   e.total_output_tokens = total_output_tokens
+  if total_cache_read_tokens and total_cache_read_tokens > 0 then
+    e.total_cache_read_tokens = total_cache_read_tokens
+  end
   if error_message then
     e.error = error_message
   end

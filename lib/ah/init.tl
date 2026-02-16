@@ -373,8 +373,13 @@ local function make_cli_handler(skill_name: string): events.EventCallback
       -- Display session token totals
       local total_in = event.total_input_tokens or 0
       local total_out = event.total_output_tokens or 0
+      local cache_read = event.total_cache_read_tokens or 0
       if total_in > 0 or total_out > 0 then
-        io.stderr:write(string.format("%s%s in / %s out (%s total)%s\n", DIM, format_tokens(total_in), format_tokens(total_out), format_tokens(total_in + total_out), RESET))
+        local in_str = format_tokens(total_in)
+        if cache_read > 0 then
+          in_str = in_str .. " (" .. format_tokens(cache_read) .. " cached)"
+        end
+        io.stderr:write(string.format("%s%s in / %s out (%s total)%s\n", DIM, in_str, format_tokens(total_out), format_tokens(total_in + total_out), RESET))
       end
       if is_ci and skill_name then
         io.stdout:write("::endgroup::\n")

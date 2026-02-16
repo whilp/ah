@@ -24,7 +24,7 @@ test_agent_start()
 
 -- Test agent_end constructor
 local function test_agent_end()
-  local e = events.agent_end("end_turn", 1000, 500, nil)
+  local e = events.agent_end("end_turn", 1000, 500, nil, nil)
   assert(e.event_type == "agent_end", "event_type should be agent_end")
   assert(e.stop_reason == "end_turn", "stop_reason mismatch")
   assert(e.total_input_tokens == 1000, "total_input_tokens mismatch")
@@ -35,7 +35,7 @@ test_agent_end()
 
 -- Test agent_end without token totals (nil)
 local function test_agent_end_no_tokens()
-  local e = events.agent_end("interrupted", nil, nil, nil)
+  local e = events.agent_end("interrupted", nil, nil, nil, nil)
   assert(e.event_type == "agent_end", "event_type should be agent_end")
   assert(e.stop_reason == "interrupted", "stop_reason mismatch")
   assert(e.total_input_tokens == nil, "total_input_tokens should be nil")
@@ -45,7 +45,7 @@ test_agent_end_no_tokens()
 
 -- Test agent_end with error message
 local function test_agent_end_with_error()
-  local e = events.agent_end("error", 500, 100, "API error 401: unauthorized")
+  local e = events.agent_end("error", 500, 100, "API error 401: unauthorized", nil)
   assert(e.event_type == "agent_end", "event_type should be agent_end")
   assert(e.stop_reason == "error", "stop_reason should be error")
   assert(e.error == "API error 401: unauthorized", "error mismatch")
@@ -182,7 +182,7 @@ local function test_event_callback()
 
   cb(events.agent_start("model", "prompt", nil))
   cb(events.text_delta("hello"))
-  cb(events.agent_end("end_turn", nil, nil, nil))
+  cb(events.agent_end("end_turn", nil, nil, nil, nil))
 
   assert(#received == 3, "should receive 3 events")
   assert(received[1].event_type == "agent_start", "first should be agent_start")
