@@ -1021,4 +1021,48 @@ return {
 end
 test_format_tools_for_prompt_with_custom()
 
+-- remove_tool tests
+local function test_remove_tool()
+  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
+
+  -- bash should exist
+  local defs_before = tools.get_tool_definitions()
+  local has_bash = false
+  for _, d in ipairs(defs_before) do
+    if (d as {string:any}).name == "bash" then has_bash = true end
+  end
+  assert(has_bash, "should have bash before removal")
+
+  -- Remove it
+  local removed = tools.remove_tool("bash")
+  assert(removed, "remove_tool should return true for existing tool")
+
+  -- bash should be gone
+  local defs_after = tools.get_tool_definitions()
+  for _, d in ipairs(defs_after) do
+    assert((d as {string:any}).name ~= "bash", "bash should not appear after removal")
+  end
+
+  -- execute_tool should fail
+  local result, is_error = tools.execute_tool("bash", {command = "echo hi"})
+  assert(is_error, "executing removed tool should error")
+  assert(result:match("unknown tool"), "should report unknown tool: " .. result)
+
+  -- Removing non-existent tool returns false
+  local removed2 = tools.remove_tool("nonexistent-tool")
+  assert(not removed2, "remove_tool should return false for missing tool")
+
+  -- prompt Tools: line should not list bash, and no ## bash section
+  local prompt = tools.format_tools_for_prompt()
+  local tools_line = prompt:match("Tools:[^\n]+")
+  assert(tools_line, "should have Tools: line")
+  assert(not tools_line:match("bash"), "Tools: line should not list bash: " .. tools_line)
+  assert(not prompt:match("## bash"), "should not have ## bash section")
+
+  -- Reset
+  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
+  print("✓ remove_tool removes a tool by name")
+end
+test_remove_tool()
+
 print("\nAll tools tests passed!")

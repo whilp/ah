@@ -1600,10 +1600,13 @@ local function main(args: {string}): integer, string
   tools.init_custom_tools(cwd)
 
   -- Apply --tool overrides (highest precedence, overrides everything)
+  -- name=cmd adds/replaces a tool; name= (empty cmd) removes it
   for _, spec in ipairs(parsed.tool_overrides) do
-    local name, cmd = spec:match("^([^=]+)=(.+)$")
-    if name and cmd then
+    local name, cmd = spec:match("^([^=]+)=(.*)")
+    if name and cmd ~= "" then
       tools.add_tool_override(name, cmd)
+    elseif name then
+      tools.remove_tool(name)
     else
       io.stderr:write("warning: invalid --tool spec (expected name=cmd): " .. spec .. "\n")
     end

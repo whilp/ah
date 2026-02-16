@@ -368,6 +368,17 @@ local function add_tool_override(name: string, cmd: string)
   table.insert(tools, tool)
 end
 
+-- Remove a tool by name. Returns true if found and removed.
+local function remove_tool(name: string): boolean
+  for i, tool in ipairs(tools) do
+    if tool.name == name then
+      table.remove(tools, i)
+      return true
+    end
+  end
+  return false
+end
+
 local function get_all_tools(): {Tool}
   return tools
 end
@@ -599,6 +610,7 @@ return {
   validate_input = validate_input,
   init_custom_tools = init_custom_tools,
   add_tool_override = add_tool_override,
+  remove_tool = remove_tool,
   load_custom_tools_from_dir = load_custom_tools_from_dir,
   load_cli_tools_from_dir = load_cli_tools_from_dir,
   is_valid_tool = is_valid_tool,
