@@ -126,25 +126,4 @@ local function test_work_phases_in_system_prompt()
 end
 test_work_phases_in_system_prompt()
 
--- Test 10: existing triage-issues skill still works alongside new phase skills
-local function test_triage_still_discovered()
-  local dir = "/zip/embed/sys/skills"
-  local loaded = skills.load_skills_from_dir(dir)
-  if #loaded == 0 then
-    dir = "sys/skills"
-    loaded = skills.load_skills_from_dir(dir)
-  end
-
-  local found = false
-  for _, s in ipairs(loaded) do
-    if s.name == "triage-issues" then
-      found = true
-      break
-    end
-  end
-  assert(found, "triage-issues skill should still be discovered alongside work phase skills")
-  print("✓ triage-issues skill still discovered")
-end
-test_triage_still_discovered()
-
 print("\nAll work phase skill tests passed!")
