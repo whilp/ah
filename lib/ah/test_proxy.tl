@@ -20,6 +20,7 @@ local record Proxy
   resolvehost: function(string): ip.Addr, string
   is_allowed: function(string): boolean
   parse_allow_hosts: function(string): {string:boolean}
+  parse_base_url: function(string): string
   nb_connect: function(Socket, number, integer): boolean, string
 end
 
@@ -242,5 +243,77 @@ local function test_nb_connect_refused()
   print("✓ nb_connect: connection refused returns error")
 end
 test_nb_connect_refused()
+
+-- parse_base_url tests
+
+local function test_parse_base_url_https_default_port()
+  local result = proxy.parse_base_url("https://custom.example.com")
+  assert(result == "custom.example.com:443", "should be custom.example.com:443, got: " .. tostring(result))
+  print("✓ parse_base_url: https default port")
+end
+test_parse_base_url_https_default_port()
+
+local function test_parse_base_url_https_explicit_port()
+  local result = proxy.parse_base_url("https://custom.example.com:8443")
+  assert(result == "custom.example.com:8443", "should be custom.example.com:8443, got: " .. tostring(result))
+  print("✓ parse_base_url: https explicit port")
+end
+test_parse_base_url_https_explicit_port()
+
+local function test_parse_base_url_http()
+  local result = proxy.parse_base_url("http://custom.example.com")
+  assert(result == "custom.example.com:80", "should be custom.example.com:80, got: " .. tostring(result))
+  print("✓ parse_base_url: http default port")
+end
+test_parse_base_url_http()
+
+local function test_parse_base_url_with_path()
+  local result = proxy.parse_base_url("https://custom.example.com/v1")
+  assert(result == "custom.example.com:443", "should strip path, got: " .. tostring(result))
+  print("✓ parse_base_url: strips path")
+end
+test_parse_base_url_with_path()
+
+local function test_parse_base_url_with_port_and_path()
+  local result = proxy.parse_base_url("https://custom.example.com:8443/v1/messages")
+  assert(result == "custom.example.com:8443", "should be custom.example.com:8443, got: " .. tostring(result))
+  print("✓ parse_base_url: port and path")
+end
+test_parse_base_url_with_port_and_path()
+
+local function test_parse_base_url_nil()
+  local result = proxy.parse_base_url(nil)
+  assert(result == nil, "nil should return nil, got: " .. tostring(result))
+  print("✓ parse_base_url: nil input")
+end
+test_parse_base_url_nil()
+
+local function test_parse_base_url_empty()
+  local result = proxy.parse_base_url("")
+  assert(result == nil, "empty string should return nil, got: " .. tostring(result))
+  print("✓ parse_base_url: empty string")
+end
+test_parse_base_url_empty()
+
+local function test_parse_base_url_default_anthropic()
+  local result = proxy.parse_base_url("https://api.anthropic.com")
+  assert(result == "api.anthropic.com:443", "should be api.anthropic.com:443, got: " .. tostring(result))
+  print("✓ parse_base_url: default anthropic URL")
+end
+test_parse_base_url_default_anthropic()
+
+local function test_parse_base_url_no_scheme()
+  local result = proxy.parse_base_url("custom.example.com:443")
+  assert(result == nil, "no scheme should return nil, got: " .. tostring(result))
+  print("✓ parse_base_url: no scheme returns nil")
+end
+test_parse_base_url_no_scheme()
+
+local function test_parse_base_url_ftp_scheme()
+  local result = proxy.parse_base_url("ftp://custom.example.com")
+  assert(result == nil, "ftp scheme should return nil, got: " .. tostring(result))
+  print("✓ parse_base_url: unsupported scheme returns nil")
+end
+test_parse_base_url_ftp_scheme()
 
 print("\nall proxy tests passed")
