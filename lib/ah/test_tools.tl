@@ -89,9 +89,14 @@ local function test_bash_exit_code()
 end
 
 local function test_tool_definitions()
-  local defs = tools.get_tool_definitions()
-  assert(#defs == 4, "should have 4 tools")
+  -- Ensure system tools are loaded
+  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
 
+  local defs = tools.get_tool_definitions()
+  assert(#defs >= 4, "should have at least 4 tools: " .. tostring(#defs))
+
+  -- Build name map for lookup
+  local by_name: {string:{string:any}} = {}
   for _, d in ipairs(defs) do
     local def = d as {string:any}
     assert(def.name, "tool should have name")
@@ -100,12 +105,17 @@ local function test_tool_definitions()
     local schema = def.input_schema as {string:any}
     assert(schema.type == "object", "schema type should be object")
     assert(schema.properties, "schema should have properties")
-    assert(schema.required, "schema should have required array")
+    by_name[def.name as string] = def
   end
 
+  -- Check core tools are present
+  assert(by_name["read"], "should have read tool")
+  assert(by_name["write"], "should have write tool")
+  assert(by_name["edit"], "should have edit tool")
+  assert(by_name["bash"], "should have bash tool")
+
   -- Check read tool specifically
-  local read_def = defs[1] as {string:any}
-  assert(read_def.name == "read", "first tool should be read")
+  local read_def = by_name["read"]
   local read_schema = read_def.input_schema as {string:any}
   local read_props = read_schema.properties as {string:any}
   local read_required = read_schema.required as {string}

@@ -46,7 +46,7 @@ $(cosmic_debug):
 reporter := $(cosmic) lib/build/reporter.tl
 
 # ah module
-ah_srcs := $(wildcard lib/ah/*.tl) $(wildcard lib/ah/work/*.tl) bin/ah.tl
+ah_srcs := $(wildcard lib/ah/*.tl) $(wildcard lib/ah/work/*.tl) $(wildcard sys/tools/*.tl) bin/ah.tl
 ah_lua := $(patsubst %.tl,$(o)/%.lua,$(ah_srcs))
 ah_tests := $(wildcard lib/ah/test_*.tl) $(wildcard lib/ah/work/test_*.tl)
 ah_lib_srcs := $(filter-out $(ah_tests),$(wildcard lib/ah/*.tl) $(wildcard lib/ah/work/*.tl))
@@ -113,12 +113,20 @@ $(o)/embed/.lua/%.lua: $(o)/lib/%.lua
 	@mkdir -p $(@D)
 	@cp $< $@
 
+# sys files: copy non-.tl files, compile .tl to .lua
+$(o)/embed/embed/sys/%.lua: sys/%.tl $(cosmic)
+	@mkdir -p $(@D)
+	@TL_PATH='$(TL_PATH)' $(cosmic) --compile $< > $@
+
 $(o)/embed/embed/sys/%: sys/%
 	@mkdir -p $(@D)
 	@cp $< $@
 
-ah_sys_files := $(shell find sys -type f 2>/dev/null)
-ah_sys := $(patsubst sys/%,$(o)/embed/embed/sys/%,$(ah_sys_files))
+ah_sys_files_raw := $(shell find sys -type f 2>/dev/null)
+ah_sys_tl := $(filter %.tl,$(ah_sys_files_raw))
+ah_sys_other := $(filter-out %.tl,$(ah_sys_files_raw))
+ah_sys := $(patsubst sys/%.tl,$(o)/embed/embed/sys/%.lua,$(ah_sys_tl)) \
+          $(patsubst sys/%,$(o)/embed/embed/sys/%,$(ah_sys_other))
 
 # embed ci reference files (the actual files this repo uses)
 ah_ci_files := Makefile work.mk .github/workflows/work.yml .github/workflows/test.yml
