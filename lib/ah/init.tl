@@ -924,6 +924,17 @@ local function parse_args(args: {string}): ParsedArgs, string
   end
 
   result.remaining = parser:remaining() or {}
+
+  -- Validate sandbox sub-options require --sandbox
+  if not result.sandbox then
+    if #result.unveil_dirs > 0 then
+      return nil, "error: --unveil requires --sandbox"
+    end
+    if #result.allow_hosts > 0 then
+      return nil, "error: --allow-host requires --sandbox"
+    end
+  end
+
   return result
 end
 
@@ -1058,6 +1069,10 @@ local function main(args: {string}): integer, string
       local ok, version = pcall(require, mod)
       io.write("ah " .. (ok and version as string or "dev") .. "\n")
       return 0
+    end
+    if err and err:sub(1, 6) == "error:" then
+      io.stderr:write(err .. "\n")
+      return 1
     end
     usage()
     if err == "help" then
