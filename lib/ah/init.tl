@@ -227,7 +227,6 @@ commands:
   (no args)           continue from last message
   sessions            list all sessions
   usage               show token usage and cache stats
-  work [cmd]          run work loop (plan/do/check/act)
   embed <dir>         embed files into /zip/embed/
   extract <dir>       extract /zip/embed/ to directory
 
@@ -518,8 +517,8 @@ local function parse_args(args: {string}): ParsedArgs, string
   }
 
   -- Use + prefix for POSIX mode: stop parsing options at first non-option arg.
-  -- This allows subcommands like "work" to have their own flags (--repo, --issue,
-  -- --prompt) without the top-level parser rejecting them as unknown options.
+  -- This allows subcommands to have their own flags without the top-level
+  -- parser rejecting them as unknown options.
   local parser = getopt.new(args, "+hVnS:m:o:t:", longopts)
 
   while true do
@@ -612,13 +611,10 @@ local record SandboxCtx
   tmpdir: string
 end
 
-local record WorkSandboxMod
+local record SandboxMod
   start_sandbox: function(): SandboxCtx, string
   stop_sandbox: function(SandboxCtx)
   prepare_child_stdin: function(): string
-end
-
-local record WorkUtilMod
   ah_exe: function(): string
   setup_git_env: function({string})
   env_set: function({string}, string, string)
@@ -651,7 +647,7 @@ local function main(args: {string}): integer, string
   proc.setrlimit(4, -1, -1)
 
   -- Sandbox mode: when AH_SANDBOX=1, restrict capabilities
-  -- Used by work.tl and --sandbox flag to run ah with limited network access
+  -- Used by --sandbox flag to run ah with limited network access
   if os.getenv("AH_SANDBOX") then
     -- Unveil: restrict filesystem visibility
     local cwd_for_unveil = fs.getcwd()
@@ -738,12 +734,11 @@ local function main(args: {string}): integer, string
 
   -- Supervisor mode: --sandbox starts proxy, re-execs as sandboxed child
   if parsed.sandbox then
-    local work_sandbox = require("ah.work.sandbox") as WorkSandboxMod
-    local work_util = require("ah.work.util") as WorkUtilMod
+    local sbox = require("ah.sandbox") as SandboxMod
     local env_mod = require("cosmic.env") as EnvMod
     local fetch = require("cosmic.fetch") as FetchMod
 
-    local ctx, sbox_err = work_sandbox.start_sandbox()
+    local ctx, sbox_err = sbox.start_sandbox()
     if not ctx then
       io.stderr:write("error: sandbox failed to start: " .. (sbox_err or "unknown") .. "\n")
       return 1
@@ -752,37 +747,37 @@ local function main(args: {string}): integer, string
 
     -- Build child environment
     local run_env: {string} = env_mod.all() as {string}
-    work_util.setup_git_env(run_env)
+    sbox.setup_git_env(run_env)
 
     -- Set TMPDIR for APE binary extraction
-    work_util.env_set(run_env, "TMPDIR", ctx.tmpdir)
+    sbox.env_set(run_env, "TMPDIR", ctx.tmpdir)
 
     -- Proxy env vars
     local proxy_url, proxy_err = fetch.unix_proxy(ctx.socket_path)
     if not proxy_url then
       io.stderr:write("[sandbox] invalid proxy path: " .. (proxy_err or "unknown") .. "\n")
-      work_sandbox.stop_sandbox(ctx)
+      sbox.stop_sandbox(ctx)
       return 1
     end
-    work_util.env_set(run_env, "http_proxy", proxy_url)
-    work_util.env_set(run_env, "HTTP_PROXY", proxy_url)
-    work_util.env_set(run_env, "https_proxy", proxy_url)
-    work_util.env_set(run_env, "HTTPS_PROXY", proxy_url)
-    work_util.env_set(run_env, "AH_SANDBOX", "1")
+    sbox.env_set(run_env, "http_proxy", proxy_url)
+    sbox.env_set(run_env, "HTTP_PROXY", proxy_url)
+    sbox.env_set(run_env, "https_proxy", proxy_url)
+    sbox.env_set(run_env, "HTTPS_PROXY", proxy_url)
+    sbox.env_set(run_env, "AH_SANDBOX", "1")
 
     -- Pass allow-host entries to proxy via env
     if #parsed.allow_hosts > 0 then
-      work_util.env_set(run_env, "AH_ALLOW_HOSTS", table.concat(parsed.allow_hosts, ","))
+      sbox.env_set(run_env, "AH_ALLOW_HOSTS", table.concat(parsed.allow_hosts, ","))
     end
 
     -- Pass unveil entries to child via env
     if #parsed.unveil_dirs > 0 then
-      work_util.env_set(run_env, "AH_UNVEIL", table.concat(parsed.unveil_dirs, ","))
+      sbox.env_set(run_env, "AH_UNVEIL", table.concat(parsed.unveil_dirs, ","))
     end
 
     -- Build child argv: strip sandbox-related flags, keep everything else
     local child_args: {string} = {}
-    local exe = work_util.ah_exe()
+    local exe = sbox.ah_exe()
 
     -- Add timeout wrapper if specified
     if parsed.timeout and parsed.timeout > 0 then
@@ -811,7 +806,7 @@ local function main(args: {string}): integer, string
     end
 
     -- Read parent stdin before spawning child (stdin may have prompt data)
-    local parent_stdin = work_sandbox.prepare_child_stdin()
+    local parent_stdin = sbox.prepare_child_stdin()
 
     -- Spawn child and wait
     local child_mod = require("cosmic.child") as ChildMod
@@ -820,7 +815,7 @@ local function main(args: {string}): integer, string
     local handle, spawn_err = child_mod.spawn(child_args, {env = run_env, stdin = parent_stdin})
     if not handle then
       io.stderr:write("error: failed to spawn sandboxed child: " .. (spawn_err or "unknown") .. "\n")
-      work_sandbox.stop_sandbox(ctx)
+      sbox.stop_sandbox(ctx)
       return 1
     end
 
@@ -839,7 +834,7 @@ local function main(args: {string}): integer, string
     -- Cleanup
     io.stderr:write("[sandbox] child exited: " .. tostring(exit_code) .. "\n")
     io.stderr:write("[sandbox] stopping proxy\n")
-    work_sandbox.stop_sandbox(ctx)
+    sbox.stop_sandbox(ctx)
 
     if not ok or exit_code ~= 0 then
       return exit_code ~= 0 and exit_code or 1
@@ -874,14 +869,6 @@ local function main(args: {string}): integer, string
       io.stderr:write("embed: " .. result.message .. "\n")
       return 1
     end
-
-  elseif cmd == "work" then
-    local work = require("ah.work")
-    local sub_args: {string} = {}
-    for i = 2, #remaining do
-      sub_args[#sub_args + 1] = remaining[i]
-    end
-    return work.main(sub_args)
 
   elseif cmd == "proxy" then
     -- Internal command: run HTTP CONNECT proxy for sandboxed network access
