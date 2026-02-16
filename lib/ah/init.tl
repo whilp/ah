@@ -253,6 +253,7 @@ options:
   --max-tokens N      stop when cumulative tokens exceed N
   --skill NAME        invoke a skill by name (prepends /skill:<name> to prompt)
   --must-produce FILE require the agent to write FILE before finishing
+  -t, --tool NAME=CMD register a CLI tool (repeatable, overrides all tiers)
   --sandbox           run inside network sandbox (proxy + unveil + pledge)
   --timeout N         wall-clock timeout in seconds
   --allow-host H:P    allow egress to host:port (repeatable, default: api.anthropic.com:443)
@@ -836,6 +837,7 @@ local record ParsedArgs
   unveil_dirs: {string}
   skill: string
   must_produce: string
+  tool_overrides: {string}
   remaining: {string}
 end
 
@@ -845,6 +847,7 @@ local function parse_args(args: {string}): ParsedArgs, string
     sandbox = false,
     allow_hosts = {},
     unveil_dirs = {},
+    tool_overrides = {},
     remaining = {},
   }
 
@@ -865,12 +868,13 @@ local function parse_args(args: {string}): ParsedArgs, string
     {name = "unveil", has_arg = "required"},
     {name = "skill", has_arg = "required"},
     {name = "must-produce", has_arg = "required"},
+    {name = "tool", has_arg = "required", short = "t"},
   }
 
   -- Use + prefix for POSIX mode: stop parsing options at first non-option arg.
   -- This allows subcommands like "work" to have their own flags (--repo, --issue,
   -- --prompt) without the top-level parser rejecting them as unknown options.
-  local parser = getopt.new(args, "+hnS:m:o:", longopts)
+  local parser = getopt.new(args, "+hnS:m:o:t:", longopts)
 
   while true do
     local opt, optarg = parser:next()
@@ -908,6 +912,8 @@ local function parse_args(args: {string}): ParsedArgs, string
       result.skill = optarg
     elseif opt == "must-produce" then
       result.must_produce = optarg
+    elseif opt == "t" or opt == "tool" then
+      table.insert(result.tool_overrides, optarg)
     elseif opt == "?" then
       return nil, "unknown"
     end
@@ -1592,6 +1598,16 @@ local function main(args: {string}): integer, string
   -- Load system prompt
   -- Initialize custom tools (must happen before format_tools_for_prompt)
   tools.init_custom_tools(cwd)
+
+  -- Apply --tool overrides (highest precedence, overrides everything)
+  for _, spec in ipairs(parsed.tool_overrides) do
+    local name, cmd = spec:match("^([^=]+)=(.+)$")
+    if name and cmd then
+      tools.add_tool_override(name, cmd)
+    else
+      io.stderr:write("warning: invalid --tool spec (expected name=cmd): " .. spec .. "\n")
+    end
+  end
 
   local effective_system = load_system_prompt(cwd)
 

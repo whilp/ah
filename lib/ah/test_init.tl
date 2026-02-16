@@ -470,4 +470,15 @@ local function test_usage_text_contains_short_options()
 end
 test_usage_text_contains_short_options()
 
+local function test_parse_args_tool()
+  local parsed = init.parse_args({"--tool", "foo=/usr/bin/foo", "-t", "bar=/tmp/bar", "hello"})
+  assert(parsed, "should parse --tool args")
+  assert(#parsed.tool_overrides == 2, "should have 2 tool overrides: " .. tostring(#parsed.tool_overrides))
+  assert(parsed.tool_overrides[1] == "foo=/usr/bin/foo", "first override: " .. parsed.tool_overrides[1])
+  assert(parsed.tool_overrides[2] == "bar=/tmp/bar", "second override: " .. parsed.tool_overrides[2])
+  assert(parsed.remaining[1] == "hello", "remaining should be prompt")
+  print("✓ parse_args handles --tool/-t flag")
+end
+test_parse_args_tool()
+
 print("all init tests passed")

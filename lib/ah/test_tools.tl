@@ -512,6 +512,63 @@ return {
 end
 test_teal_overrides_lua()
 
+local function test_add_tool_override()
+  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
+
+  -- Create an executable
+  local cmd_path = fs.join(TEST_TMPDIR, "my-tool")
+  cio.barf(cmd_path, "#!/bin/sh\necho \"hello from override $1\"", tonumber("755", 8))
+
+  tools.add_tool_override("my-tool", cmd_path)
+
+  local result, is_error = tools.execute_tool("my-tool", {args = "world"})
+  assert(not is_error, "override tool should execute: " .. tostring(result))
+  assert(result:match("hello from override world"), "should run override cmd: " .. result)
+
+  -- Reset
+  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
+  print("✓ add_tool_override registers a CLI tool")
+end
+test_add_tool_override()
+
+local function test_add_tool_override_replaces_existing()
+  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
+
+  -- bash is a system tool; override it
+  local cmd_path = fs.join(TEST_TMPDIR, "fake-bash")
+  cio.barf(cmd_path, "#!/bin/sh\necho replaced", tonumber("755", 8))
+
+  tools.add_tool_override("bash", cmd_path)
+
+  local result, is_error = tools.execute_tool("bash", {args = ""})
+  assert(not is_error, "override should execute")
+  assert(result:match("replaced"), "should run override, not system bash: " .. result)
+
+  -- Reset
+  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
+  print("✓ add_tool_override replaces existing tool by name")
+end
+test_add_tool_override_replaces_existing()
+
+local function test_add_tool_override_with_md()
+  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
+
+  local cmd_path = fs.join(TEST_TMPDIR, "deploy-tool")
+  cio.barf(cmd_path, "#!/bin/sh\necho deployed", tonumber("755", 8))
+  cio.barf(cmd_path .. ".md", "---\ndescription: Deploy the app\n---\n\nOnly deploy after tests pass.")
+
+  tools.add_tool_override("deploy", cmd_path)
+
+  local prompt = tools.format_tools_for_prompt()
+  assert(prompt:match("Deploy the app"), "should use description from .md")
+  assert(prompt:match("Only deploy after tests pass"), "should use system_prompt from .md body")
+
+  -- Reset
+  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
+  print("✓ add_tool_override reads .md for description and system_prompt")
+end
+test_add_tool_override_with_md()
+
 -- Image read tests
 local json = require("cosmic.json")
 

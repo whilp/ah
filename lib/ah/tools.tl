@@ -292,6 +292,82 @@ local function init_custom_tools(cwd?: string)
   end
 end
 
+-- Add a CLI tool override by name.
+-- The cmd is an executable path or command. If it contains no path separator
+-- and is not absolute, it is resolved relative to cwd.
+-- This has highest precedence — it overrides system, embed, and project tools.
+local function add_tool_override(name: string, cmd: string)
+  -- Read description/system_prompt from <cmd>.md if it exists
+  local description = "CLI tool: " .. name
+  local tool_system_prompt: string = nil
+  local md_path = cmd .. ".md"
+  local md_content = cio.slurp(md_path)
+  if md_content then
+    local fields, body = parse_frontmatter(md_content)
+    if fields.description and fields.description ~= "" then
+      description = fields.description
+    end
+    local trimmed_body = body:match("^%s*(.-)%s*$")
+    if trimmed_body and trimmed_body ~= "" then
+      tool_system_prompt = trimmed_body
+    end
+  end
+
+  local tool_cmd = cmd
+  local tool: Tool = {
+    name = name,
+    description = description,
+    system_prompt = tool_system_prompt,
+    input_schema = {
+      type = "object",
+      properties = {
+        args = {type = "string", description = "Command-line arguments"},
+      },
+    },
+    execute = function(input: {string:any}): string, boolean, ToolDetails
+      local args_str = (input.args as string) or ""
+      local argv = {tool_cmd}
+      for arg in args_str:gmatch("%S+") do
+        table.insert(argv, arg)
+      end
+
+      local handle, spawn_err = child.spawn(argv, {env = env.all() as {string}})
+      if not handle then
+        return "error: failed to spawn: " .. tostring(spawn_err), true, nil
+      end
+
+      local _, stdout, exit_str = handle:read()
+      local stdout_str = (stdout as string) or ""
+      local exit_code = tonumber(exit_str) as integer or 0
+
+      local result_parts: {string} = {}
+      if stdout_str ~= "" then
+        table.insert(result_parts, stdout_str)
+      end
+      if exit_code ~= 0 then
+        table.insert(result_parts, "exit code: " .. tostring(exit_code))
+      end
+
+      local result = table.concat(result_parts, "\n")
+      if result == "" then
+        result = "(no output)"
+      end
+
+      return result, exit_code ~= 0,
+        {command = name .. " " .. args_str, exit_code = exit_code} as ToolDetails
+    end,
+  }
+
+  -- Override existing or append
+  for i, existing in ipairs(tools) do
+    if existing.name == name then
+      tools[i] = tool
+      return
+    end
+  end
+  table.insert(tools, tool)
+end
+
 local function get_all_tools(): {Tool}
   return tools
 end
@@ -522,6 +598,7 @@ return {
   abort_running_tools = abort_running_tools,
   validate_input = validate_input,
   init_custom_tools = init_custom_tools,
+  add_tool_override = add_tool_override,
   load_custom_tools_from_dir = load_custom_tools_from_dir,
   load_cli_tools_from_dir = load_cli_tools_from_dir,
   is_valid_tool = is_valid_tool,
