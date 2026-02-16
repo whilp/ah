@@ -374,6 +374,7 @@ local function make_cli_handler(skill_name: string): events.EventCallback
       local total_out = event.total_output_tokens or 0
       local cache_read = event.total_cache_read_tokens or 0
       if total_in > 0 or total_out > 0 then
+        io.stderr:write("\n")
         local in_str = format_tokens(total_in)
         if cache_read > 0 then
           in_str = in_str .. " (" .. format_tokens(cache_read) .. " cached)"
