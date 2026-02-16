@@ -70,7 +70,14 @@ when invoked, the skill content is prepended to the user prompt.
 `skills.format_skills_for_prompt()` generates an `<available_skills>` XML
 block listing all skill names, descriptions, and file paths. this is
 appended to the system prompt so the agent knows what skills exist and
-can `read` them when relevant.
+can load them when relevant.
+
+## skill tool
+
+the built-in `skill` tool (`sys/tools/skill.tl`) loads a skill by name.
+the agent can call `skill(name="plan")` instead of reading the skill file
+directly. the tool returns the skill body (frontmatter stripped) with a
+metadata header showing source path, base directory, and line count.
 
 ## built-in skills
 

@@ -47,7 +47,11 @@ local function tool_key_param(tool_name: string, tool_input: string, details_jso
   if details_json then
     local details = json.decode(details_json) as {string:any}
     if details then
-      if details.path then
+      -- skill tool: show "source → name, N lines"
+      if details.skill_name and details.line_count then
+        local src = details.path and shorten_path(details.path as string) or "?"
+        return string.format("%s → %s, %d lines", src, details.skill_name as string, details.line_count as integer)
+      elseif details.path then
         return shorten_path(details.path as string)
       elseif details.command then
         return details.command as string

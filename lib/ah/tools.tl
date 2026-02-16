@@ -16,6 +16,7 @@ local record ToolDetails
   exit_code: integer
   duration_ms: integer
   media_type: string
+  skill_name: string
 end
 
 local record Tool
