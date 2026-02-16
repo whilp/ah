@@ -34,13 +34,14 @@ The issue JSON follows this prompt with fields: `number`, `title`, `body`, `url`
 
 1. Read the plan (or use your inline plan) and every file you intend to modify before editing
 2. If feedback.md is non-empty, fix those issues first
-3. For each remaining step in the plan:
+3. Maintain a running list of files you modify. After each edit or write, note the file path. Use this list for staging (`git add`) and for the Changes section in do.md.
+4. For each remaining step in the plan:
    a. Make the changes for that step
    b. Before staging, run `git status` and verify only your files are affected
    c. Stage the specific files changed (not `git add -A`)
    d. Commit with a descriptive message for that step
-4. Run validation steps from the plan
-5. If validation requires fixes, stage and commit them
+5. Run validation steps from the plan
+6. If validation requires fixes, stage and commit them
 
 ## Forbidden
 
