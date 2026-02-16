@@ -145,25 +145,35 @@ Never deploy without user confirmation.
 - body after frontmatter → `system_prompt` guidance
 - if no `.md` file exists, falls back to `--help` output for description
 
-executable tools accept an `args` string parameter which is split on
-whitespace and passed as command-line arguments.
+executable tools accept an `args` string parameter. the args string
+is passed to `bash -c` (or `$AH_SHELL -c`) along with the tool path,
+so shell features like quoting, pipes, and globs work normally.
 
 ### CLI tool overrides (`--tool/-t`)
 
-the `--tool` (`-t`) flag registers a CLI tool from the command line with
-highest precedence — it overrides system, embed, and project tools:
+the `--tool` (`-t`) flag registers or removes tools from the command
+line with highest precedence:
 
 ```sh
+# add tools
 ah --tool deploy=/usr/local/bin/deploy 'deploy the app'
 ah -t lint=./tools/lint -t fmt=./tools/fmt 'fix lint errors'
+
+# remove a tool (empty cmd after =)
+ah --tool bash= 'explain this codebase'
+ah -t bash= -t write= -t edit= 'review the code read-only'
 ```
 
-format: `--tool name=cmd`. repeatable. the `cmd` is an executable path.
-a companion `<cmd>.md` file is read for description (frontmatter) and
-system_prompt (body), same as project executable tools.
+format: `--tool name=cmd` adds or replaces a tool. `--tool name=`
+(empty cmd) removes it entirely — the tool disappears from the API
+tool list and the system prompt. repeatable.
+
+when adding, the `cmd` is an executable path. a companion `<cmd>.md`
+file is read for description (frontmatter) and system_prompt (body),
+same as project executable tools.
 
 CLI overrides are applied after `init_custom_tools()`, so they replace
-any tool with the same name regardless of tier.
+or remove any tool regardless of tier.
 
 ## system prompt injection
 
