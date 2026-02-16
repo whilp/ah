@@ -36,6 +36,7 @@ working in that area.
 
 | file | covers |
 |------|--------|
+| [docs/design.md](docs/design.md) | design principles and philosophy |
 | [docs/architecture.md](docs/architecture.md) | module map, data flow, build system, embedding |
 | [docs/agent-loop.md](docs/agent-loop.md) | API call cycle, tool dispatch, loop detection, compaction, streaming |
 | [docs/session.md](docs/session.md) | database schema, conversation tree, branching, session resolution |
