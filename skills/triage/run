@@ -1,0 +1,16 @@
+#!/bin/sh
+# usage: skills/triage/run [args...]
+#
+# invokes ah with the triage skill, constrained gh tool, and
+# dangerous tools removed. passes remaining args to ah.
+#
+# examples:
+#   skills/triage/run 'triage issues for whilp/ah'
+#   skills/triage/run --max-tokens 50000 'triage issues for whilp/ah'
+
+dir="$(cd "$(dirname "$0")" && pwd)"
+
+exec ah --skill triage \
+  -t bash= -t write= -t edit= \
+  -t gh="$dir/tools/gh.tl" \
+  "$@"
