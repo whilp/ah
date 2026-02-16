@@ -15,6 +15,7 @@ bin/ah.tl → lib/ah/init.tl (CLI, session management)
   ├── auth.tl (credential loading)
   ├── skills.tl (skill loading and expansion)
   ├── commands.tl (command loading and expansion)
+  ├── sandbox.tl (sandbox supervisor: proxy lifecycle, child env)
   └── proxy.tl (HTTP CONNECT proxy for sandbox)
 
 sys/tools/ (built-in tool definitions)
@@ -22,17 +23,6 @@ sys/tools/ (built-in tool definitions)
   ├── write.tl
   ├── edit.tl
   └── bash.tl
-```
-
-the work subsystem (`lib/ah/work/`) orchestrates multi-phase autonomous work:
-
-```
-work/init.tl (orchestrator)
-  ├── work/issue.tl (GitHub issue operations)
-  ├── work/action.tl (verdict parsing, PR creation)
-  ├── work/prompt.tl (phase prompt templates)
-  ├── work/sandbox.tl (sandbox lifecycle)
-  └── work/util.tl (shared helpers)
 ```
 
 ## data flow

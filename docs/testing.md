@@ -13,7 +13,7 @@ results are cached in `o/`.
 
 ## test structure
 
-test files: `lib/ah/test_*.tl` and `lib/ah/work/test_*.tl`.
+test files: `lib/ah/test_*.tl`.
 
 each test file is a standalone teal script executed by cosmic. it is run
 in a temporary directory with `TEST_TMPDIR` set.

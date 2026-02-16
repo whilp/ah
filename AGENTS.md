@@ -11,7 +11,6 @@ make test          # run tests only
 make check-types   # type checks only
 make build         # compile .tl → .lua
 make ah            # build executable
-make work          # run full PDCA work loop
 ```
 
 use `make ci` as the default validation command after changes.
@@ -20,8 +19,8 @@ use `make ci` as the default validation command after changes.
 
 ah is a minimal agent harness. it manages the lifecycle of an LLM agent
 session: prompt → API call → tool execution → loop. it provides session
-persistence, conversation branching, sandboxed execution, context compaction,
-and a PDCA work loop for autonomous issue resolution.
+persistence, conversation branching, sandboxed execution, and context
+compaction.
 
 ah is written in [teal](https://github.com/teal-language/tl) (typed lua),
 compiled to lua, and embedded into a single executable via
@@ -40,7 +39,6 @@ working in that area.
 | [docs/architecture.md](docs/architecture.md) | module map, data flow, build system, embedding |
 | [docs/agent-loop.md](docs/agent-loop.md) | API call cycle, tool dispatch, loop detection, compaction, streaming |
 | [docs/session.md](docs/session.md) | database schema, conversation tree, branching, session resolution |
-| [docs/work-loop.md](docs/work-loop.md) | PDCA cycle, make targets, issue selection, sandbox, convergence |
 | [docs/tools.md](docs/tools.md) | tool loading, tiers, overrides, custom tools, truncation |
 | [docs/skills.md](docs/skills.md) | skill format, loading, expansion, system prompt injection |
 | [docs/sandbox.md](docs/sandbox.md) | network proxy, unveil, pledge, `--sandbox` mode |
@@ -60,19 +58,12 @@ lib/ah/                core modules
   commands.tl          /command expansion
   compact.tl           context window compaction
   truncate.tl          tool output truncation for API
+  sandbox.tl           sandbox supervisor (proxy lifecycle, child env)
   queue.tl             inter-process steering/followup queue
   proxy.tl             HTTP CONNECT proxy for sandbox
   auth.tl              credential loading (API key / OAuth)
   events.tl            structured lifecycle events
-  work/                PDCA work subsystem
-    init.tl            work command orchestrator
-    issue.tl           GitHub issue fetching, selection, labels
-    action.tl          check verdict parsing and action execution
-    prompt.tl          phase prompt loading and interpolation
-    sandbox.tl         sandbox lifecycle for work phases
-    util.tl            shared utilities
 lib/ulid.tl            ULID generation/parsing
-lib/work/work.tl       make-driven work subcommands (preflight)
 sys/system.md          default system prompt
 sys/tools/             built-in tool definitions (.tl, compiled to .lua)
   read.tl              file reading with image support
@@ -81,7 +72,6 @@ sys/tools/             built-in tool definitions (.tl, compiled to .lua)
   bash.tl              command execution with timeout and abort
 sys/skills/            built-in skill files
 Makefile               build system
-work.mk                PDCA work targets (included by Makefile)
 ```
 
 ## conventions

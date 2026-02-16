@@ -46,10 +46,10 @@ $(cosmic_debug):
 reporter := $(cosmic) lib/build/reporter.tl
 
 # ah module
-ah_srcs := $(wildcard lib/ah/*.tl) $(wildcard lib/ah/work/*.tl) $(wildcard sys/tools/*.tl) bin/ah.tl
+ah_srcs := $(wildcard lib/ah/*.tl) $(wildcard sys/tools/*.tl) bin/ah.tl
 ah_lua := $(patsubst %.tl,$(o)/%.lua,$(ah_srcs))
-ah_tests := $(wildcard lib/ah/test_*.tl) $(wildcard lib/ah/work/test_*.tl)
-ah_lib_srcs := $(filter-out $(ah_tests),$(wildcard lib/ah/*.tl) $(wildcard lib/ah/work/*.tl))
+ah_tests := $(wildcard lib/ah/test_*.tl)
+ah_lib_srcs := $(filter-out $(ah_tests),$(wildcard lib/ah/*.tl))
 ah_lib_lua := $(patsubst lib/ah/%.tl,$(o)/embed/.lua/ah/%.lua,$(ah_lib_srcs))
 ah_dep_srcs := $(wildcard lib/*.tl)
 ah_dep_lua := $(patsubst lib/%.tl,$(o)/embed/.lua/%.lua,$(ah_dep_srcs))
@@ -94,9 +94,6 @@ help:
 	@echo "  check-types         Run teal type checker on all files"
 	@echo "  ci                  Run tests and type checks"
 	@echo "  clean               Remove all build artifacts"
-	@echo ""
-	@echo "Work targets:"
-	@echo "  work                Run full PDCA work loop"
 
 .PHONY: test
 ## Run all tests (incremental)
@@ -144,7 +141,7 @@ ah_sys := $(patsubst sys/%.tl,$(o)/embed/embed/sys/%.lua,$(ah_sys_tl)) \
           $(patsubst sys/%,$(o)/embed/embed/sys/%,$(ah_sys_other))
 
 # embed ci reference files (the actual files this repo uses)
-ah_ci_files := Makefile work.mk .github/workflows/work.yml .github/workflows/test.yml lib/work/work.tl
+ah_ci_files := Makefile .github/workflows/test.yml
 ah_ci := $(patsubst %,$(o)/embed/embed/ci/%,$(ah_ci_files))
 
 $(o)/embed/embed/ci/%: %
@@ -195,7 +192,6 @@ ci: test check-types
 .PHONY: check
 check: ci
 
-include work.mk
 
 .PHONY: clean
 ## Remove all build artifacts

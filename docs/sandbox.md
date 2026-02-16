@@ -1,11 +1,10 @@
 # sandbox
 
-source: `lib/ah/proxy.tl`, `lib/ah/work/sandbox.tl`
+source: `lib/ah/proxy.tl`, `lib/ah/sandbox.tl`
 
 ## overview
 
 ah can run agents in a sandbox that restricts network and filesystem access.
-this is used by the work loop to isolate agent phases from the broader system.
 
 ## `--sandbox` mode
 
@@ -38,15 +37,12 @@ non-allowed destinations are rejected.
 - `x` — execute
 - `c` — create
 
-the work loop adds unveils for plan and feedback directories as read-only
-so the do/check phases can read plans but not modify them.
+## sandbox lifecycle
 
-## work sandbox lifecycle
-
-`work/sandbox.tl` manages sandbox setup and teardown for work phases:
+`sandbox.tl` manages sandbox setup and teardown:
 
 1. `start_sandbox()`: forks a proxy child process, waits for socket readiness.
-2. the work phase runs with `--sandbox` and proxy env vars.
+2. the child process runs with proxy env vars set.
 3. `stop_sandbox()`: sends SIGTERM to proxy, cleans up socket and tmpdir.
 
 ## environment variables
