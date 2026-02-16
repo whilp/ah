@@ -5,65 +5,54 @@ description: Build ah and create a GitHub prerelease with the binary and checksu
 
 # prerelease
 
-Build the `ah` binary and publish a GitHub prerelease. Mirrors the
-`.github/workflows/prerelease.yml` workflow but runs locally.
+Trigger the `prerelease.yml` GitHub Actions workflow, watch it, and verify
+the release was created.
 
 ## Steps
 
-### 1. Build
+### 1. Trigger the workflow
+
+Default is prerelease. If the user asks for a full release, pass
+`-f release=true`.
 
 ```bash
-make -j ah
+gh workflow run prerelease.yml --ref main
+# full release:
+gh workflow run prerelease.yml --ref main -f release=true
 ```
 
-### 2. Generate checksums
+### 2. Find the run
+
+Wait a few seconds, then locate the in-progress run:
 
 ```bash
-cd o/bin && sha256sum ah > SHA256SUMS
+sleep 5
+gh run list --workflow prerelease.yml -L 3
 ```
 
-### 3. Determine tag
+Capture the run ID of the most recent run.
 
-Tag format is `YYYY-MM-DD-<short-sha>`:
+### 3. Watch the run
 
 ```bash
-TAG="$(date -u +%Y-%m-%d)-$(git rev-parse --short HEAD)"
+gh run watch <run-id> --exit-status
 ```
 
-### 4. Create the release
+### 4. Handle failure
 
-Delete any existing release with the same tag, then create:
+If the run fails, inspect logs:
 
 ```bash
-gh release delete "$TAG" --yes 2>/dev/null || true
-gh release create "$TAG" \
-  --title "$TAG" \
-  --prerelease \
-  --generate-notes \
-  --target "$(git branch --show-current)" \
-  o/bin/ah \
-  o/bin/SHA256SUMS
+gh run view <run-id> --log-failed
 ```
 
-Use `--target` set to the current branch (usually `main`).
+Report the error and stop.
 
-### 5. Verify
-
-```bash
-gh release view "$TAG"
-```
-
-## Full release
-
-If the user asks for a full (non-pre) release, omit `--prerelease`:
+### 5. Verify the release
 
 ```bash
-gh release create "$TAG" \
-  --title "$TAG" \
-  --generate-notes \
-  --target "$(git branch --show-current)" \
-  o/bin/ah \
-  o/bin/SHA256SUMS
+gh release list --limit 1
+gh release view <tag>
 ```
 
 ## Output
@@ -73,15 +62,14 @@ Print a summary:
 ```
 ## Prerelease: <tag>
 
+- run: <run-id>
 - tag: <tag>
-- target: <branch> (<sha>)
 - artifacts: ah, SHA256SUMS
 - url: <release-url>
 ```
 
 ## Rules
 
-- always run `make -j ah` fresh — do not reuse stale builds
-- include SHA256SUMS alongside the binary
 - default to prerelease unless the user explicitly says "full release"
-- if `gh release create` fails, show the error and stop
+- always watch the run to completion — do not fire and forget
+- if the workflow fails, show the failed logs and stop
