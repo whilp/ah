@@ -15,11 +15,12 @@ or file modification.
 ```bash
 ah --skill triage \
    -t bash= -t write= -t edit= \
+   -t gh=skills/triage/tools/gh.tl \
    'triage issues for owner/repo'
 ```
 
-The `gh` tool is loaded automatically from `tools/gh.tl` in this skill
-directory when the skill is invoked.
+The `gh` tool is bundled at `tools/gh.tl` relative to this skill. It must
+be explicitly enabled via `--tool`.
 
 ## Threat model
 

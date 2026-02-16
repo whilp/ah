@@ -39,20 +39,23 @@ with unrelated `skills/` directories in the project.
 ## skill tool directories
 
 skills can bundle tools by placing `.tl` or `.lua` tool files in a
-`tools/` subdirectory alongside `SKILL.md`. when the skill is invoked
-via `--skill`, tools from this directory are loaded automatically.
+`tools/` subdirectory alongside `SKILL.md`. these tools are **not loaded
+automatically** — the user must explicitly enable them via `--tool`:
 
 ```
 skills/
   my-skill/
     SKILL.md
     tools/
-      gh.tl        ← loaded as a tool when --skill my-skill is used
+      gh.tl        ← available but not loaded unless --tool is used
 ```
 
-skill tools sit between project tools and `--tool` CLI overrides in
-precedence. this lets skills provide specialized, constrained tools
-while still allowing `--tool name=` to remove them if needed.
+```bash
+ah --skill my-skill -t gh=skills/my-skill/tools/gh.tl 'do the thing'
+```
+
+this ensures skills cannot silently change the tool surface. the skill's
+`SKILL.md` should document the required `--tool` invocation.
 
 ## invocation
 

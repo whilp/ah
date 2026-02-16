@@ -77,8 +77,8 @@ tools are defined as lua or teal modules that return a table:
 ### tiers
 
 tools load from three directory tiers at startup via
-`tools.init_custom_tools(cwd)`, plus skill and CLI tiers. later tiers
-override earlier ones by name:
+`tools.init_custom_tools(cwd)`, plus a CLI tier. later tiers override
+earlier ones by name:
 
 1. **system** (`/zip/embed/sys/tools/`) — built-in tools (read, write,
    edit, bash). compiled from `sys/tools/*.tl` at build time. in dev/test,
@@ -86,11 +86,7 @@ override earlier ones by name:
 2. **embed** (`/zip/embed/tools/`) — overlay for custom ah distributions.
 3. **project** (`cwd/.ah/tools/` or `cwd/tools/`) — project-local tools.
    `.ah/tools/` takes precedence if it exists; otherwise `tools/` is used.
-4. **skill** (`<skill_base_dir>/tools/`) — tools bundled with the invoked
-   skill. loaded automatically when `--skill` is used and the skill's
-   directory contains a `tools/` subdirectory. `.tl` and `.lua` files are
-   loaded the same way as project tools.
-5. **CLI** (`--tool name=cmd`) — highest precedence, overrides everything.
+4. **CLI** (`--tool name=cmd`) — highest precedence, overrides everything.
 
 ### file type precedence
 
@@ -159,9 +155,13 @@ the `--tool` (`-t`) flag registers or removes tools from the command
 line with highest precedence:
 
 ```sh
-# add tools
+# add tools (executables)
 ah --tool deploy=/usr/local/bin/deploy 'deploy the app'
 ah -t lint=./tools/lint -t fmt=./tools/fmt 'fix lint errors'
+
+# add tools (.tl or .lua module files)
+ah -t gh=skills/triage/tools/gh.tl 'triage issues'
+ah -t mytool=./tools/custom.lua 'use custom tool'
 
 # remove a tool (empty cmd after =)
 ah --tool bash= 'explain this codebase'
@@ -172,9 +172,12 @@ format: `--tool name=cmd` adds or replaces a tool. `--tool name=`
 (empty cmd) removes it entirely — the tool disappears from the API
 tool list and the system prompt. repeatable.
 
-when adding, the `cmd` is an executable path. a companion `<cmd>.md`
-file is read for description (frontmatter) and system_prompt (body),
-same as project executable tools.
+when adding, `cmd` can be:
+- a **`.tl` or `.lua` file** — loaded as a module tool (same format as
+  project tools: must return a table with name, description, input_schema,
+  execute). the name from `--tool` overrides the module's internal name.
+- an **executable path** — wrapped as a CLI tool. a companion `<cmd>.md`
+  file is read for description (frontmatter) and system_prompt (body).
 
 CLI overrides are applied after `init_custom_tools()`, so they replace
 or remove any tool regardless of tier.

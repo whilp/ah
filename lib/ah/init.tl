@@ -1609,15 +1609,6 @@ local function main(args: {string}): integer, string
   -- Initialize custom tools (must happen before format_tools_for_prompt)
   tools.init_custom_tools(cwd)
 
-  -- Load tools from invoked skill's tools/ subdirectory (if any).
-  -- Skill tools sit between project tools and --tool overrides in precedence.
-  local invoked_skill_name = parsed.skill or prompt:match("^/skill:([a-z0-9%-]+)")
-  if invoked_skill_name and loaded_skills[invoked_skill_name] then
-    local skill_obj = loaded_skills[invoked_skill_name]
-    local skill_tools_dir = fs.join(skill_obj.base_dir, "tools")
-    tools.load_skill_tools(skill_tools_dir)
-  end
-
   -- Apply --tool overrides (highest precedence, overrides everything)
   -- name=cmd adds/replaces a tool; name= (empty cmd) removes it
   for _, spec in ipairs(parsed.tool_overrides) do

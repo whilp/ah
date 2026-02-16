@@ -1131,92 +1131,117 @@ local function test_remove_tool()
 end
 test_remove_tool()
 
--- load_skill_tools tests
-local function test_load_skill_tools()
-  -- Create a skill tools directory with a valid tool
-  local skill_dir = fs.join(TEST_TMPDIR, "skill_tools_dir")
-  local skill_tools = fs.join(skill_dir, "tools")
-  fs.makedirs(skill_tools)
+-- add_tool_override with .lua module files
+local function test_add_tool_override_lua()
+  local tool_dir = fs.join(TEST_TMPDIR, "override_lua")
+  fs.makedirs(tool_dir)
 
-  cio.barf(fs.join(skill_tools, "mytool.lua"), [[
+  local tool_path = fs.join(tool_dir, "mytool.lua")
+  cio.barf(tool_path, [[
 return {
-  name = "mytool",
-  description = "A skill-bundled tool",
+  name = "internal-name",
+  description = "A lua module tool",
   input_schema = {type = "object", properties = {x = {type = "string"}}, required = {}},
   execute = function(input)
-    return "skill-tool:" .. (input.x or "nil"), false
+    return "lua-tool:" .. (input.x or "nil"), false
   end,
 }
 ]])
 
-  -- Reset to builtins only
   tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
 
-  -- Should not have mytool yet
-  local result, is_error = tools.execute_tool("mytool", {x = "hello"})
-  assert(is_error, "mytool should not exist before load_skill_tools")
+  -- Should not exist yet
+  local result, is_error = tools.execute_tool("mytool", {x = "hi"})
+  assert(is_error, "mytool should not exist before override")
 
-  -- Load skill tools
-  tools.load_skill_tools(skill_tools)
+  -- Add via --tool name=path.lua
+  tools.add_tool_override("mytool", tool_path)
 
-  -- Now mytool should work
-  result, is_error = tools.execute_tool("mytool", {x = "hello"})
-  assert(not is_error, "mytool should succeed after load_skill_tools: " .. result)
-  assert(result == "skill-tool:hello", "should run skill tool: " .. result)
+  result, is_error = tools.execute_tool("mytool", {x = "hi"})
+  assert(not is_error, "lua override should succeed: " .. result)
+  assert(result == "lua-tool:hi", "should run lua module: " .. result)
 
-  -- Builtins should still be present
+  -- Name from --tool flag should win over internal name
   local defs = tools.get_tool_definitions()
-  local has_read = false
+  local found = false
   for _, d in ipairs(defs) do
-    if (d as {string:any}).name == "read" then has_read = true end
+    if (d as {string:any}).name == "mytool" then found = true end
+    assert((d as {string:any}).name ~= "internal-name", "internal name should be overridden by --tool name")
   end
-  assert(has_read, "builtins should still be present after load_skill_tools")
+  assert(found, "tool should appear as 'mytool'")
 
   -- Reset
   tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
-  print("✓ load_skill_tools loads tools from skill directory")
+  print("✓ add_tool_override loads .lua module files")
 end
-test_load_skill_tools()
+test_add_tool_override_lua()
 
-local function test_load_skill_tools_overrides_builtin()
-  -- Skill tool can override a builtin
-  local skill_dir = fs.join(TEST_TMPDIR, "skill_override_dir")
-  local skill_tools = fs.join(skill_dir, "tools")
-  fs.makedirs(skill_tools)
+local function test_add_tool_override_lua_overrides_builtin()
+  local tool_dir = fs.join(TEST_TMPDIR, "override_builtin_lua")
+  fs.makedirs(tool_dir)
 
-  cio.barf(fs.join(skill_tools, "read.lua"), [[
+  local tool_path = fs.join(tool_dir, "myread.lua")
+  cio.barf(tool_path, [[
 return {
-  name = "read",
+  name = "myread",
   description = "Overridden read",
   input_schema = {type = "object", properties = {path = {type = "string"}}, required = {"path"}},
   execute = function(input)
-    return "skill-read:" .. input.path, false
+    return "override:" .. input.path, false
   end,
 }
 ]])
 
   tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
-  tools.load_skill_tools(skill_tools)
+  tools.add_tool_override("read", tool_path)
 
-  local result, is_error = tools.execute_tool("read", {path = "/etc/hostname"})
+  local result, is_error = tools.execute_tool("read", {path = "/foo"})
   assert(not is_error, "overridden read should succeed")
-  assert(result == "skill-read:/etc/hostname", "skill tool should override builtin: " .. result)
+  assert(result == "override:/foo", "should run override: " .. result)
 
   -- Reset
   tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
-  print("✓ load_skill_tools can override builtins")
+  print("✓ add_tool_override .lua can override builtins")
 end
-test_load_skill_tools_overrides_builtin()
+test_add_tool_override_lua_overrides_builtin()
 
-local function test_load_skill_tools_nonexistent_dir()
-  -- Should be a no-op, not error
+local function test_add_tool_override_lua_invalid()
+  local tool_dir = fs.join(TEST_TMPDIR, "override_invalid_lua")
+  fs.makedirs(tool_dir)
+
+  -- Invalid tool (missing required fields)
+  local tool_path = fs.join(tool_dir, "bad.lua")
+  cio.barf(tool_path, "return {}")
+
   tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
   local defs_before = #tools.get_tool_definitions()
-  tools.load_skill_tools(fs.join(TEST_TMPDIR, "no-such-skill-tools"))
+
+  -- Should warn but not crash
+  tools.add_tool_override("bad", tool_path)
+
   local defs_after = #tools.get_tool_definitions()
-  assert(defs_before == defs_after, "nonexistent skill tools dir should be a no-op")
-  print("✓ load_skill_tools handles nonexistent directory")
+  assert(defs_before == defs_after, "invalid lua tool should not be added")
+
+  -- Reset
+  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
+  print("✓ add_tool_override skips invalid .lua files")
 end
-test_load_skill_tools_nonexistent_dir()
+test_add_tool_override_lua_invalid()
+
+local function test_add_tool_override_lua_nonexistent()
+  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
+  local defs_before = #tools.get_tool_definitions()
+
+  -- Should warn but not crash
+  tools.add_tool_override("ghost", fs.join(TEST_TMPDIR, "no-such-file.lua"))
+
+  local defs_after = #tools.get_tool_definitions()
+  assert(defs_before == defs_after, "nonexistent .lua file should not add a tool")
+
+  -- Reset
+  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
+  print("✓ add_tool_override handles nonexistent .lua file")
+end
+test_add_tool_override_lua_nonexistent()
 
 print("\nAll tools tests passed!")
