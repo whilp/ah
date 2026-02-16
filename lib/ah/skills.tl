@@ -155,8 +155,17 @@ local function load_skills(cwd?: string): {string:Skill}
     skills[skill.name] = skill
   end
 
-  -- Project skills (override all)
-  local project_dir = fs.join(cwd, "skills")
+  -- Project skills: .ah/skills wins over skills/ if present
+  local dot_ah_skills = fs.join(cwd, ".ah", "skills")
+  local bare_skills = fs.join(cwd, "skills")
+  local dh_check = fs.opendir(dot_ah_skills)
+  local project_dir: string
+  if dh_check then
+    dh_check:close()
+    project_dir = dot_ah_skills
+  else
+    project_dir = bare_skills
+  end
   local project_skills = load_skills_from_dir(project_dir)
   for _, skill in ipairs(project_skills) do
     skills[skill.name] = skill

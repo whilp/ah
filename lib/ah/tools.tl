@@ -280,9 +280,18 @@ local function init_custom_tools(cwd?: string)
   -- Embed tier: lua modules
   merge_tools(by_name, load_custom_tools_from_dir("/zip/embed/tools"))
 
-  -- Project tier: executables then modules from cwd/tools/
+  -- Project tier: .ah/tools wins over tools/ if present
   -- Precedence within a directory: .tl > .lua > executable
-  local project_tools_dir = fs.join(cwd, "tools")
+  local dot_ah_tools = fs.join(cwd, ".ah", "tools")
+  local bare_tools = fs.join(cwd, "tools")
+  local dh_check = fs.opendir(dot_ah_tools)
+  local project_tools_dir: string
+  if dh_check then
+    dh_check:close()
+    project_tools_dir = dot_ah_tools
+  else
+    project_tools_dir = bare_tools
+  end
   merge_tools(by_name, load_cli_tools_from_dir(project_tools_dir))
   merge_tools(by_name, load_custom_tools_from_dir(project_tools_dir))
 

@@ -28,11 +28,13 @@ earlier ones by name:
 
 1. `/zip/embed/sys/skills/` — built-in skills embedded in the executable.
 2. `/zip/embed/skills/` — embed overlay (zip packaging).
-3. `cwd/skills/` — project-local skills.
+3. `cwd/.ah/skills/` or `cwd/skills/` — project-local skills.
+   `.ah/skills/` takes precedence if it exists; otherwise `skills/` is used.
 
 project skills let repositories ship custom skills that override or extend
-built-in ones. place `.md` files directly in `skills/` or use
-subdirectories with `SKILL.md` files.
+built-in ones. place `.md` files directly in the skills directory or use
+subdirectories with `SKILL.md` files. using `.ah/skills/` avoids conflicts
+with unrelated `skills/` directories in the project.
 
 ## invocation
 

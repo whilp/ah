@@ -261,6 +261,72 @@ local function test_project_tools_no_dir()
 end
 test_project_tools_no_dir()
 
+
+local function test_dot_ah_tools_wins()
+  -- .ah/tools should take precedence over tools/
+  local project = fs.join(TEST_TMPDIR, "dot_ah_tools_project")
+  local bare_tools = fs.join(project, "tools")
+  local dot_ah_tools = fs.join(project, ".ah", "tools")
+  fs.makedirs(bare_tools)
+  fs.makedirs(dot_ah_tools)
+
+  cio.barf(fs.join(bare_tools, "pick.lua"), [[
+return {
+  name = "pick",
+  description = "bare pick",
+  input_schema = {type = "object", properties = {}, required = {}},
+  execute = function() return "from-bare", false end,
+}
+]])
+
+  cio.barf(fs.join(dot_ah_tools, "pick.lua"), [[
+return {
+  name = "pick",
+  description = "dot-ah pick",
+  input_schema = {type = "object", properties = {}, required = {}},
+  execute = function() return "from-dot-ah", false end,
+}
+]])
+
+  tools.init_custom_tools(project)
+
+  local result, is_error = tools.execute_tool("pick", {})
+  assert(not is_error, "should execute")
+  assert(result == "from-dot-ah", ".ah/tools should win over tools/: " .. result)
+
+  -- Reset
+  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
+  print("✓ .ah/tools takes precedence over tools/")
+end
+test_dot_ah_tools_wins()
+
+local function test_bare_tools_when_no_dot_ah()
+  -- tools/ should work when .ah/tools doesn't exist
+  local project = fs.join(TEST_TMPDIR, "bare_tools_only")
+  local bare_tools = fs.join(project, "tools")
+  fs.makedirs(bare_tools)
+
+  cio.barf(fs.join(bare_tools, "bare.lua"), [[
+return {
+  name = "bare",
+  description = "bare tool",
+  input_schema = {type = "object", properties = {}, required = {}},
+  execute = function() return "from-bare", false end,
+}
+]])
+
+  tools.init_custom_tools(project)
+
+  local result, is_error = tools.execute_tool("bare", {})
+  assert(not is_error, "should execute")
+  assert(result == "from-bare", "should load from tools/: " .. result)
+
+  -- Reset
+  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
+  print("✓ tools/ used as fallback when .ah/tools absent")
+end
+test_bare_tools_when_no_dot_ah()
+
 -- Bash timeout tests
 local function test_bash_timeout()
   -- Use a short timeout (1 second) on a command that would take longer

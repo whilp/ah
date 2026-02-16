@@ -84,7 +84,8 @@ earlier ones by name:
    edit, bash). compiled from `sys/tools/*.tl` at build time. in dev/test,
    falls back to `o/sys/tools/`.
 2. **embed** (`/zip/embed/tools/`) — overlay for custom ah distributions.
-3. **project** (`cwd/tools/`) — project-local tools.
+3. **project** (`cwd/.ah/tools/` or `cwd/tools/`) — project-local tools.
+   `.ah/tools/` takes precedence if it exists; otherwise `tools/` is used.
 4. **CLI** (`--tool name=cmd`) — highest precedence, overrides everything.
 
 ### file type precedence
@@ -105,8 +106,8 @@ is primarily useful at the project tier.
 ### overriding core tools
 
 projects can override any core tool by placing a file with the same name
-in `cwd/tools/`. for example, `tools/read.lua` replaces the builtin read
-tool entirely — schema, description, system_prompt, and execute function
+in `cwd/.ah/tools/` or `cwd/tools/`. for example, `.ah/tools/read.lua`
+replaces the builtin read tool entirely — schema, description, system_prompt, and execute function
 all come from the override.
 
 the system prompt reflects the active tool, so the agent always sees the
@@ -116,8 +117,10 @@ embed overlays can similarly override system tools for custom ah
 distributions. projects then override both.
 
 **caveats:**
-- accidental shadowing is possible. a file named `tools/bash` (even if
-  unrelated to ah) would replace the builtin bash tool.
+- accidental shadowing is possible. a file named `.ah/tools/bash` or
+  `tools/bash` (even if unrelated to ah) would replace the builtin
+  bash tool.
+  using `.ah/tools/` reduces this risk since the directory is explicitly for ah.
 - if a bash override omits `running_processes`, ctrl+c abort won't kill
   its running commands. the override owns the behavior.
 - the override is total — there is no way to "extend" a core tool; you
@@ -125,7 +128,7 @@ distributions. projects then override both.
 
 ### executable tools
 
-any executable file in `cwd/tools/` (without a `.tl` or `.lua` extension)
+any executable file in `cwd/.ah/tools/` or `cwd/tools/` (without a `.tl` or `.lua` extension)
 becomes a CLI tool. a companion `<name>.md` file provides metadata via
 yaml frontmatter:
 
