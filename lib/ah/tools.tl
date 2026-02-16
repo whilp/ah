@@ -71,7 +71,6 @@ end
 
 -- Custom tools loaded at runtime
 local custom_tools: {Tool} = {}
-local cli_tools: {Tool} = {}
 
 -- Read file tool
 local read_tool: Tool = {
@@ -613,30 +612,26 @@ end
 -- Later sources override earlier ones by name:
 --   1. system (/zip/embed/sys/tools)
 --   2. embed  (/zip/embed/tools)
---   3. project (cwd/tools/)
--- CLI tools load from system and embed only (no project bin/).
+--   3. project (cwd/tools/ — both .lua modules and executables)
 local function init_custom_tools(cwd?: string)
   cwd = cwd or fs.getcwd()
 
-  -- Lua module tools: system -> embed -> project
-  local lua_by_name: {string:Tool} = {}
-  merge_tools(lua_by_name, load_custom_tools_from_dir("/zip/embed/sys/tools"))
-  merge_tools(lua_by_name, load_custom_tools_from_dir("/zip/embed/tools"))
-  merge_tools(lua_by_name, load_custom_tools_from_dir(fs.join(cwd, "tools")))
+  local by_name: {string:Tool} = {}
+
+  -- System tier: lua modules
+  merge_tools(by_name, load_custom_tools_from_dir("/zip/embed/sys/tools"))
+
+  -- Embed tier: lua modules
+  merge_tools(by_name, load_custom_tools_from_dir("/zip/embed/tools"))
+
+  -- Project tier: lua modules + executables from cwd/tools/
+  local project_tools_dir = fs.join(cwd, "tools")
+  merge_tools(by_name, load_custom_tools_from_dir(project_tools_dir))
+  merge_tools(by_name, load_cli_tools_from_dir(project_tools_dir))
 
   custom_tools = {}
-  for _, tool in pairs(lua_by_name) do
+  for _, tool in pairs(by_name) do
     table.insert(custom_tools, tool)
-  end
-
-  -- CLI tools: system -> embed (no project override)
-  local cli_by_name: {string:Tool} = {}
-  merge_tools(cli_by_name, load_cli_tools_from_dir("/zip/embed/sys/bin"))
-  merge_tools(cli_by_name, load_cli_tools_from_dir("/zip/embed/bin"))
-
-  cli_tools = {}
-  for _, tool in pairs(cli_by_name) do
-    table.insert(cli_tools, tool)
   end
 end
 
@@ -657,12 +652,8 @@ local function get_all_tools(): {Tool}
   for _, tool in ipairs(builtin_tools) do
     table.insert(all, tool)
   end
-  -- Custom Lua tools can override builtin
+  -- Custom tools (lua + CLI) can override builtin
   for _, tool in ipairs(custom_tools) do
-    add_or_override(all, tool)
-  end
-  -- CLI tools can override builtin and custom
-  for _, tool in ipairs(cli_tools) do
     add_or_override(all, tool)
   end
   return all

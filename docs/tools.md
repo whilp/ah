@@ -51,12 +51,17 @@ the tool tracks running processes for abort cleanup on ctrl+c.
 
 ## custom tools
 
-custom tools extend the agent's capabilities. they are lua modules loaded
-from `tools/` directories at startup via `tools.init_custom_tools(cwd)`.
+custom tools extend the agent's capabilities. they are loaded from
+`tools/` directories at startup via `tools.init_custom_tools(cwd)`.
+
+two formats are supported in `cwd/tools/`:
+
+- **lua modules** (`.lua` files): return a tool record table
+- **executables**: any executable file becomes a CLI tool
 
 ### tool record
 
-each tool is a lua table with these fields:
+each lua tool is a table with these fields:
 
 ```lua
 {
@@ -78,21 +83,17 @@ each tool is a lua table with these fields:
 
 tools load from three directories. later sources override earlier ones by name:
 
-1. `/zip/embed/sys/tools/` — system tools (built into the executable)
-2. `/zip/embed/tools/` — embed overlay (zip packaging)
-3. `cwd/tools/` — project-local tools
+1. `/zip/embed/sys/tools/` — system tools (built into the executable, lua only)
+2. `/zip/embed/tools/` — embed overlay (lua only)
+3. `cwd/tools/` — project-local tools (lua modules + executables)
 
-each `.lua` file in the directory should return a tool record table.
+embedded tiers only support lua modules (executables can't run from inside
+a zip archive). project tools support both.
 
-### CLI tools
+### executable tools
 
-CLI tools (shell executables) load from system and embed tiers only:
-
-1. `/zip/embed/sys/bin/` — system CLI tools
-2. `/zip/embed/bin/` — embed overlay
-
-each executable in the directory becomes a tool. a companion `<name>.md`
-file provides metadata via yaml frontmatter:
+any executable file in `cwd/tools/` becomes a tool. a companion
+`<name>.md` file provides metadata via yaml frontmatter:
 
 ```markdown
 ---

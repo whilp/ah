@@ -356,7 +356,7 @@ echo "running: $@"
 end
 test_load_cli_tool_with_help()
 
-local function test_no_project_cli_tools()
+local function test_no_project_cli_tools_in_bin()
   -- init_custom_tools should NOT load CLI tools from cwd/bin/
   local project = fs.join(TEST_TMPDIR, "cli_no_project")
   local project_bin = fs.join(project, "bin")
@@ -367,14 +367,43 @@ local function test_no_project_cli_tools()
 
   tools.init_custom_tools(project)
 
-  -- mytool should NOT be available (no project bin/ loading)
-  assert(not tools.is_valid_tool("mytool"), "cwd/bin/ tools should not be loaded")
+  -- mytool should NOT be available (cwd/bin/ is not scanned)
+  local found = false
+  for _, d in ipairs(tools.get_tool_definitions()) do
+    if (d as {string:any}).name == "mytool" then found = true end
+  end
+  assert(not found, "cwd/bin/ tools should not be loaded")
 
   -- Reset
   tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent_project"))
   print("✓ cwd/bin/ CLI tools are not loaded")
 end
-test_no_project_cli_tools()
+test_no_project_cli_tools_in_bin()
+
+local function test_executable_in_project_tools()
+  -- Executables in cwd/tools/ should be loaded as CLI tools
+  local project = fs.join(TEST_TMPDIR, "cli_in_tools")
+  local project_tools = fs.join(project, "tools")
+  fs.makedirs(project_tools)
+
+  cio.barf(fs.join(project_tools, "greet"), "#!/bin/sh\necho \"hello $1\"", tonumber("755", 8))
+  cio.barf(fs.join(project_tools, "greet.md"), "---\ndescription: Greet someone\n---\n\nAlways be polite.")
+
+  tools.init_custom_tools(project)
+
+  local result, is_error = tools.execute_tool("greet", {args = "world"})
+  assert(not is_error, "executable tool should work: " .. tostring(result))
+  assert(result:match("hello world"), "should run executable: " .. result)
+
+  -- Check system_prompt from .md body
+  local prompt = tools.format_tools_for_prompt()
+  assert(prompt:match("Always be polite"), "should include system_prompt from .md body")
+
+  -- Reset
+  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent_project"))
+  print("✓ executables in cwd/tools/ loaded as CLI tools")
+end
+test_executable_in_project_tools()
 
 -- Image read tests
 local json = require("cosmic.json")
