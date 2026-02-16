@@ -37,19 +37,31 @@ The ah binary embeds the exact CI files that ah itself uses. Read all of them:
 - `/zip/embed/ci/work.mk` — ah's own work loop targets
 - `/zip/embed/ci/.github/workflows/work.yml` — ah's own work workflow
 - `/zip/embed/ci/.github/workflows/test.yml` — ah's own test workflow
+- `/zip/embed/ci/lib/work/work.tl` — ah's own work pipeline script
 
 These are the source of truth. Study how they work together:
 - `Makefile` includes `work.mk` via `include work.mk`
 - `work.mk` defines the PDCA loop (plan → do → push → check → act)
+- `work.mk` invokes `lib/work/work.tl` for pipeline subcommands (labels, issues, issue, doing, act)
 - `work.yml` runs `make ah && make work` on a schedule
 - `test.yml` runs `make -j ci` on push/PR
 
 ### 3. Generate files
 
+> **Note:** `/zip/` paths are virtual — use the `read` tool to access them,
+> then `write` to create copies. Bash commands like `cp` and `ls` cannot
+> access `/zip/`.
+
 #### `work.mk` — copy verbatim
 
 Copy `/zip/embed/ci/work.mk` to `work.mk` in the target repo. This file
 is repo-agnostic and should be used as-is. Do not modify it.
+
+#### `lib/work/work.tl` — copy verbatim
+
+Copy `/zip/embed/ci/lib/work/work.tl` to `lib/work/work.tl` in the target
+repo. This script is invoked by `work.mk` for pipeline subcommands (labels,
+issues, issue, doing, act). Use as-is.
 
 #### `Makefile` — adapt to the target repo
 
@@ -98,7 +110,6 @@ If a CLAUDE.md already exists, enhance it rather than overwrite.
 ### 4. Validate
 
 After generating files:
-- Verify YAML syntax: `python3 -c "import yaml; yaml.safe_load(open('.github/workflows/work.yml'))"`
 - Verify Makefile syntax: `make -n work` (dry run)
 - Check that `work.mk` is identical to the reference: `diff work.mk <(ah extract /zip/embed/ci/work.mk)` or just verify by reading
 
