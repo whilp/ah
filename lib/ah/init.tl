@@ -1567,7 +1567,7 @@ local function main(args: {string}): integer, string
   end
 
   -- Load skills
-  local loaded_skills = skills.load_skills()
+  local loaded_skills = skills.load_skills(cwd)
 
   -- --skill flag: prepend /skill:<name> to prompt
   if parsed.skill then

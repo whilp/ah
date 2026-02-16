@@ -23,10 +23,16 @@ name must be lowercase alphanumeric with hyphens, max 64 chars.
 
 ## loading
 
-skills are loaded from two locations (in order):
+skills are loaded from three locations (in order). later sources override
+earlier ones by name:
 
 1. `/zip/embed/sys/skills/` — built-in skills embedded in the executable.
-2. `sys/skills/` — local project skills (for development).
+2. `/zip/embed/skills/` — embed overlay (zip packaging).
+3. `cwd/skills/` — project-local skills.
+
+project skills let repositories ship custom skills that override or extend
+built-in ones. place `.md` files directly in `skills/` or use
+subdirectories with `SKILL.md` files.
 
 ## invocation
 
