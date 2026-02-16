@@ -40,7 +40,7 @@ parameters:
 
 ### bash (`sys/tools/bash.tl`)
 
-executes a shell command. uses `/bin/bash -o pipefail -ec`. has a
+executes a shell command. uses `bash -c` (or `$AH_SHELL -c`). has a
 configurable timeout (default 120s). returns stdout + stderr combined.
 
 parameters:

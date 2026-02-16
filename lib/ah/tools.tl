@@ -153,9 +153,10 @@ local function load_cli_tools_from_dir(dir: string): {Tool}
 
     local bin_path = fs.join(dir, name)
 
-    -- Skip non-executables and .md/.lua files
+    -- Skip non-executables and metadata/source files
     if name:match("%.md$") then goto continue end
     if name:match("%.lua$") then goto continue end
+    if name:match("%.tl$") then goto continue end
     if not is_executable(bin_path) then goto continue end
 
     -- Get description and system_prompt from <name>.md (frontmatter + body)
