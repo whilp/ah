@@ -260,10 +260,6 @@ local function get_current_message(self: DB): Message
   return nil
 end
 
-local function set_current_message(self: DB, id: string)
-  set_context(self, "current_message", id)
-end
-
 local function get_ancestry(self: DB, message_id: string): {Message}
   local messages: {Message} = {}
 
@@ -438,16 +434,6 @@ local function get_events(self: DB, event_type?: string): {Event}
   return events
 end
 
-local function get_message_by_seq(self: DB, seq: integer): Message
-  for row in self._db:query([[
-    select * from messages where seq = ?
-    order by created_at asc limit 1
-  ]], seq) do
-    return row as Message
-  end
-  return nil
-end
-
 local function get_message_count(self: DB): integer
   for row in self._db:query("select count(*) as cnt from messages") do
     return (row.cnt or 0) as integer
@@ -522,113 +508,6 @@ local function get_first_user_prompt(self: DB): string
   return ""
 end
 
--- Get child messages of a given message
-local function get_children(self: DB, parent_id: string): {Message}
-  local children: {Message} = {}
-  for row in self._db:query([[
-    select * from messages where parent_id = ?
-    order by created_at asc
-  ]], parent_id) do
-    table.insert(children, row as Message)
-  end
-  return children
-end
-
--- Get root messages (messages with no parent)
-local function get_root_messages(self: DB): {Message}
-  local roots: {Message} = {}
-  for row in self._db:query([[
-    select * from messages where parent_id is null
-    order by created_at asc
-  ]]) do
-    table.insert(roots, row as Message)
-  end
-  return roots
-end
-
--- Get leaf messages (messages with no children) - these are branch tips
-local function get_leaf_messages(self: DB): {Message}
-  local leaves: {Message} = {}
-  for row in self._db:query([[
-    select m.* from messages m
-    where not exists (select 1 from messages c where c.parent_id = m.id)
-    order by m.created_at desc
-  ]]) do
-    table.insert(leaves, row as Message)
-  end
-  return leaves
-end
-
--- Get message by seq within the current branch context.
--- When seq is ambiguous (multiple messages share it after forking),
--- prefer the one in the ancestry of current_message.
-local function get_message_by_seq_in_branch(self: DB, seq: integer, branch_tip_id: string): Message
-  if not branch_tip_id then
-    return get_message_by_seq(self, seq)
-  end
-
-  -- Get ancestry of current branch tip
-  local ancestry = get_ancestry(self, branch_tip_id)
-
-  -- Check if any ancestor matches the seq
-  for _, m in ipairs(ancestry) do
-    if m.seq == seq then
-      return m
-    end
-  end
-
-  -- Fall back to global seq lookup
-  return get_message_by_seq(self, seq)
-end
-
--- Get the depth (ancestry length) of a message
-local function get_depth(self: DB, message_id: string): integer
-  local depth = 0
-  for _ in self._db:query([[
-    with recursive ancestry(id, parent_id, depth) as (
-      select id, parent_id, 0 from messages where id = ?
-      union all
-      select m.id, m.parent_id, a.depth + 1
-      from messages m join ancestry a on m.id = a.parent_id
-    )
-    select max(depth) as max_depth from ancestry
-  ]], message_id) do
-    depth = (_.max_depth or 0) as integer
-  end
-  return depth
-end
-
--- Delete a branch: delete a message and all its descendants
-local function delete_branch(self: DB, message_id: string): integer
-  local count = 0
-
-  -- Collect all descendant IDs using recursive CTE
-  local ids: {string} = {}
-  for row in self._db:query([[
-    with recursive descendants(id) as (
-      select id from messages where id = ?
-      union all
-      select m.id from messages m join descendants d on m.parent_id = d.id
-    )
-    select id from descendants
-  ]], message_id) do
-    table.insert(ids, row.id as string)
-  end
-
-  -- Delete each message and its content blocks
-  local current = get_context(self, "current_message")
-  for _, id in ipairs(ids) do
-    self._db:exec("delete from content_blocks where message_id = ?", id)
-    self._db:exec("delete from messages where id = ?", id)
-    if current == id then
-      self._db:exec("delete from context where key = 'current_message'")
-      current = nil
-    end
-    count = count + 1
-  end
-
-  return count
-end
 
 return {
   open = open,
@@ -638,23 +517,13 @@ return {
   rollback = rollback,
   get_message = get_message,
   create_message = create_message,
-  get_current_message = get_current_message,
-  set_current_message = set_current_message,
   get_ancestry = get_ancestry,
   get_last_message = get_last_message,
-  delete_message = delete_message,
-  get_message_by_seq = get_message_by_seq,
-  get_message_by_seq_in_branch = get_message_by_seq_in_branch,
   add_content_block = add_content_block,
   get_content_blocks = get_content_blocks,
   update_content_block = update_content_block,
   get_message_count = get_message_count,
   get_first_user_prompt = get_first_user_prompt,
-  get_children = get_children,
-  get_root_messages = get_root_messages,
-  get_leaf_messages = get_leaf_messages,
-  get_depth = get_depth,
-  delete_branch = delete_branch,
   cleanup_orphans = cleanup_orphans,
   log_event = log_event,
   get_events = get_events,

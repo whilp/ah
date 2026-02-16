@@ -38,11 +38,6 @@ local function test_messages()
   assert(last, "should have last message")
   assert(last.id == msg2.id, "last message should be msg2")
 
-  -- Get by seq
-  local by_seq = db.get_message_by_seq(d, 0)
-  assert(by_seq, "should find message by seq")
-  assert(by_seq.id == msg1.id, "wrong message by seq")
-
   db.close(d)
 end
 test_messages()
