@@ -1244,4 +1244,140 @@ local function test_add_tool_override_lua_nonexistent()
 end
 test_add_tool_override_lua_nonexistent()
 
+-- Test that lua tools can require sibling lua modules
+local function test_lua_tool_require_lua()
+  local tool_dir = fs.join(TEST_TMPDIR, "lua_require_lua")
+  fs.makedirs(tool_dir)
+
+  -- Helper module
+  cio.barf(fs.join(tool_dir, "helper.lua"), [[
+return { greet = function(name) return "hello, " .. name end }
+]])
+
+  -- Tool that requires the helper
+  cio.barf(fs.join(tool_dir, "greeter.lua"), [[
+local helper = require("helper")
+return {
+  name = "greeter",
+  description = "Greet with helper",
+  input_schema = {type = "object", properties = {name = {type = "string"}}, required = {"name"}},
+  execute = function(input)
+    return helper.greet(input.name), false
+  end,
+}
+]])
+
+  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
+  local loaded = tools.load_custom_tools_from_dir(tool_dir)
+  assert(#loaded == 1, "should load 1 tool (helper is not a valid tool): " .. tostring(#loaded))
+  assert(loaded[1].name == "greeter", "should load greeter tool")
+
+  local result, is_error = loaded[1].execute({name = "world"})
+  assert(not is_error, "greeter should succeed: " .. tostring(result))
+  assert(result == "hello, world", "should use helper module: " .. result)
+
+  -- Clean up package.loaded to avoid interference
+  package.loaded["helper"] = nil
+
+  -- Reset
+  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
+  print("✓ lua tool can require sibling lua module")
+end
+test_lua_tool_require_lua()
+
+-- Test that teal tools can require sibling teal modules
+local function test_teal_tool_require_teal()
+  local tool_dir = fs.join(TEST_TMPDIR, "tl_require_tl")
+  fs.makedirs(tool_dir)
+
+  -- Helper teal module
+  cio.barf(fs.join(tool_dir, "tl_helper.tl"), [[
+local record M
+  greet: function(string): string
+end
+
+function M.greet(name: string): string
+  return "hi, " .. name
+end
+
+return M
+]])
+
+  -- Tool that requires the teal helper
+  cio.barf(fs.join(tool_dir, "tl_greeter.tl"), [[
+local helper = require("tl_helper")
+return {
+  name = "tl_greeter",
+  description = "Greet with teal helper",
+  input_schema = {type = "object", properties = {name = {type = "string"}}, required = {"name"}},
+  execute = function(input: {string:any}): string, boolean
+    local who = input.name as string
+    return helper.greet(who), false
+  end,
+}
+]])
+
+  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
+  local loaded = tools.load_custom_tools_from_dir(tool_dir)
+
+  -- Find the greeter tool (helper is also a valid load target but not a tool)
+  local greeter: tools.Tool = nil
+  for _, t in ipairs(loaded) do
+    if t.name == "tl_greeter" then greeter = t end
+  end
+  assert(greeter, "should load tl_greeter tool")
+
+  local result, is_error = greeter.execute({name = "teal"})
+  assert(not is_error, "tl_greeter should succeed: " .. tostring(result))
+  assert(result == "hi, teal", "should use teal helper module: " .. result)
+
+  -- Clean up
+  package.loaded["tl_helper"] = nil
+
+  -- Reset
+  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
+  print("✓ teal tool can require sibling teal module")
+end
+test_teal_tool_require_teal()
+
+-- Test that add_tool_override enables sibling requires
+local function test_add_tool_override_require()
+  local tool_dir = fs.join(TEST_TMPDIR, "override_require")
+  fs.makedirs(tool_dir)
+
+  -- Helper module
+  cio.barf(fs.join(tool_dir, "ovr_helper.lua"), [[
+return { msg = function() return "from-helper" end }
+]])
+
+  -- Tool that requires the helper
+  local tool_path = fs.join(tool_dir, "ovr_tool.lua")
+  cio.barf(tool_path, [[
+local ovr_helper = require("ovr_helper")
+return {
+  name = "ovr_tool",
+  description = "Override tool with require",
+  input_schema = {type = "object", properties = {}, required = {}},
+  execute = function()
+    return ovr_helper.msg(), false
+  end,
+}
+]])
+
+  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
+  tools.add_tool_override("ovr_tool", tool_path)
+
+  local result, is_error = tools.execute_tool("ovr_tool", {})
+  assert(not is_error, "override tool should succeed: " .. tostring(result))
+  assert(result == "from-helper", "should use helper via require: " .. result)
+
+  -- Clean up
+  package.loaded["ovr_helper"] = nil
+
+  -- Reset
+  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
+  print("✓ add_tool_override enables sibling requires")
+end
+test_add_tool_override_require()
+
 print("\nAll tools tests passed!")

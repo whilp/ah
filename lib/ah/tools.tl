@@ -42,6 +42,17 @@ local function is_valid_tool(t: any): boolean
   return true
 end
 
+-- Add a directory to package.path if not already present.
+-- This enables require() for sibling .lua and .tl modules in the same directory.
+-- The teal package searcher automatically substitutes .lua with .tl in package.path,
+-- so adding dir/?.lua covers both lua and teal requires.
+local function add_to_package_path(dir: string)
+  local pattern = dir .. "/?.lua"
+  if not package.path:find(pattern, 1, true) then
+    package.path = pattern .. ";" .. dir .. "/?/init.lua;" .. package.path
+  end
+end
+
 -- Load a tool module from a .tl or .lua file.
 -- Returns the loaded chunk or nil + error string.
 local function load_tool_file(tool_path: string): any, string
@@ -83,6 +94,13 @@ local function load_custom_tools_from_dir(dir: string): {Tool}
     end
   end
   dh:close()
+
+  -- Add directory to package.path so tools can require sibling modules
+  local has_candidates = false
+  for _ in pairs(candidates) do has_candidates = true; break end
+  if has_candidates then
+    add_to_package_path(dir)
+  end
 
   for _, tool_path in pairs(candidates) do
     local chunk, load_err = load_tool_file(tool_path)
@@ -310,6 +328,10 @@ end
 local function add_tool_override(name: string, cmd: string)
   -- .tl / .lua files: load as module tools
   if cmd:match("%.tl$") or cmd:match("%.lua$") then
+    -- Add tool's directory to package.path for sibling requires
+    local dir = cmd:match("^(.+)/[^/]+$") or "."
+    add_to_package_path(dir)
+
     local chunk, load_err = load_tool_file(cmd)
     if not chunk then
       io.stderr:write(string.format("warning: failed to load tool %s from %s: %s\n", name, cmd, tostring(load_err)))

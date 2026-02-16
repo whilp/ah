@@ -66,8 +66,6 @@ returned include `path` and `line_count`.
 
 ## tool format
 
-## tool format
-
 tools are defined as lua or teal modules that return a table:
 
 ```lua
@@ -117,6 +115,22 @@ higher-priority formats win. for example, if `tools/` contains both
 embedded tiers (system, embed) only contain `.lua` files since
 `sys/tools/*.tl` is pre-compiled by the Makefile. `.tl` runtime loading
 is primarily useful at the project tier.
+
+### sibling module requires
+
+tools can `require()` sibling lua or teal modules from the same directory.
+when tools are loaded from a directory, that directory is added to
+`package.path`. the teal package searcher automatically finds `.tl` files
+using the same paths, so both `require("helper")` for `helper.lua` and
+`require("helper")` for `helper.tl` work.
+
+sibling modules that are not valid tools (i.e. don't return a table with
+name, description, input_schema, execute) are skipped during tool loading
+but remain available via `require()`.
+
+this also works for tools loaded via `--tool name=path.lua` or
+`--tool name=path.tl` — the file's parent directory is added to
+`package.path`.
 
 ### overriding core tools
 
