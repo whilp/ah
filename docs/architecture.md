@@ -40,6 +40,7 @@ work/init.tl (orchestrator)
 1. `bin/ah.tl` calls `init.main(arg)`.
 2. `init.tl` parses CLI args, resolves session, loads tools and skills.
 3. `tools.init_custom_tools(cwd)` loads tools from system → embed → project tiers.
+   `--tool` CLI overrides are applied last (highest precedence).
 4. system prompt = `sys/system.md` + tool guidance + `CLAUDE.md`/`AGENTS.md` + git context + skills list.
 5. `loop.run_agent()` enters the agent loop:
    - builds API messages from conversation ancestry in `db.tl`.

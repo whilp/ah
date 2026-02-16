@@ -77,13 +77,15 @@ tools are defined as lua or teal modules that return a table:
 ### tiers
 
 tools load from three directory tiers at startup via
-`tools.init_custom_tools(cwd)`. later tiers override earlier ones by name:
+`tools.init_custom_tools(cwd)`, plus a CLI tier. later tiers override
+earlier ones by name:
 
 1. **system** (`/zip/embed/sys/tools/`) — built-in tools (read, write,
    edit, bash). compiled from `sys/tools/*.tl` at build time. in dev/test,
    falls back to `o/sys/tools/`.
 2. **embed** (`/zip/embed/tools/`) — overlay for custom ah distributions.
 3. **project** (`cwd/tools/`) — project-local tools.
+4. **CLI** (`--tool name=cmd`) — highest precedence, overrides everything.
 
 ### file type precedence
 
@@ -142,6 +144,23 @@ Never deploy without user confirmation.
 
 executable tools accept an `args` string parameter which is split on
 whitespace and passed as command-line arguments.
+
+### CLI tool overrides (`--tool/-t`)
+
+the `--tool` (`-t`) flag registers a CLI tool from the command line with
+highest precedence — it overrides system, embed, and project tools:
+
+```sh
+ah --tool deploy=/usr/local/bin/deploy 'deploy the app'
+ah -t lint=./tools/lint -t fmt=./tools/fmt 'fix lint errors'
+```
+
+format: `--tool name=cmd`. repeatable. the `cmd` is an executable path.
+a companion `<cmd>.md` file is read for description (frontmatter) and
+system_prompt (body), same as project executable tools.
+
+CLI overrides are applied after `init_custom_tools()`, so they replace
+any tool with the same name regardless of tier.
 
 ## system prompt injection
 
