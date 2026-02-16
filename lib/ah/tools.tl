@@ -212,13 +212,13 @@ local function load_cli_tools_from_dir(dir: string): {Tool}
       execute = function(input: {string:any}): string, boolean, ToolDetails
         local args_str = (input.args as string) or ""
 
-        -- Parse args string into array (simple space-split, respects quotes)
-        local cmd = {tool_path}
-        for arg in args_str:gmatch("%S+") do
-          table.insert(cmd, arg)
+        -- Invoke via bash -c so args get proper shell expansion
+        local shell_cmd = tool_path
+        if args_str ~= "" then
+          shell_cmd = shell_cmd .. " " .. args_str
         end
 
-        local handle, err = child.spawn(cmd, {env = env.all() as {string}})
+        local handle, err = child.spawn({os.getenv("AH_SHELL") or "bash", "-c", shell_cmd}, {env = env.all() as {string}})
         if not handle then
           return "error: failed to spawn: " .. tostring(err), true, nil
         end
@@ -335,12 +335,13 @@ local function add_tool_override(name: string, cmd: string)
     },
     execute = function(input: {string:any}): string, boolean, ToolDetails
       local args_str = (input.args as string) or ""
-      local argv = {tool_cmd}
-      for arg in args_str:gmatch("%S+") do
-        table.insert(argv, arg)
+      -- Invoke via bash -c so args get proper shell expansion
+      local shell_cmd = tool_cmd
+      if args_str ~= "" then
+        shell_cmd = shell_cmd .. " " .. args_str
       end
 
-      local handle, spawn_err = child.spawn(argv, {env = env.all() as {string}})
+      local handle, spawn_err = child.spawn({os.getenv("AH_SHELL") or "bash", "-c", shell_cmd}, {env = env.all() as {string}})
       if not handle then
         return "error: failed to spawn: " .. tostring(spawn_err), true, nil
       end
