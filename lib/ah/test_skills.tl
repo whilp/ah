@@ -309,4 +309,42 @@ local function test_load_skills_project_subdirectory_skill()
 end
 test_load_skills_project_subdirectory_skill()
 
+
+local function test_dot_ah_skills_wins()
+  -- .ah/skills should take precedence over skills/
+  local project = fs.join(tmpdir, "dot-ah-skills-project")
+  local bare_skills = fs.join(project, "skills")
+  local dot_ah_skills = fs.join(project, ".ah", "skills")
+  fs.makedirs(bare_skills)
+  fs.makedirs(dot_ah_skills)
+
+  cio.barf(fs.join(bare_skills, "pick.md"),
+    "---\nname: pick\ndescription: bare pick skill\n---\n# Bare")
+  cio.barf(fs.join(dot_ah_skills, "pick.md"),
+    "---\nname: pick\ndescription: dot-ah pick skill\n---\n# Dot-ah")
+
+  local loaded = skills.load_skills(project)
+  assert(loaded["pick"] ~= nil, "pick skill should be loaded")
+  assert(loaded["pick"].description == "dot-ah pick skill",
+    ".ah/skills should win: " .. loaded["pick"].description)
+  assert(loaded["pick"].file_path:match("%.ah/skills/"),
+    "file_path should be from .ah/skills: " .. loaded["pick"].file_path)
+end
+test_dot_ah_skills_wins()
+
+local function test_bare_skills_when_no_dot_ah()
+  -- skills/ should work when .ah/skills doesn't exist
+  local project = fs.join(tmpdir, "bare-skills-only")
+  local bare_skills = fs.join(project, "skills")
+  fs.makedirs(bare_skills)
+
+  cio.barf(fs.join(bare_skills, "bare-skill.md"),
+    "---\nname: bare-skill\ndescription: A bare skill.\n---\n# Bare")
+
+  local loaded = skills.load_skills(project)
+  assert(loaded["bare-skill"] ~= nil, "bare skill should be loaded")
+  assert(loaded["bare-skill"].file_path:match("skills/bare%-skill%.md"),
+    "file_path should be from skills/: " .. loaded["bare-skill"].file_path)
+end
+test_bare_skills_when_no_dot_ah()
 print("all skills tests passed")

@@ -89,9 +89,14 @@ local function test_bash_exit_code()
 end
 
 local function test_tool_definitions()
-  local defs = tools.get_tool_definitions()
-  assert(#defs == 4, "should have 4 tools")
+  -- Ensure system tools are loaded
+  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
 
+  local defs = tools.get_tool_definitions()
+  assert(#defs >= 4, "should have at least 4 tools: " .. tostring(#defs))
+
+  -- Build name map for lookup
+  local by_name: {string:{string:any}} = {}
   for _, d in ipairs(defs) do
     local def = d as {string:any}
     assert(def.name, "tool should have name")
@@ -100,12 +105,17 @@ local function test_tool_definitions()
     local schema = def.input_schema as {string:any}
     assert(schema.type == "object", "schema type should be object")
     assert(schema.properties, "schema should have properties")
-    assert(schema.required, "schema should have required array")
+    by_name[def.name as string] = def
   end
 
+  -- Check core tools are present
+  assert(by_name["read"], "should have read tool")
+  assert(by_name["write"], "should have write tool")
+  assert(by_name["edit"], "should have edit tool")
+  assert(by_name["bash"], "should have bash tool")
+
   -- Check read tool specifically
-  local read_def = defs[1] as {string:any}
-  assert(read_def.name == "read", "first tool should be read")
+  local read_def = by_name["read"]
   local read_schema = read_def.input_schema as {string:any}
   local read_props = read_schema.properties as {string:any}
   local read_required = read_schema.required as {string}
@@ -209,21 +219,12 @@ end
 test_invalid_tool_skipped()
 
 local function test_custom_tool_override()
-  local global_dir = fs.join(TEST_TMPDIR, "global_tools")
-  local project_dir = fs.join(TEST_TMPDIR, "project_tools")
-  fs.makedirs(global_dir)
-  fs.makedirs(project_dir)
+  -- Project tools in cwd/tools/ should be loaded by init_custom_tools
+  local project = fs.join(TEST_TMPDIR, "override_project")
+  local project_tools = fs.join(project, "tools")
+  fs.makedirs(project_tools)
 
-  cio.barf(fs.join(global_dir, "foo.lua"), [[
-return {
-  name = "foo",
-  description = "global foo",
-  input_schema = {type = "object", properties = {}, required = {}},
-  execute = function() return "global", false end,
-}
-]])
-
-  cio.barf(fs.join(project_dir, "foo.lua"), [[
+  cio.barf(fs.join(project_tools, "foo.lua"), [[
 return {
   name = "foo",
   description = "project foo",
@@ -232,16 +233,99 @@ return {
 }
 ]])
 
-  local all = tools.load_custom_tools(global_dir, project_dir)
-  local foo: tools.Tool = nil
-  for _, t in ipairs(all) do
-    if t.name == "foo" then foo = t end
-  end
-  assert(foo, "should have foo tool")
-  assert(foo.description == "project foo", "project should override global")
-  print("✓ project tools override global tools")
+  tools.init_custom_tools(project)
+
+  local result, is_error = tools.execute_tool("foo", {})
+  assert(not is_error, "project tool should execute")
+  assert(result == "project", "should run project tool: " .. result)
+
+  -- Reset
+  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent_project"))
+  print("✓ project tools loaded from cwd/tools/")
 end
 test_custom_tool_override()
+
+local function test_project_tools_no_dir()
+  -- init_custom_tools with a cwd that has no tools/ directory should not error
+  local empty_project = fs.join(TEST_TMPDIR, "empty_project_tools")
+  fs.makedirs(empty_project)
+  tools.init_custom_tools(empty_project)
+
+  -- Should still have the 4 builtin tools
+  local defs = tools.get_tool_definitions()
+  assert(#defs >= 4, "should still have builtin tools: " .. tostring(#defs))
+
+  -- Reset
+  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent_project"))
+  print("✓ init_custom_tools handles missing tools/ directory")
+end
+test_project_tools_no_dir()
+
+
+local function test_dot_ah_tools_wins()
+  -- .ah/tools should take precedence over tools/
+  local project = fs.join(TEST_TMPDIR, "dot_ah_tools_project")
+  local bare_tools = fs.join(project, "tools")
+  local dot_ah_tools = fs.join(project, ".ah", "tools")
+  fs.makedirs(bare_tools)
+  fs.makedirs(dot_ah_tools)
+
+  cio.barf(fs.join(bare_tools, "pick.lua"), [[
+return {
+  name = "pick",
+  description = "bare pick",
+  input_schema = {type = "object", properties = {}, required = {}},
+  execute = function() return "from-bare", false end,
+}
+]])
+
+  cio.barf(fs.join(dot_ah_tools, "pick.lua"), [[
+return {
+  name = "pick",
+  description = "dot-ah pick",
+  input_schema = {type = "object", properties = {}, required = {}},
+  execute = function() return "from-dot-ah", false end,
+}
+]])
+
+  tools.init_custom_tools(project)
+
+  local result, is_error = tools.execute_tool("pick", {})
+  assert(not is_error, "should execute")
+  assert(result == "from-dot-ah", ".ah/tools should win over tools/: " .. result)
+
+  -- Reset
+  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
+  print("✓ .ah/tools takes precedence over tools/")
+end
+test_dot_ah_tools_wins()
+
+local function test_bare_tools_when_no_dot_ah()
+  -- tools/ should work when .ah/tools doesn't exist
+  local project = fs.join(TEST_TMPDIR, "bare_tools_only")
+  local bare_tools = fs.join(project, "tools")
+  fs.makedirs(bare_tools)
+
+  cio.barf(fs.join(bare_tools, "bare.lua"), [[
+return {
+  name = "bare",
+  description = "bare tool",
+  input_schema = {type = "object", properties = {}, required = {}},
+  execute = function() return "from-bare", false end,
+}
+]])
+
+  tools.init_custom_tools(project)
+
+  local result, is_error = tools.execute_tool("bare", {})
+  assert(not is_error, "should execute")
+  assert(result == "from-bare", "should load from tools/: " .. result)
+
+  -- Reset
+  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
+  print("✓ tools/ used as fallback when .ah/tools absent")
+end
+test_bare_tools_when_no_dot_ah()
 
 -- Bash timeout tests
 local function test_bash_timeout()
@@ -309,13 +393,15 @@ local function test_load_cli_tool_with_md()
 echo "Hello, $1!"
 ]], tonumber("755", 8))
 
-  -- Create description file
-  cio.barf(fs.join(bin_dir, "greet.md"), "Greet someone by name\n\nUsage: greet <name>")
+  -- Create description file with frontmatter and body
+  cio.barf(fs.join(bin_dir, "greet.md"), "---\ndescription: Greet someone by name\n---\n\nUsage: greet <name>\n\nAlways be polite.")
 
   local loaded = tools.load_cli_tools_from_dir(bin_dir)
   assert(#loaded == 1, "should load 1 tool")
   assert(loaded[1].name == "greet", "tool name should be greet")
-  assert(loaded[1].description == "Greet someone by name", "should use first paragraph from md")
+  assert(loaded[1].description == "Greet someone by name", "should use description from frontmatter")
+  assert(loaded[1].system_prompt ~= nil, "should have system_prompt from body")
+  assert(loaded[1].system_prompt:match("Always be polite"), "system_prompt should contain body: " .. loaded[1].system_prompt)
 
   local result, is_error = loaded[1].execute({args = "World"})
   assert(not is_error, "should execute successfully")
@@ -346,31 +432,208 @@ echo "running: $@"
 end
 test_load_cli_tool_with_help()
 
-local function test_cli_tool_override()
-  local global_dir = fs.join(TEST_TMPDIR, "global_bin")
-  local project_dir = fs.join(TEST_TMPDIR, "project_bin")
-  fs.makedirs(global_dir)
-  fs.makedirs(project_dir)
+local function test_no_project_cli_tools_in_bin()
+  -- init_custom_tools should NOT load CLI tools from cwd/bin/
+  local project = fs.join(TEST_TMPDIR, "cli_no_project")
+  local project_bin = fs.join(project, "bin")
+  fs.makedirs(project_bin)
 
-  cio.barf(fs.join(global_dir, "mytool"), "#!/bin/sh\necho global", tonumber("755", 8))
-  cio.barf(fs.join(global_dir, "mytool.md"), "Global version")
+  cio.barf(fs.join(project_bin, "mytool"), "#!/bin/sh\necho project", tonumber("755", 8))
+  cio.barf(fs.join(project_bin, "mytool.md"), "Project version")
 
-  cio.barf(fs.join(project_dir, "mytool"), "#!/bin/sh\necho project", tonumber("755", 8))
-  cio.barf(fs.join(project_dir, "mytool.md"), "Project version")
+  tools.init_custom_tools(project)
 
-  local all = tools.load_cli_tools(global_dir, project_dir)
-  local mytool: tools.Tool = nil
-  for _, t in ipairs(all) do
-    if t.name == "mytool" then mytool = t end
+  -- mytool should NOT be available (cwd/bin/ is not scanned)
+  local found = false
+  for _, d in ipairs(tools.get_tool_definitions()) do
+    if (d as {string:any}).name == "mytool" then found = true end
   end
-  assert(mytool, "should have mytool")
-  assert(mytool.description == "Project version", "project should override global")
+  assert(not found, "cwd/bin/ tools should not be loaded")
 
-  local result, _ = mytool.execute({})
-  assert(result:match("project"), "should run project version")
-  print("✓ project CLI tools override global CLI tools")
+  -- Reset
+  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent_project"))
+  print("✓ cwd/bin/ CLI tools are not loaded")
 end
-test_cli_tool_override()
+test_no_project_cli_tools_in_bin()
+
+local function test_executable_in_project_tools()
+  -- Executables in cwd/tools/ should be loaded as CLI tools
+  local project = fs.join(TEST_TMPDIR, "cli_in_tools")
+  local project_tools = fs.join(project, "tools")
+  fs.makedirs(project_tools)
+
+  cio.barf(fs.join(project_tools, "greet"), "#!/bin/sh\necho \"hello $1\"", tonumber("755", 8))
+  cio.barf(fs.join(project_tools, "greet.md"), "---\ndescription: Greet someone\n---\n\nAlways be polite.")
+
+  tools.init_custom_tools(project)
+
+  local result, is_error = tools.execute_tool("greet", {args = "world"})
+  assert(not is_error, "executable tool should work: " .. tostring(result))
+  assert(result:match("hello world"), "should run executable: " .. result)
+
+  -- Check system_prompt from .md body
+  local prompt = tools.format_tools_for_prompt()
+  assert(prompt:match("Always be polite"), "should include system_prompt from .md body")
+
+  -- Reset
+  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent_project"))
+  print("✓ executables in cwd/tools/ loaded as CLI tools")
+end
+test_executable_in_project_tools()
+
+local function test_lua_overrides_executable()
+  -- When both foo.lua and executable foo exist, lua wins
+  local project = fs.join(TEST_TMPDIR, "lua_over_exec")
+  local project_tools = fs.join(project, "tools")
+  fs.makedirs(project_tools)
+
+  cio.barf(fs.join(project_tools, "dupl"), "#!/bin/sh\necho from-exec", tonumber("755", 8))
+  cio.barf(fs.join(project_tools, "dupl.lua"), [[
+return {
+  name = "dupl",
+  description = "lua version",
+  input_schema = {type = "object", properties = {}, required = {}},
+  execute = function() return "from-lua", false end,
+}
+]])
+
+  tools.init_custom_tools(project)
+
+  local result, is_error = tools.execute_tool("dupl", {})
+  assert(not is_error, "should execute")
+  assert(result == "from-lua", "lua should override executable: " .. result)
+
+  -- Reset
+  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
+  print("✓ lua module overrides executable with same name")
+end
+test_lua_overrides_executable()
+
+local function test_teal_tool_loading()
+  -- .tl files should be loadable as tools
+  local project = fs.join(TEST_TMPDIR, "teal_tool")
+  local project_tools = fs.join(project, "tools")
+  fs.makedirs(project_tools)
+
+  cio.barf(fs.join(project_tools, "greet.tl"), [[
+return {
+  name = "greet",
+  description = "Greet in teal",
+  system_prompt = "Always greet warmly.",
+  input_schema = {type = "object", properties = {name = {type = "string"}}, required = {"name"}},
+  execute = function(input: {string:any}): string, boolean, any
+    local who = (input.name as string) or "world"
+    return "hello, " .. who, false
+  end,
+}
+]])
+
+  tools.init_custom_tools(project)
+
+  local result, is_error = tools.execute_tool("greet", {name = "teal"})
+  assert(not is_error, "teal tool should execute")
+  assert(result == "hello, teal", "should run teal tool: " .. result)
+
+  -- Reset
+  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
+  print("✓ .tl tools loaded from cwd/tools/")
+end
+test_teal_tool_loading()
+
+local function test_teal_overrides_lua()
+  -- .tl takes precedence over .lua with the same basename
+  local project = fs.join(TEST_TMPDIR, "tl_over_lua")
+  local project_tools = fs.join(project, "tools")
+  fs.makedirs(project_tools)
+
+  cio.barf(fs.join(project_tools, "dup.lua"), [[
+return {
+  name = "dup",
+  description = "lua version",
+  input_schema = {type = "object", properties = {}, required = {}},
+  execute = function() return "from-lua", false end,
+}
+]])
+
+  cio.barf(fs.join(project_tools, "dup.tl"), [[
+return {
+  name = "dup",
+  description = "teal version",
+  input_schema = {type = "object", properties = {}, required = {}},
+  execute = function(): string, boolean
+    return "from-teal", false
+  end,
+}
+]])
+
+  tools.init_custom_tools(project)
+
+  local result, is_error = tools.execute_tool("dup", {})
+  assert(not is_error, "should execute")
+  assert(result == "from-teal", ".tl should override .lua: " .. result)
+
+  -- Reset
+  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
+  print("✓ .tl overrides .lua with same basename")
+end
+test_teal_overrides_lua()
+
+local function test_add_tool_override()
+  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
+
+  -- Create an executable
+  local cmd_path = fs.join(TEST_TMPDIR, "my-tool")
+  cio.barf(cmd_path, "#!/bin/sh\necho \"hello from override $1\"", tonumber("755", 8))
+
+  tools.add_tool_override("my-tool", cmd_path)
+
+  local result, is_error = tools.execute_tool("my-tool", {args = "world"})
+  assert(not is_error, "override tool should execute: " .. tostring(result))
+  assert(result:match("hello from override world"), "should run override cmd: " .. result)
+
+  -- Reset
+  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
+  print("✓ add_tool_override registers a CLI tool")
+end
+test_add_tool_override()
+
+local function test_add_tool_override_replaces_existing()
+  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
+
+  -- bash is a system tool; override it
+  local cmd_path = fs.join(TEST_TMPDIR, "fake-bash")
+  cio.barf(cmd_path, "#!/bin/sh\necho replaced", tonumber("755", 8))
+
+  tools.add_tool_override("bash", cmd_path)
+
+  local result, is_error = tools.execute_tool("bash", {args = ""})
+  assert(not is_error, "override should execute")
+  assert(result:match("replaced"), "should run override, not system bash: " .. result)
+
+  -- Reset
+  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
+  print("✓ add_tool_override replaces existing tool by name")
+end
+test_add_tool_override_replaces_existing()
+
+local function test_add_tool_override_with_md()
+  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
+
+  local cmd_path = fs.join(TEST_TMPDIR, "deploy-tool")
+  cio.barf(cmd_path, "#!/bin/sh\necho deployed", tonumber("755", 8))
+  cio.barf(cmd_path .. ".md", "---\ndescription: Deploy the app\n---\n\nOnly deploy after tests pass.")
+
+  tools.add_tool_override("deploy", cmd_path)
+
+  local prompt = tools.format_tools_for_prompt()
+  assert(prompt:match("Deploy the app"), "should use description from .md")
+  assert(prompt:match("Only deploy after tests pass"), "should use system_prompt from .md body")
+
+  -- Reset
+  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
+  print("✓ add_tool_override reads .md for description and system_prompt")
+end
+test_add_tool_override_with_md()
 
 -- Image read tests
 local json = require("cosmic.json")
@@ -777,5 +1040,95 @@ local function test_bash_timeout_string_coercion()
   print("✓ bash tool coerces string timeout to integer")
 end
 test_bash_timeout_string_coercion()
+
+-- format_tools_for_prompt tests
+local function test_format_tools_for_prompt_builtin()
+  -- Reset to no custom tools
+  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
+
+  local prompt = tools.format_tools_for_prompt()
+  assert(prompt:match("Tools:"), "should have Tools: line")
+  assert(prompt:match("bash"), "should list bash")
+  assert(prompt:match("read"), "should list read")
+  assert(prompt:match("write"), "should list write")
+  assert(prompt:match("edit"), "should list edit")
+  -- Should include system_prompt guidance from builtins
+  assert(prompt:match("old_string"), "should include edit guidance")
+  assert(prompt:match("Use read to examine"), "should include read guidance")
+  print("✓ format_tools_for_prompt includes builtin tools and guidance")
+end
+test_format_tools_for_prompt_builtin()
+
+local function test_format_tools_for_prompt_with_custom()
+  local project = fs.join(TEST_TMPDIR, "prompt_custom_project")
+  local project_tools = fs.join(project, "tools")
+  fs.makedirs(project_tools)
+
+  cio.barf(fs.join(project_tools, "deploy.lua"), [[
+return {
+  name = "deploy",
+  description = "Deploy the application",
+  system_prompt = "Run deploy after all tests pass.\nNever deploy without confirmation.",
+  input_schema = {type = "object", properties = {}, required = {}},
+  execute = function() return "deployed", false end,
+}
+]])
+
+  tools.init_custom_tools(project)
+
+  local prompt = tools.format_tools_for_prompt()
+  assert(prompt:match("deploy"), "should list deploy tool")
+  assert(prompt:match("Deploy the application"), "should include deploy description")
+  assert(prompt:match("Never deploy without confirmation"), "should include deploy system_prompt")
+
+  -- Reset
+  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
+  print("✓ format_tools_for_prompt includes custom tool guidance")
+end
+test_format_tools_for_prompt_with_custom()
+
+-- remove_tool tests
+local function test_remove_tool()
+  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
+
+  -- bash should exist
+  local defs_before = tools.get_tool_definitions()
+  local has_bash = false
+  for _, d in ipairs(defs_before) do
+    if (d as {string:any}).name == "bash" then has_bash = true end
+  end
+  assert(has_bash, "should have bash before removal")
+
+  -- Remove it
+  local removed = tools.remove_tool("bash")
+  assert(removed, "remove_tool should return true for existing tool")
+
+  -- bash should be gone
+  local defs_after = tools.get_tool_definitions()
+  for _, d in ipairs(defs_after) do
+    assert((d as {string:any}).name ~= "bash", "bash should not appear after removal")
+  end
+
+  -- execute_tool should fail
+  local result, is_error = tools.execute_tool("bash", {command = "echo hi"})
+  assert(is_error, "executing removed tool should error")
+  assert(result:match("unknown tool"), "should report unknown tool: " .. result)
+
+  -- Removing non-existent tool returns false
+  local removed2 = tools.remove_tool("nonexistent-tool")
+  assert(not removed2, "remove_tool should return false for missing tool")
+
+  -- prompt Tools: line should not list bash, and no ## bash section
+  local prompt = tools.format_tools_for_prompt()
+  local tools_line = prompt:match("Tools:[^\n]+")
+  assert(tools_line, "should have Tools: line")
+  assert(not tools_line:match("bash"), "Tools: line should not list bash: " .. tools_line)
+  assert(not prompt:match("## bash"), "should not have ## bash section")
+
+  -- Reset
+  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
+  print("✓ remove_tool removes a tool by name")
+end
+test_remove_tool()
 
 print("\nAll tools tests passed!")
