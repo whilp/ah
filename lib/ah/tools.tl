@@ -302,11 +302,43 @@ local function init_custom_tools(cwd?: string)
   end
 end
 
--- Add a CLI tool override by name.
--- The cmd is an executable path or command. If it contains no path separator
--- and is not absolute, it is resolved relative to cwd.
+-- Add a tool override by name.
+-- If cmd ends in .tl or .lua, loads it as a module tool.
+-- Otherwise treats cmd as an executable path (wrapped as a CLI tool).
 -- This has highest precedence — it overrides system, embed, and project tools.
 local function add_tool_override(name: string, cmd: string)
+  -- .tl / .lua files: load as module tools
+  if cmd:match("%.tl$") or cmd:match("%.lua$") then
+    local chunk, load_err = load_tool_file(cmd)
+    if not chunk then
+      io.stderr:write(string.format("warning: failed to load tool %s from %s: %s\n", name, cmd, tostring(load_err)))
+      return
+    end
+    local ok, result = pcall(chunk as function(): any)
+    if not ok then
+      io.stderr:write(string.format("warning: failed to execute tool %s from %s: %s\n", name, cmd, tostring(result)))
+      return
+    end
+    if not is_valid_tool(result) then
+      io.stderr:write(string.format("warning: invalid tool format in %s\n", cmd))
+      return
+    end
+    local tool = result as Tool
+    -- Use the name from --tool flag, not the module's internal name
+    tool.name = name
+
+    -- Override existing or append
+    for i, existing in ipairs(tools) do
+      if existing.name == name then
+        tools[i] = tool
+        return
+      end
+    end
+    table.insert(tools, tool)
+    return
+  end
+
+  -- Executable: wrap as CLI tool
   -- Read description/system_prompt from <cmd>.md if it exists
   local description = "CLI tool: " .. name
   local tool_system_prompt: string = nil

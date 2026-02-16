@@ -36,6 +36,27 @@ built-in ones. place `.md` files directly in the skills directory or use
 subdirectories with `SKILL.md` files. using `.ah/skills/` avoids conflicts
 with unrelated `skills/` directories in the project.
 
+## skill tool directories
+
+skills can bundle tools by placing `.tl` or `.lua` tool files in a
+`tools/` subdirectory alongside `SKILL.md`. these tools are **not loaded
+automatically** — the user must explicitly enable them via `--tool`:
+
+```
+skills/
+  my-skill/
+    SKILL.md
+    tools/
+      gh.tl        ← available but not loaded unless --tool is used
+```
+
+```bash
+ah --skill my-skill -t gh=skills/my-skill/tools/gh.tl 'do the thing'
+```
+
+this ensures skills cannot silently change the tool surface. the skill's
+`SKILL.md` should document the required `--tool` invocation.
+
 ## invocation
 
 users invoke skills explicitly:

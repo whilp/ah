@@ -155,9 +155,13 @@ the `--tool` (`-t`) flag registers or removes tools from the command
 line with highest precedence:
 
 ```sh
-# add tools
+# add tools (executables)
 ah --tool deploy=/usr/local/bin/deploy 'deploy the app'
 ah -t lint=./tools/lint -t fmt=./tools/fmt 'fix lint errors'
+
+# add tools (.tl or .lua module files)
+ah -t gh=skills/triage/tools/gh.tl 'triage issues'
+ah -t mytool=./tools/custom.lua 'use custom tool'
 
 # remove a tool (empty cmd after =)
 ah --tool bash= 'explain this codebase'
@@ -168,9 +172,12 @@ format: `--tool name=cmd` adds or replaces a tool. `--tool name=`
 (empty cmd) removes it entirely — the tool disappears from the API
 tool list and the system prompt. repeatable.
 
-when adding, the `cmd` is an executable path. a companion `<cmd>.md`
-file is read for description (frontmatter) and system_prompt (body),
-same as project executable tools.
+when adding, `cmd` can be:
+- a **`.tl` or `.lua` file** — loaded as a module tool (same format as
+  project tools: must return a table with name, description, input_schema,
+  execute). the name from `--tool` overrides the module's internal name.
+- an **executable path** — wrapped as a CLI tool. a companion `<cmd>.md`
+  file is read for description (frontmatter) and system_prompt (body).
 
 CLI overrides are applied after `init_custom_tools()`, so they replace
 or remove any tool regardless of tier.

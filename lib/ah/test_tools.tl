@@ -1131,4 +1131,117 @@ local function test_remove_tool()
 end
 test_remove_tool()
 
+-- add_tool_override with .lua module files
+local function test_add_tool_override_lua()
+  local tool_dir = fs.join(TEST_TMPDIR, "override_lua")
+  fs.makedirs(tool_dir)
+
+  local tool_path = fs.join(tool_dir, "mytool.lua")
+  cio.barf(tool_path, [[
+return {
+  name = "internal-name",
+  description = "A lua module tool",
+  input_schema = {type = "object", properties = {x = {type = "string"}}, required = {}},
+  execute = function(input)
+    return "lua-tool:" .. (input.x or "nil"), false
+  end,
+}
+]])
+
+  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
+
+  -- Should not exist yet
+  local result, is_error = tools.execute_tool("mytool", {x = "hi"})
+  assert(is_error, "mytool should not exist before override")
+
+  -- Add via --tool name=path.lua
+  tools.add_tool_override("mytool", tool_path)
+
+  result, is_error = tools.execute_tool("mytool", {x = "hi"})
+  assert(not is_error, "lua override should succeed: " .. result)
+  assert(result == "lua-tool:hi", "should run lua module: " .. result)
+
+  -- Name from --tool flag should win over internal name
+  local defs = tools.get_tool_definitions()
+  local found = false
+  for _, d in ipairs(defs) do
+    if (d as {string:any}).name == "mytool" then found = true end
+    assert((d as {string:any}).name ~= "internal-name", "internal name should be overridden by --tool name")
+  end
+  assert(found, "tool should appear as 'mytool'")
+
+  -- Reset
+  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
+  print("✓ add_tool_override loads .lua module files")
+end
+test_add_tool_override_lua()
+
+local function test_add_tool_override_lua_overrides_builtin()
+  local tool_dir = fs.join(TEST_TMPDIR, "override_builtin_lua")
+  fs.makedirs(tool_dir)
+
+  local tool_path = fs.join(tool_dir, "myread.lua")
+  cio.barf(tool_path, [[
+return {
+  name = "myread",
+  description = "Overridden read",
+  input_schema = {type = "object", properties = {path = {type = "string"}}, required = {"path"}},
+  execute = function(input)
+    return "override:" .. input.path, false
+  end,
+}
+]])
+
+  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
+  tools.add_tool_override("read", tool_path)
+
+  local result, is_error = tools.execute_tool("read", {path = "/foo"})
+  assert(not is_error, "overridden read should succeed")
+  assert(result == "override:/foo", "should run override: " .. result)
+
+  -- Reset
+  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
+  print("✓ add_tool_override .lua can override builtins")
+end
+test_add_tool_override_lua_overrides_builtin()
+
+local function test_add_tool_override_lua_invalid()
+  local tool_dir = fs.join(TEST_TMPDIR, "override_invalid_lua")
+  fs.makedirs(tool_dir)
+
+  -- Invalid tool (missing required fields)
+  local tool_path = fs.join(tool_dir, "bad.lua")
+  cio.barf(tool_path, "return {}")
+
+  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
+  local defs_before = #tools.get_tool_definitions()
+
+  -- Should warn but not crash
+  tools.add_tool_override("bad", tool_path)
+
+  local defs_after = #tools.get_tool_definitions()
+  assert(defs_before == defs_after, "invalid lua tool should not be added")
+
+  -- Reset
+  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
+  print("✓ add_tool_override skips invalid .lua files")
+end
+test_add_tool_override_lua_invalid()
+
+local function test_add_tool_override_lua_nonexistent()
+  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
+  local defs_before = #tools.get_tool_definitions()
+
+  -- Should warn but not crash
+  tools.add_tool_override("ghost", fs.join(TEST_TMPDIR, "no-such-file.lua"))
+
+  local defs_after = #tools.get_tool_definitions()
+  assert(defs_before == defs_after, "nonexistent .lua file should not add a tool")
+
+  -- Reset
+  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
+  print("✓ add_tool_override handles nonexistent .lua file")
+end
+test_add_tool_override_lua_nonexistent()
+
 print("\nAll tools tests passed!")
