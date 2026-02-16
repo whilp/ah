@@ -202,8 +202,14 @@ local function phase_do(no_sandbox: boolean, title: string, number: string, mode
 
   local plan_contents = util.read_file("o/work/plan/plan.md")
   if not plan_contents then
-    io.stderr:write("error: could not read o/work/plan/plan.md\n")
-    return 1
+    -- No plan — check for issue context and use inline-plan fallback
+    local issue_json = util.read_file("o/work/plan/issue.json")
+    if issue_json then
+      plan_contents = "No plan available. Running in lightweight inline-plan mode.\n\nIssue context:\n" .. issue_json
+    else
+      plan_contents = "No plan available. Running in lightweight inline-plan mode. Use the issue information provided in the prompt."
+    end
+    util.log("phase_do: no plan.md found, using inline-plan fallback")
   end
 
   local tpl = prompt.read_prompt("do.md")
