@@ -4,6 +4,7 @@ local io = require("cosmic.io")
 local record Credentials
   access_token: string
   is_oauth: boolean
+  is_bearer: boolean
 end
 
 local function parse_env_file(path: string): {string:string}
@@ -39,6 +40,12 @@ local function load_credentials(): Credentials, string
     return {access_token = oauth_token, is_oauth = true}
   end
 
+  -- ANTHROPIC_AUTH_TOKEN: Bearer token (e.g. proxy or custom endpoint)
+  local auth_token = sanitize_token(os.getenv("ANTHROPIC_AUTH_TOKEN"))
+  if auth_token and auth_token ~= "" then
+    return {access_token = auth_token, is_oauth = false, is_bearer = true}
+  end
+
   -- Fall back to ANTHROPIC_API_KEY (regular API key)
   local api_key = sanitize_token(os.getenv("ANTHROPIC_API_KEY"))
   if api_key and api_key ~= "" then
@@ -53,7 +60,7 @@ local function load_credentials(): Credentials, string
     end
   end
 
-  return nil, "no credentials found (set ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN)"
+  return nil, "no credentials found (set ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN, or CLAUDE_CODE_OAUTH_TOKEN)"
 end
 
 local function get_auth_headers(creds: Credentials): {string:string}
@@ -68,6 +75,15 @@ local function get_auth_headers(creds: Credentials): {string:string}
       ["content-type"] = "application/json",
       ["user-agent"] = "claude-cli/2.1.2 (external, cli)",
       ["x-app"] = "cli",
+    }
+  end
+
+  -- Bearer token without Claude Code identity headers
+  if creds.is_bearer then
+    return {
+      ["anthropic-version"] = "2023-06-01",
+      ["content-type"] = "application/json",
+      ["authorization"] = "Bearer " .. creds.access_token,
     }
   end
 

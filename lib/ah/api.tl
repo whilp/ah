@@ -50,7 +50,16 @@ local function now_ms(): integer
   return math.floor(s * 1000 + ns / 1e6) as integer
 end
 
-local API_URL = "https://api.anthropic.com/v1/messages"
+local API_URL: string
+do
+  local base = os.getenv("ANTHROPIC_BASE_URL")
+  if base then
+    -- Strip trailing slash before appending path
+    API_URL = base:gsub("/$", "") .. "/v1/messages"
+  else
+    API_URL = "https://api.anthropic.com/v1/messages"
+  end
+end
 local DEFAULT_MODEL = "claude-opus-4-6"
 local DEFAULT_MAX_TOKENS = 8192
 
