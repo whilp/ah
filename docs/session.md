@@ -44,19 +44,10 @@ context (key text primary key, value text)  -- session metadata
 events (id, message_id, event_type, created_at, details)
 ```
 
-## conversation tree
+## conversation history
 
-messages form a tree via `parent_id`. this enables branching:
-
-- **fork**: `ah @N <prompt>` creates a new user message with parent_id
-  pointing to message N, starting a new branch.
-- **ancestry**: `db.get_ancestry(id)` walks parent pointers to build the
-  linear history for an API call.
-- **leaves**: `db.get_leaf_messages()` returns branch tips (messages with
-  no children).
-
-commands: `scan` (list current branch), `tree` (full tree), `branches`
-(list tips), `checkout @N` (switch), `branch rm @N` (delete), `diff @A @B`.
+messages form a chain via `parent_id`. `db.get_ancestry(id)` walks parent
+pointers to build the linear history for an API call.
 
 ## session resolution
 
