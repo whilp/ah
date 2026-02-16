@@ -252,10 +252,11 @@ local function init_custom_tools(cwd?: string)
   -- Embed tier: lua modules
   merge_tools(by_name, load_custom_tools_from_dir("/zip/embed/tools"))
 
-  -- Project tier: lua modules + executables from cwd/tools/
+  -- Project tier: executables then lua modules from cwd/tools/
+  -- lua modules override executables with the same name
   local project_tools_dir = fs.join(cwd, "tools")
-  merge_tools(by_name, load_custom_tools_from_dir(project_tools_dir))
   merge_tools(by_name, load_cli_tools_from_dir(project_tools_dir))
+  merge_tools(by_name, load_custom_tools_from_dir(project_tools_dir))
 
   tools = {}
   for _, tool in pairs(by_name) do

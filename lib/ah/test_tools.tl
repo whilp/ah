@@ -415,6 +415,34 @@ local function test_executable_in_project_tools()
 end
 test_executable_in_project_tools()
 
+local function test_lua_overrides_executable()
+  -- When both foo.lua and executable foo exist, lua wins
+  local project = fs.join(TEST_TMPDIR, "lua_over_exec")
+  local project_tools = fs.join(project, "tools")
+  fs.makedirs(project_tools)
+
+  cio.barf(fs.join(project_tools, "dupl"), "#!/bin/sh\necho from-exec", tonumber("755", 8))
+  cio.barf(fs.join(project_tools, "dupl.lua"), [[
+return {
+  name = "dupl",
+  description = "lua version",
+  input_schema = {type = "object", properties = {}, required = {}},
+  execute = function() return "from-lua", false end,
+}
+]])
+
+  tools.init_custom_tools(project)
+
+  local result, is_error = tools.execute_tool("dupl", {})
+  assert(not is_error, "should execute")
+  assert(result == "from-lua", "lua should override executable: " .. result)
+
+  -- Reset
+  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
+  print("✓ lua module overrides executable with same name")
+end
+test_lua_overrides_executable()
+
 -- Image read tests
 local json = require("cosmic.json")
 
