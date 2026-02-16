@@ -242,6 +242,7 @@ commands:
 
 options:
   -h, --help          show this help
+  -V, --version       show version and exit
   -n, --new           start a new session
   -S, --session ULID  use specific session (prefix match)
   --name NAME         set or match session by name
@@ -853,6 +854,7 @@ local function parse_args(args: {string}): ParsedArgs, string
 
   local longopts = {
     {name = "help", has_arg = "none", short = "h"},
+    {name = "version", has_arg = "none", short = "V"},
     {name = "new", has_arg = "none", short = "n"},
     {name = "session", has_arg = "required", short = "S"},
     {name = "name", has_arg = "required"},
@@ -874,7 +876,7 @@ local function parse_args(args: {string}): ParsedArgs, string
   -- Use + prefix for POSIX mode: stop parsing options at first non-option arg.
   -- This allows subcommands like "work" to have their own flags (--repo, --issue,
   -- --prompt) without the top-level parser rejecting them as unknown options.
-  local parser = getopt.new(args, "+hnS:m:o:t:", longopts)
+  local parser = getopt.new(args, "+hVnS:m:o:t:", longopts)
 
   while true do
     local opt, optarg = parser:next()
@@ -882,6 +884,8 @@ local function parse_args(args: {string}): ParsedArgs, string
 
     if opt == "h" or opt == "help" then
       return nil, "help"
+    elseif opt == "V" or opt == "version" then
+      return nil, "version"
     elseif opt == "n" or opt == "new" then
       result.new_session = true
     elseif opt == "S" or opt == "session" then
@@ -1049,6 +1053,12 @@ local function main(args: {string}): integer, string
 
   local parsed, err = parse_args(args)
   if not parsed then
+    if err == "version" then
+      local mod = "ah.version"
+      local ok, version = pcall(require, mod)
+      io.write("ah " .. (ok and version as string or "dev") .. "\n")
+      return 0
+    end
     usage()
     if err == "help" then
       return 0

@@ -54,6 +54,15 @@ ah_lib_lua := $(patsubst lib/ah/%.tl,$(o)/embed/.lua/ah/%.lua,$(ah_lib_srcs))
 ah_dep_srcs := $(wildcard lib/*.tl)
 ah_dep_lua := $(patsubst lib/%.tl,$(o)/embed/.lua/%.lua,$(ah_dep_srcs))
 
+# version: tag if HEAD is tagged, otherwise yyyy-mm-dd-sha; append * if dirty
+ah_version := $(shell \
+  v=$$(git describe --tags --exact-match 2>/dev/null) || \
+  v=$$(git log -1 --format='%cd-%h' --date=format:'%Y-%m-%d' 2>/dev/null) || \
+  v=unknown; \
+  if ! git diff --quiet 2>/dev/null; then v="$$v*"; fi; \
+  echo "$$v")
+ah_version_lua := $(o)/embed/.lua/ah/version.lua
+
 TL_PATH := lib/?.tl;lib/?/init.tl;/zip/.lua/?.tl;/zip/.lua/?/init.tl;/zip/.lua/types/?.d.tl;/zip/.lua/types/?/init.d.tl
 
 # compile .tl to .lua
@@ -113,6 +122,12 @@ $(o)/embed/.lua/%.lua: $(o)/lib/%.lua
 	@mkdir -p $(@D)
 	@cp $< $@
 
+# generate version.lua from git state (always regenerated)
+.PHONY: $(ah_version_lua)
+$(ah_version_lua):
+	@mkdir -p $(@D)
+	@echo 'return "$(ah_version)"' > $@
+
 # sys files: copy non-.tl files, compile .tl to .lua
 $(o)/embed/embed/sys/%.lua: sys/%.tl $(cosmic)
 	@mkdir -p $(@D)
@@ -136,7 +151,7 @@ $(o)/embed/embed/ci/%: %
 	@mkdir -p $(@D)
 	@cp $< $@
 
-$(o)/bin/ah: $(o)/embed/main.lua $(ah_lib_lua) $(ah_dep_lua) $(ah_sys) $(ah_ci) $(cosmic)
+$(o)/bin/ah: $(o)/embed/main.lua $(ah_lib_lua) $(ah_dep_lua) $(ah_version_lua) $(ah_sys) $(ah_ci) $(cosmic)
 	@echo "==> embedding ah"
 	@$(cosmic) --embed $(o)/embed --output $@.tmp && mv $@.tmp $@
 
@@ -144,7 +159,7 @@ $(o)/bin/ah: $(o)/embed/main.lua $(ah_lib_lua) $(ah_dep_lua) $(ah_sys) $(ah_ci) 
 ## Build ah executable archive
 ah: $(o)/bin/ah
 
-$(o)/bin/ah-debug: $(o)/embed/main.lua $(ah_lib_lua) $(ah_dep_lua) $(ah_sys) $(ah_ci) $(cosmic_debug)
+$(o)/bin/ah-debug: $(o)/embed/main.lua $(ah_lib_lua) $(ah_dep_lua) $(ah_version_lua) $(ah_sys) $(ah_ci) $(cosmic_debug)
 	@echo "==> embedding ah-debug"
 	@$(cosmic_debug) --embed $(o)/embed --output $@.tmp && mv $@.tmp $@
 
