@@ -260,4 +260,53 @@ local function test_expand_skill_regular_text()
 end
 test_expand_skill_regular_text()
 
+-- Tests for project skills (cwd/skills/)
+local function test_load_skills_project_override()
+  -- Create a fake project with skills/
+  local project = fs.join(tmpdir, "project")
+  local project_skills_dir = fs.join(project, "skills")
+  fs.makedirs(project_skills_dir)
+
+  -- Write a project skill that would override a system skill by name
+  cio.barf(fs.join(project_skills_dir, "my-project-skill.md"),
+    "---\nname: my-project-skill\ndescription: A project-local skill.\n---\n# Project Skill\nDo project things.")
+
+  local loaded = skills.load_skills(project)
+
+  -- The project skill should be present
+  assert(loaded["my-project-skill"] ~= nil, "project skill should be loaded")
+  assert(loaded["my-project-skill"].description == "A project-local skill.",
+    "project skill description mismatch")
+  assert(loaded["my-project-skill"].file_path == fs.join(project_skills_dir, "my-project-skill.md"),
+    "project skill file_path should point to project dir")
+end
+test_load_skills_project_override()
+
+local function test_load_skills_project_no_dir()
+  -- A project with no skills/ should still work (just loads system skills)
+  local empty_project = fs.join(tmpdir, "empty-project")
+  fs.makedirs(empty_project)
+  local loaded = skills.load_skills(empty_project)
+  -- Should not error; system skills should still be present
+  assert(type(loaded) == "table", "should return a table even without project skills dir")
+end
+test_load_skills_project_no_dir()
+
+local function test_load_skills_project_subdirectory_skill()
+  -- Test SKILL.md in a subdirectory under skills/
+  local project = fs.join(tmpdir, "project-subdir")
+  local sub_skill_dir = fs.join(project, "skills", "custom-tool")
+  fs.makedirs(sub_skill_dir)
+  cio.barf(fs.join(sub_skill_dir, "SKILL.md"),
+    "---\ndescription: A custom tool skill.\n---\n# Custom Tool\nUse the custom tool.")
+
+  local loaded = skills.load_skills(project)
+  assert(loaded["custom-tool"] ~= nil, "subdirectory skill should be loaded")
+  assert(loaded["custom-tool"].description == "A custom tool skill.",
+    "subdirectory skill description mismatch")
+  assert(loaded["custom-tool"].base_dir == sub_skill_dir,
+    "subdirectory skill base_dir should be the subdirectory")
+end
+test_load_skills_project_subdirectory_skill()
+
 print("all skills tests passed")

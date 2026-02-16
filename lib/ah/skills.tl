@@ -134,9 +134,13 @@ local function load_skills_from_dir(dir: string): {Skill}
   return skills
 end
 
--- Load all skills from system and embed directories.
--- Embed skills override system skills by name.
-local function load_skills(): {string:Skill}
+-- Load all skills from system, embed, and project directories.
+-- Later sources override earlier ones by name:
+--   1. system (built-in)
+--   2. embed (zip overlay)
+--   3. project (cwd/skills/)
+local function load_skills(cwd?: string): {string:Skill}
+  cwd = cwd or fs.getcwd()
   local skills: {string:Skill} = {}
 
   -- System skills first
@@ -148,6 +152,13 @@ local function load_skills(): {string:Skill}
   -- Embed skills (override system)
   local embed_skills = load_skills_from_dir("/zip/embed/skills")
   for _, skill in ipairs(embed_skills) do
+    skills[skill.name] = skill
+  end
+
+  -- Project skills (override all)
+  local project_dir = fs.join(cwd, "skills")
+  local project_skills = load_skills_from_dir(project_dir)
+  for _, skill in ipairs(project_skills) do
     skills[skill.name] = skill
   end
 
