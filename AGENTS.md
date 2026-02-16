@@ -40,7 +40,7 @@ working in that area.
 | [docs/agent-loop.md](docs/agent-loop.md) | API call cycle, tool dispatch, loop detection, compaction, streaming |
 | [docs/session.md](docs/session.md) | database schema, conversation tree, branching, session resolution |
 | [docs/work-loop.md](docs/work-loop.md) | PDCA cycle, make targets, issue selection, sandbox, convergence |
-| [docs/tools.md](docs/tools.md) | built-in tools (read/write/edit/bash), custom tools, truncation |
+| [docs/tools.md](docs/tools.md) | tool loading, tiers, overrides, custom tools, truncation |
 | [docs/skills.md](docs/skills.md) | skill format, loading, expansion, system prompt injection |
 | [docs/sandbox.md](docs/sandbox.md) | network proxy, unveil, pledge, `--sandbox` mode |
 | [docs/testing.md](docs/testing.md) | test conventions, running tests, adding new tests |
@@ -54,7 +54,7 @@ lib/ah/                core modules
   loop.tl              agent loop (API call → tool dispatch → repeat)
   api.tl               Claude Messages API client with streaming
   db.tl                SQLite conversation storage
-  tools.tl             tool definitions and execution (read/write/edit/bash)
+  tools.tl             tool loading, dispatch, and prompt generation
   skills.tl            skill loading and /skill: expansion
   commands.tl          /command expansion
   compact.tl           context window compaction
@@ -73,6 +73,11 @@ lib/ah/                core modules
 lib/ulid.tl            ULID generation/parsing
 lib/work/work.tl       make-driven work subcommands (preflight)
 sys/system.md          default system prompt
+sys/tools/             built-in tool definitions (.tl, compiled to .lua)
+  read.tl              file reading with image support
+  write.tl             file writing with directory creation
+  edit.tl              find-and-replace with uniqueness check
+  bash.tl              command execution with timeout and abort
 sys/skills/            built-in skill files
 Makefile               build system
 work.mk                PDCA work targets (included by Makefile)

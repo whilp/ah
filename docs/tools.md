@@ -1,12 +1,12 @@
 # tools
 
-source: `lib/ah/tools.tl`, `lib/ah/truncate.tl`
+source: `lib/ah/tools.tl`, `sys/tools/`, `lib/ah/truncate.tl`
 
 ## built-in tools
 
-ah provides four tools to the agent:
+ah provides four tools to the agent, defined in `sys/tools/`:
 
-### read
+### read (`sys/tools/read.tl`)
 
 reads a file and returns its contents. supports text files and images
 (jpg, png, gif, webp — returned as base64 with media type for the API).
@@ -19,7 +19,7 @@ parameters:
 binary files are detected (null bytes or >10% non-printable ASCII) and
 rejected with an error message.
 
-### write
+### write (`sys/tools/write.tl`)
 
 creates or overwrites a file with the given content. creates parent
 directories as needed.
@@ -28,7 +28,7 @@ parameters:
 - `path` (required): file path
 - `content` (required): file content
 
-### edit
+### edit (`sys/tools/edit.tl`)
 
 finds and replaces text in a file. `old_string` must match exactly one
 location in the file (unique match requirement).
@@ -38,7 +38,7 @@ parameters:
 - `old_string` (required): text to find (must be unique in file)
 - `new_string` (required): replacement text
 
-### bash
+### bash (`sys/tools/bash.tl`)
 
 executes a shell command. uses `/bin/bash -o pipefail -ec`. has a
 configurable timeout (default 120s). returns stdout + stderr combined.
@@ -47,21 +47,13 @@ parameters:
 - `command` (required): shell command to execute
 - `timeout` (optional): timeout in milliseconds
 
-the tool tracks running processes for abort cleanup on ctrl+c.
+the tool tracks running processes via `running_processes` for abort
+cleanup on ctrl+c. `tools.abort_running_tools()` finds this table by
+iterating loaded tools.
 
-## custom tools
+## tool format
 
-custom tools extend the agent's capabilities. they are loaded from
-`tools/` directories at startup via `tools.init_custom_tools(cwd)`.
-
-two formats are supported in `cwd/tools/`:
-
-- **lua modules** (`.lua` files): return a tool record table
-- **executables**: any executable file becomes a CLI tool
-
-### tool record
-
-each lua tool is a table with these fields:
+tools are defined as lua or teal modules that return a table:
 
 ```lua
 {
@@ -73,27 +65,67 @@ each lua tool is a table with these fields:
 }
 ```
 
-- `name`: tool name (used in API calls)
+- `name`: tool name (used in API calls and override matching)
 - `description`: one-line description (shown in tool definition)
 - `system_prompt` (optional): guidance text appended to the system prompt
 - `input_schema`: JSON schema for tool parameters
-- `execute`: function taking input table, returning `(result, is_error)`
+- `execute`: function taking input table, returning `(result, is_error, details)`
+- `running_processes` (optional): `{pid: handle}` table for abort cleanup
 
-### loading tiers
+## loading
 
-tools load from three directories. later sources override earlier ones by name:
+### tiers
 
-1. `/zip/embed/sys/tools/` — system tools (built into the executable, lua only)
-2. `/zip/embed/tools/` — embed overlay (lua only)
-3. `cwd/tools/` — project-local tools (lua modules + executables)
+tools load from three directory tiers at startup via
+`tools.init_custom_tools(cwd)`. later tiers override earlier ones by name:
 
-embedded tiers only support lua modules (executables can't run from inside
-a zip archive). project tools support both.
+1. **system** (`/zip/embed/sys/tools/`) — built-in tools (read, write,
+   edit, bash). compiled from `sys/tools/*.tl` at build time. in dev/test,
+   falls back to `o/sys/tools/`.
+2. **embed** (`/zip/embed/tools/`) — overlay for custom ah distributions.
+3. **project** (`cwd/tools/`) — project-local tools.
+
+### file type precedence
+
+within a single directory, when multiple files share a basename:
+
+1. **`.tl`** — teal source, compiled at runtime via `tl.load()`
+2. **`.lua`** — lua module, loaded via `loadfile()`
+3. **executable** — any file with +x, wrapped as a CLI tool
+
+higher-priority formats win. for example, if `tools/` contains both
+`foo.tl` and `foo.lua`, the `.tl` version is used.
+
+embedded tiers (system, embed) only contain `.lua` files since
+`sys/tools/*.tl` is pre-compiled by the Makefile. `.tl` runtime loading
+is primarily useful at the project tier.
+
+### overriding core tools
+
+projects can override any core tool by placing a file with the same name
+in `cwd/tools/`. for example, `tools/read.lua` replaces the builtin read
+tool entirely — schema, description, system_prompt, and execute function
+all come from the override.
+
+the system prompt reflects the active tool, so the agent always sees the
+overrider's description and guidance.
+
+embed overlays can similarly override system tools for custom ah
+distributions. projects then override both.
+
+**caveats:**
+- accidental shadowing is possible. a file named `tools/bash` (even if
+  unrelated to ah) would replace the builtin bash tool.
+- if a bash override omits `running_processes`, ctrl+c abort won't kill
+  its running commands. the override owns the behavior.
+- the override is total — there is no way to "extend" a core tool; you
+  replace it.
 
 ### executable tools
 
-any executable file in `cwd/tools/` becomes a tool. a companion
-`<name>.md` file provides metadata via yaml frontmatter:
+any executable file in `cwd/tools/` (without a `.tl` or `.lua` extension)
+becomes a CLI tool. a companion `<name>.md` file provides metadata via
+yaml frontmatter:
 
 ```markdown
 ---
@@ -108,17 +140,20 @@ Never deploy without user confirmation.
 - body after frontmatter → `system_prompt` guidance
 - if no `.md` file exists, falls back to `--help` output for description
 
-### system prompt injection
+executable tools accept an `args` string parameter which is split on
+whitespace and passed as command-line arguments.
+
+## system prompt injection
 
 `tools.format_tools_for_prompt()` generates a tools section for the system
 prompt. it includes:
 
-1. a `Tools:` line listing all tool names
+1. a `Tools:` line listing all tool names (sorted)
 2. a `name: description` line for each tool
 3. per-tool `## name` sections with `system_prompt` guidance
 
 this is called automatically by `init.tl` and appended to the system prompt
-before skills and other context.
+after the base prompt and before skills.
 
 ## truncation
 
