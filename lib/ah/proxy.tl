@@ -71,7 +71,10 @@ local function resolvehost(host: string): ip.Addr, string
   return addr, err
 end
 
+local verbose = os.getenv("AH_PROXY_VERBOSE") == "1"
+
 local function log(...: string)
+  if not verbose then return end
   local parts = {...} as {string}
   io.stderr:write("[proxy] " .. table.concat(parts, "\t") .. "\n")
 end
