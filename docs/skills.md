@@ -80,10 +80,6 @@ can `read` them when relevant.
 | do | execute work plan, make changes, run validation |
 | check | review changes against plan, render verdict |
 | fix | address check feedback, re-validate, commit |
-| pr | open pull request, resolve conflicts, watch CI |
-| review-pr | review incoming pull request |
-| triage-issues | assess priority, deduplicate, label issues |
-| workflow | trigger GitHub Actions, debug failures |
 | analyze-session | analyze session.db for agent friction |
 | setup-work | bootstrap ah work loop in a new repo |
 | init | generate agent-friendly documentation |
