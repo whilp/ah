@@ -27,6 +27,7 @@ local record M
   resolvehost: function(string): ip.Addr, string
   is_allowed: function(string): boolean
   parse_allow_hosts: function(string): {string:boolean}
+  parse_base_url: function(string): string
   nb_connect: function(Socket, number, integer): boolean, string
 end
 
@@ -54,6 +55,34 @@ if allow_hosts_env then
   local extra = parse_allow_hosts(allow_hosts_env)
   for host, _ in pairs(extra) do
     ALLOWLIST[host] = true
+  end
+end
+
+-- Parse a URL into host:port. Returns nil for invalid/empty input.
+-- Only handles http:// and https:// schemes.
+local function parse_base_url(url: string): string
+  if not url or url == "" then return nil end
+  local scheme, rest = url:match("^(https?)://(.+)$")
+  if not scheme or not rest then return nil end
+  -- Strip path: take everything before the first /
+  local hostport = rest:match("^([^/]+)")
+  if not hostport or hostport == "" then return nil end
+  -- Check if port is already specified
+  local h, p = hostport:match("^(.+):(%d+)$")
+  if h and p then
+    return h .. ":" .. p
+  end
+  -- No port specified: default based on scheme
+  local default_port = scheme == "https" and "443" or "80"
+  return hostport .. ":" .. default_port
+end
+
+-- Add ANTHROPIC_BASE_URL host to allowlist at load time
+local base_url_env = os.getenv("ANTHROPIC_BASE_URL")
+if base_url_env then
+  local hostport = parse_base_url(base_url_env)
+  if hostport then
+    ALLOWLIST[hostport] = true
   end
 end
 
@@ -272,6 +301,7 @@ M.is_allowed = function(dest: string): boolean
   return ALLOWLIST[dest] or false
 end
 M.parse_allow_hosts = parse_allow_hosts
+M.parse_base_url = parse_base_url
 M.nb_connect = nb_connect
 
 return M
