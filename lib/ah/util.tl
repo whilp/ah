@@ -15,11 +15,11 @@ else
   M.log_level = "debug"
 end
 
-function M.log(msg: string)
+M.log = function(msg: string)
   io.stderr:write(msg .. "\n")
 end
 
-function M.debug(msg: string)
+M.debug = function(msg: string)
   if M.log_level == "debug" then
     io.stderr:write(msg .. "\n")
   end
