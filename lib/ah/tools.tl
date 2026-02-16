@@ -41,36 +41,64 @@ local function is_valid_tool(t: any): boolean
   return true
 end
 
--- Load lua module tools from a directory
+-- Load a tool module from a .tl or .lua file.
+-- Returns the loaded chunk or nil + error string.
+local function load_tool_file(tool_path: string): any, string
+  if tool_path:match("%.tl$") then
+    local content = cio.slurp(tool_path)
+    if not content then
+      return nil, "failed to read file"
+    end
+    local tl = require("tl") as {string:any}
+    local loader = tl.load as function(string): any, string
+    return loader(content)
+  end
+  local loader = loadfile as function(string): any, string
+  return loader(tool_path)
+end
+
+-- Load lua/teal module tools from a directory.
+-- .tl files take precedence over .lua files with the same basename.
 local function load_custom_tools_from_dir(dir: string): {Tool}
   local loaded: {Tool} = {}
 
   local dh = fs.opendir(dir)
   if not dh then return loaded end
 
+  -- Collect candidate files, .tl overrides .lua by basename
+  local candidates: {string:string} = {}  -- basename -> path
   while true do
     local name = dh:read()
     if not name then break end
 
-    if name:match("%.lua$") then
-      local tool_path = fs.join(dir, name)
-      local chunk, load_err = loadfile(tool_path)
-      if chunk then
-        local ok, result = pcall(chunk)
-        if ok and is_valid_tool(result) then
-          table.insert(loaded, result as Tool)
-        elseif not ok then
-          io.stderr:write(string.format("warning: failed to execute %s: %s\n", tool_path, tostring(result)))
-        else
-          io.stderr:write(string.format("warning: invalid tool format in %s\n", tool_path))
-        end
-      else
-        io.stderr:write(string.format("warning: failed to load %s: %s\n", tool_path, tostring(load_err)))
+    if name:match("%.tl$") and not name:match("%.d%.tl$") then
+      local base = name:sub(1, -4)
+      candidates[base] = fs.join(dir, name)
+    elseif name:match("%.lua$") then
+      local base = name:sub(1, -5)
+      if not candidates[base] or not (candidates[base]):match("%.tl$") then
+        candidates[base] = fs.join(dir, name)
       end
     end
   end
-
   dh:close()
+
+  for _, tool_path in pairs(candidates) do
+    local chunk, load_err = load_tool_file(tool_path)
+    if chunk then
+      local ok, result = pcall(chunk as function(): any)
+      if ok and is_valid_tool(result) then
+        table.insert(loaded, result as Tool)
+      elseif not ok then
+        io.stderr:write(string.format("warning: failed to execute %s: %s\n", tool_path, tostring(result)))
+      else
+        io.stderr:write(string.format("warning: invalid tool format in %s\n", tool_path))
+      end
+    else
+      io.stderr:write(string.format("warning: failed to load %s: %s\n", tool_path, tostring(load_err)))
+    end
+  end
+
   return loaded
 end
 
@@ -252,8 +280,8 @@ local function init_custom_tools(cwd?: string)
   -- Embed tier: lua modules
   merge_tools(by_name, load_custom_tools_from_dir("/zip/embed/tools"))
 
-  -- Project tier: executables then lua modules from cwd/tools/
-  -- lua modules override executables with the same name
+  -- Project tier: executables then modules from cwd/tools/
+  -- Precedence within a directory: .tl > .lua > executable
   local project_tools_dir = fs.join(cwd, "tools")
   merge_tools(by_name, load_cli_tools_from_dir(project_tools_dir))
   merge_tools(by_name, load_custom_tools_from_dir(project_tools_dir))

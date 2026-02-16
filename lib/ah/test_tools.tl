@@ -443,6 +443,75 @@ return {
 end
 test_lua_overrides_executable()
 
+local function test_teal_tool_loading()
+  -- .tl files should be loadable as tools
+  local project = fs.join(TEST_TMPDIR, "teal_tool")
+  local project_tools = fs.join(project, "tools")
+  fs.makedirs(project_tools)
+
+  cio.barf(fs.join(project_tools, "greet.tl"), [[
+return {
+  name = "greet",
+  description = "Greet in teal",
+  system_prompt = "Always greet warmly.",
+  input_schema = {type = "object", properties = {name = {type = "string"}}, required = {"name"}},
+  execute = function(input: {string:any}): string, boolean, any
+    local who = (input.name as string) or "world"
+    return "hello, " .. who, false
+  end,
+}
+]])
+
+  tools.init_custom_tools(project)
+
+  local result, is_error = tools.execute_tool("greet", {name = "teal"})
+  assert(not is_error, "teal tool should execute")
+  assert(result == "hello, teal", "should run teal tool: " .. result)
+
+  -- Reset
+  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
+  print("✓ .tl tools loaded from cwd/tools/")
+end
+test_teal_tool_loading()
+
+local function test_teal_overrides_lua()
+  -- .tl takes precedence over .lua with the same basename
+  local project = fs.join(TEST_TMPDIR, "tl_over_lua")
+  local project_tools = fs.join(project, "tools")
+  fs.makedirs(project_tools)
+
+  cio.barf(fs.join(project_tools, "dup.lua"), [[
+return {
+  name = "dup",
+  description = "lua version",
+  input_schema = {type = "object", properties = {}, required = {}},
+  execute = function() return "from-lua", false end,
+}
+]])
+
+  cio.barf(fs.join(project_tools, "dup.tl"), [[
+return {
+  name = "dup",
+  description = "teal version",
+  input_schema = {type = "object", properties = {}, required = {}},
+  execute = function(): string, boolean
+    return "from-teal", false
+  end,
+}
+]])
+
+  tools.init_custom_tools(project)
+
+  local result, is_error = tools.execute_tool("dup", {})
+  assert(not is_error, "should execute")
+  assert(result == "from-teal", ".tl should override .lua: " .. result)
+
+  -- Reset
+  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
+  print("✓ .tl overrides .lua with same basename")
+end
+test_teal_overrides_lua()
+
 -- Image read tests
 local json = require("cosmic.json")
 
