@@ -77,8 +77,8 @@ tools are defined as lua or teal modules that return a table:
 ### tiers
 
 tools load from three directory tiers at startup via
-`tools.init_custom_tools(cwd)`, plus a CLI tier. later tiers override
-earlier ones by name:
+`tools.init_custom_tools(cwd)`, plus skill and CLI tiers. later tiers
+override earlier ones by name:
 
 1. **system** (`/zip/embed/sys/tools/`) — built-in tools (read, write,
    edit, bash). compiled from `sys/tools/*.tl` at build time. in dev/test,
@@ -86,7 +86,11 @@ earlier ones by name:
 2. **embed** (`/zip/embed/tools/`) — overlay for custom ah distributions.
 3. **project** (`cwd/.ah/tools/` or `cwd/tools/`) — project-local tools.
    `.ah/tools/` takes precedence if it exists; otherwise `tools/` is used.
-4. **CLI** (`--tool name=cmd`) — highest precedence, overrides everything.
+4. **skill** (`<skill_base_dir>/tools/`) — tools bundled with the invoked
+   skill. loaded automatically when `--skill` is used and the skill's
+   directory contains a `tools/` subdirectory. `.tl` and `.lua` files are
+   loaded the same way as project tools.
+5. **CLI** (`--tool name=cmd`) — highest precedence, overrides everything.
 
 ### file type precedence
 

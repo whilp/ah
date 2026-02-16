@@ -1131,4 +1131,92 @@ local function test_remove_tool()
 end
 test_remove_tool()
 
+-- load_skill_tools tests
+local function test_load_skill_tools()
+  -- Create a skill tools directory with a valid tool
+  local skill_dir = fs.join(TEST_TMPDIR, "skill_tools_dir")
+  local skill_tools = fs.join(skill_dir, "tools")
+  fs.makedirs(skill_tools)
+
+  cio.barf(fs.join(skill_tools, "mytool.lua"), [[
+return {
+  name = "mytool",
+  description = "A skill-bundled tool",
+  input_schema = {type = "object", properties = {x = {type = "string"}}, required = {}},
+  execute = function(input)
+    return "skill-tool:" .. (input.x or "nil"), false
+  end,
+}
+]])
+
+  -- Reset to builtins only
+  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
+
+  -- Should not have mytool yet
+  local result, is_error = tools.execute_tool("mytool", {x = "hello"})
+  assert(is_error, "mytool should not exist before load_skill_tools")
+
+  -- Load skill tools
+  tools.load_skill_tools(skill_tools)
+
+  -- Now mytool should work
+  result, is_error = tools.execute_tool("mytool", {x = "hello"})
+  assert(not is_error, "mytool should succeed after load_skill_tools: " .. result)
+  assert(result == "skill-tool:hello", "should run skill tool: " .. result)
+
+  -- Builtins should still be present
+  local defs = tools.get_tool_definitions()
+  local has_read = false
+  for _, d in ipairs(defs) do
+    if (d as {string:any}).name == "read" then has_read = true end
+  end
+  assert(has_read, "builtins should still be present after load_skill_tools")
+
+  -- Reset
+  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
+  print("✓ load_skill_tools loads tools from skill directory")
+end
+test_load_skill_tools()
+
+local function test_load_skill_tools_overrides_builtin()
+  -- Skill tool can override a builtin
+  local skill_dir = fs.join(TEST_TMPDIR, "skill_override_dir")
+  local skill_tools = fs.join(skill_dir, "tools")
+  fs.makedirs(skill_tools)
+
+  cio.barf(fs.join(skill_tools, "read.lua"), [[
+return {
+  name = "read",
+  description = "Overridden read",
+  input_schema = {type = "object", properties = {path = {type = "string"}}, required = {"path"}},
+  execute = function(input)
+    return "skill-read:" .. input.path, false
+  end,
+}
+]])
+
+  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
+  tools.load_skill_tools(skill_tools)
+
+  local result, is_error = tools.execute_tool("read", {path = "/etc/hostname"})
+  assert(not is_error, "overridden read should succeed")
+  assert(result == "skill-read:/etc/hostname", "skill tool should override builtin: " .. result)
+
+  -- Reset
+  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
+  print("✓ load_skill_tools can override builtins")
+end
+test_load_skill_tools_overrides_builtin()
+
+local function test_load_skill_tools_nonexistent_dir()
+  -- Should be a no-op, not error
+  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
+  local defs_before = #tools.get_tool_definitions()
+  tools.load_skill_tools(fs.join(TEST_TMPDIR, "no-such-skill-tools"))
+  local defs_after = #tools.get_tool_definitions()
+  assert(defs_before == defs_after, "nonexistent skill tools dir should be a no-op")
+  print("✓ load_skill_tools handles nonexistent directory")
+end
+test_load_skill_tools_nonexistent_dir()
+
 print("\nAll tools tests passed!")
