@@ -319,7 +319,7 @@ end
 test_parse_args_timeout()
 
 local function test_parse_args_allow_host_single()
-  local parsed = init.parse_args({"--allow-host", "api.example.com:443", "hello"})
+  local parsed = init.parse_args({"--sandbox", "--allow-host", "api.example.com:443", "hello"})
   assert(parsed, "should parse successfully")
   assert(parsed.allow_hosts, "allow_hosts should be set")
   assert(#parsed.allow_hosts == 1, "should have 1 host, got: " .. #parsed.allow_hosts)
@@ -329,7 +329,7 @@ end
 test_parse_args_allow_host_single()
 
 local function test_parse_args_allow_host_multiple()
-  local parsed = init.parse_args({"--allow-host", "api.example.com:443", "--allow-host", "hooks.slack.com:443", "hello"})
+  local parsed = init.parse_args({"--sandbox", "--allow-host", "api.example.com:443", "--allow-host", "hooks.slack.com:443", "hello"})
   assert(parsed, "should parse successfully")
   assert(#parsed.allow_hosts == 2, "should have 2 hosts, got: " .. #parsed.allow_hosts)
   assert(parsed.allow_hosts[1] == "api.example.com:443", "first host")
@@ -339,7 +339,7 @@ end
 test_parse_args_allow_host_multiple()
 
 local function test_parse_args_unveil_single()
-  local parsed = init.parse_args({"--unveil", "o/work/plan:r", "hello"})
+  local parsed = init.parse_args({"--sandbox", "--unveil", "o/work/plan:r", "hello"})
   assert(parsed, "should parse successfully")
   assert(parsed.unveil_dirs, "unveil_dirs should be set")
   assert(#parsed.unveil_dirs == 1, "should have 1 unveil, got: " .. #parsed.unveil_dirs)
@@ -349,7 +349,7 @@ end
 test_parse_args_unveil_single()
 
 local function test_parse_args_unveil_multiple()
-  local parsed = init.parse_args({"--unveil", "o/work/plan:r", "--unveil", "o/work/do:rw", "hello"})
+  local parsed = init.parse_args({"--sandbox", "--unveil", "o/work/plan:r", "--unveil", "o/work/do:rw", "hello"})
   assert(parsed, "should parse successfully")
   assert(#parsed.unveil_dirs == 2, "should have 2 unveils, got: " .. #parsed.unveil_dirs)
   assert(parsed.unveil_dirs[1] == "o/work/plan:r", "first unveil")
@@ -480,5 +480,41 @@ local function test_parse_args_tool()
   print("✓ parse_args handles --tool/-t flag")
 end
 test_parse_args_tool()
+
+-- Sandbox sub-option validation tests
+
+local function test_parse_args_unveil_without_sandbox()
+  local parsed, err = init.parse_args({"--unveil", "/tmp:r", "hello"})
+  assert(not parsed, "--unveil without --sandbox should fail")
+  assert(err == "error: --unveil requires --sandbox", "err should mention --unveil requires --sandbox, got: " .. tostring(err))
+  print("✓ parse_args: --unveil without --sandbox errors")
+end
+test_parse_args_unveil_without_sandbox()
+
+local function test_parse_args_allow_host_without_sandbox()
+  local parsed, err = init.parse_args({"--allow-host", "example.com:443", "hello"})
+  assert(not parsed, "--allow-host without --sandbox should fail")
+  assert(err == "error: --allow-host requires --sandbox", "err should mention --allow-host requires --sandbox, got: " .. tostring(err))
+  print("✓ parse_args: --allow-host without --sandbox errors")
+end
+test_parse_args_allow_host_without_sandbox()
+
+local function test_parse_args_sandbox_with_unveil()
+  local parsed = init.parse_args({"--sandbox", "--unveil", "/tmp:r", "hello"})
+  assert(parsed, "--sandbox --unveil should succeed")
+  assert(parsed.sandbox == true, "sandbox should be true")
+  assert(#parsed.unveil_dirs == 1, "should have 1 unveil")
+  print("✓ parse_args: --sandbox --unveil succeeds")
+end
+test_parse_args_sandbox_with_unveil()
+
+local function test_parse_args_sandbox_with_allow_host()
+  local parsed = init.parse_args({"--sandbox", "--allow-host", "example.com:443", "hello"})
+  assert(parsed, "--sandbox --allow-host should succeed")
+  assert(parsed.sandbox == true, "sandbox should be true")
+  assert(#parsed.allow_hosts == 1, "should have 1 allow-host")
+  print("✓ parse_args: --sandbox --allow-host succeeds")
+end
+test_parse_args_sandbox_with_allow_host()
 
 print("all init tests passed")
