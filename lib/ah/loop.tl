@@ -920,10 +920,10 @@ local function run_agent(d: db.DB, qdb: queue.QueueDB, system_prompt: string, mo
   local totals = db.get_session_token_totals(d)
 
   -- Emit agent_end with token totals
-  emit(on_event, events.agent_end(final_stop_reason, totals.input_tokens, totals.output_tokens, last_error))
+  emit(on_event, events.agent_end(final_stop_reason, totals.input_tokens, totals.output_tokens, last_error, totals.cache_read_tokens))
 
   -- Log agent_end event to DB
-  db.log_event(d, "agent_end", nil, events.to_json(events.agent_end(final_stop_reason, totals.input_tokens, totals.output_tokens, last_error)))
+  db.log_event(d, "agent_end", nil, events.to_json(events.agent_end(final_stop_reason, totals.input_tokens, totals.output_tokens, last_error, totals.cache_read_tokens)))
 
   -- Check must_produce after agent ends
   if must_produce then

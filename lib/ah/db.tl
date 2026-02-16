@@ -468,20 +468,26 @@ end
 local record TokenTotals
   input_tokens: integer
   output_tokens: integer
+  cache_read_tokens: integer
 end
 
 local function get_session_token_totals(self: DB): TokenTotals
+  local totals: TokenTotals = {input_tokens = 0, output_tokens = 0, cache_read_tokens = 0}
   for row in self._db:query([[
     select coalesce(sum(input_tokens), 0) as total_input,
            coalesce(sum(output_tokens), 0) as total_output
     from messages
   ]]) do
-    return {
-      input_tokens = (row.total_input or 0) as integer,
-      output_tokens = (row.total_output or 0) as integer,
-    }
+    totals.input_tokens = (row.total_input or 0) as integer
+    totals.output_tokens = (row.total_output or 0) as integer
   end
-  return {input_tokens = 0, output_tokens = 0}
+  for row in self._db:query([[
+    select coalesce(sum(json_extract(details, '$.cache_read_input_tokens')), 0) as total_cache_read
+    from events where event_type = 'api_call_end'
+  ]]) do
+    totals.cache_read_tokens = (row.total_cache_read or 0) as integer
+  end
+  return totals
 end
 
 -- Session state management: idle, processing, closed
