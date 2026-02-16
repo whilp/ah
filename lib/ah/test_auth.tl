@@ -15,9 +15,11 @@ test_get_auth_headers()
 local function test_load_from_env()
   local orig = os.getenv("ANTHROPIC_API_KEY")
   local orig_oauth = os.getenv("CLAUDE_CODE_OAUTH_TOKEN")
+  local orig_auth = os.getenv("ANTHROPIC_AUTH_TOKEN")
 
-  -- Clear OAuth token so ANTHROPIC_API_KEY is used
+  -- Clear higher-priority tokens so ANTHROPIC_API_KEY is used
   if orig_oauth then cenv.unset("CLAUDE_CODE_OAUTH_TOKEN") end
+  if orig_auth then cenv.unset("ANTHROPIC_AUTH_TOKEN") end
   cenv.set("ANTHROPIC_API_KEY", "test-api-key-123", true)
 
   local creds = auth.load_credentials()
@@ -31,6 +33,7 @@ local function test_load_from_env()
     cenv.unset("ANTHROPIC_API_KEY")
   end
   if orig_oauth then cenv.set("CLAUDE_CODE_OAUTH_TOKEN", orig_oauth, true) end
+  if orig_auth then cenv.set("ANTHROPIC_AUTH_TOKEN", orig_auth, true) end
 end
 test_load_from_env()
 
@@ -39,10 +42,12 @@ local function test_load_from_env_file()
 
   local orig_key = os.getenv("ANTHROPIC_API_KEY")
   local orig_oauth = os.getenv("CLAUDE_CODE_OAUTH_TOKEN")
+  local orig_auth = os.getenv("ANTHROPIC_AUTH_TOKEN")
 
-  -- Clear both env vars so .env file is used
+  -- Clear all env vars so .env file is used
   if orig_key then cenv.unset("ANTHROPIC_API_KEY") end
   if orig_oauth then cenv.unset("CLAUDE_CODE_OAUTH_TOKEN") end
+  if orig_auth then cenv.unset("ANTHROPIC_AUTH_TOKEN") end
 
   local tmpdir = os.getenv("TEST_TMPDIR")
   local orig_cwd = cfs.getcwd()
@@ -58,14 +63,17 @@ local function test_load_from_env_file()
   cfs.chdir(orig_cwd)
   if orig_key then cenv.set("ANTHROPIC_API_KEY", orig_key, true) end
   if orig_oauth then cenv.set("CLAUDE_CODE_OAUTH_TOKEN", orig_oauth, true) end
+  if orig_auth then cenv.set("ANTHROPIC_AUTH_TOKEN", orig_auth, true) end
 end
 test_load_from_env_file()
 
 local function test_load_oauth_token()
   local orig_key = os.getenv("ANTHROPIC_API_KEY")
   local orig_oauth = os.getenv("CLAUDE_CODE_OAUTH_TOKEN")
+  local orig_auth = os.getenv("ANTHROPIC_AUTH_TOKEN")
 
-  -- Set OAuth token - should take priority
+  -- Set OAuth token - should take priority over all others
+  if orig_auth then cenv.unset("ANTHROPIC_AUTH_TOKEN") end
   cenv.set("CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat-test-token", true)
   cenv.set("ANTHROPIC_API_KEY", "test-api-key-123", true)
 
@@ -85,6 +93,7 @@ local function test_load_oauth_token()
   else
     cenv.unset("CLAUDE_CODE_OAUTH_TOKEN")
   end
+  if orig_auth then cenv.set("ANTHROPIC_AUTH_TOKEN", orig_auth, true) end
 end
 test_load_oauth_token()
 
@@ -97,6 +106,40 @@ local function test_oauth_headers()
 end
 test_oauth_headers()
 
+local function test_bearer_headers()
+  local creds: auth.Credentials = {access_token = "use_case=claude-code", is_bearer = true}
+  local headers = auth.get_auth_headers(creds)
+  assert(headers["authorization"] == "Bearer use_case=claude-code", "bearer should use Bearer auth")
+  assert(headers["anthropic-version"] == "2023-06-01", "bearer should have version header")
+  assert(headers["x-api-key"] == nil, "bearer should not have x-api-key")
+  assert(headers["anthropic-beta"] == nil, "bearer should not have beta headers")
+end
+test_bearer_headers()
+
+local function test_load_bearer_token()
+  local orig_key = os.getenv("ANTHROPIC_API_KEY")
+  local orig_oauth = os.getenv("CLAUDE_CODE_OAUTH_TOKEN")
+  local orig_auth = os.getenv("ANTHROPIC_AUTH_TOKEN")
+
+  -- Clear OAuth so bearer takes priority over API key
+  if orig_oauth then cenv.unset("CLAUDE_CODE_OAUTH_TOKEN") end
+  cenv.set("ANTHROPIC_AUTH_TOKEN", "use_case=test", true)
+  cenv.set("ANTHROPIC_API_KEY", "sk-should-not-use", true)
+
+  local creds = auth.load_credentials()
+  assert(creds, "should load bearer credentials")
+  assert(creds.access_token == "use_case=test", "should use auth token")
+  assert(creds.is_bearer == true, "should be bearer")
+  assert(creds.is_oauth == false, "should not be oauth")
+
+  if orig_key then cenv.set("ANTHROPIC_API_KEY", orig_key, true)
+  else cenv.unset("ANTHROPIC_API_KEY") end
+  if orig_oauth then cenv.set("CLAUDE_CODE_OAUTH_TOKEN", orig_oauth, true) end
+  if orig_auth then cenv.set("ANTHROPIC_AUTH_TOKEN", orig_auth, true)
+  else cenv.unset("ANTHROPIC_AUTH_TOKEN") end
+end
+test_load_bearer_token()
+
 -- Token sanitization: tokens from env vars may contain trailing
 -- whitespace or control characters that are invalid in HTTP headers.
 -- cosmic.fetch rejects header values containing bytes in 0x00-0x08,
@@ -105,8 +148,10 @@ test_oauth_headers()
 local function test_oauth_token_trailing_newline()
   local orig_key = os.getenv("ANTHROPIC_API_KEY")
   local orig_oauth = os.getenv("CLAUDE_CODE_OAUTH_TOKEN")
+  local orig_auth = os.getenv("ANTHROPIC_AUTH_TOKEN")
 
   if orig_key then cenv.unset("ANTHROPIC_API_KEY") end
+  if orig_auth then cenv.unset("ANTHROPIC_AUTH_TOKEN") end
   -- Token with trailing newline (common copy/paste artifact)
   cenv.set("CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat-test-token\n", true)
 
@@ -118,14 +163,17 @@ local function test_oauth_token_trailing_newline()
   if orig_key then cenv.set("ANTHROPIC_API_KEY", orig_key, true) end
   if orig_oauth then cenv.set("CLAUDE_CODE_OAUTH_TOKEN", orig_oauth, true)
   else cenv.unset("CLAUDE_CODE_OAUTH_TOKEN") end
+  if orig_auth then cenv.set("ANTHROPIC_AUTH_TOKEN", orig_auth, true) end
 end
 test_oauth_token_trailing_newline()
 
 local function test_api_key_trailing_whitespace()
   local orig_key = os.getenv("ANTHROPIC_API_KEY")
   local orig_oauth = os.getenv("CLAUDE_CODE_OAUTH_TOKEN")
+  local orig_auth = os.getenv("ANTHROPIC_AUTH_TOKEN")
 
   if orig_oauth then cenv.unset("CLAUDE_CODE_OAUTH_TOKEN") end
+  if orig_auth then cenv.unset("ANTHROPIC_AUTH_TOKEN") end
   -- Token with trailing spaces and newline
   cenv.set("ANTHROPIC_API_KEY", "  sk-test-key-456  \n", true)
 
@@ -137,14 +185,17 @@ local function test_api_key_trailing_whitespace()
   if orig_key then cenv.set("ANTHROPIC_API_KEY", orig_key, true)
   else cenv.unset("ANTHROPIC_API_KEY") end
   if orig_oauth then cenv.set("CLAUDE_CODE_OAUTH_TOKEN", orig_oauth, true) end
+  if orig_auth then cenv.set("ANTHROPIC_AUTH_TOKEN", orig_auth, true) end
 end
 test_api_key_trailing_whitespace()
 
 local function test_oauth_token_crlf()
   local orig_key = os.getenv("ANTHROPIC_API_KEY")
   local orig_oauth = os.getenv("CLAUDE_CODE_OAUTH_TOKEN")
+  local orig_auth = os.getenv("ANTHROPIC_AUTH_TOKEN")
 
   if orig_key then cenv.unset("ANTHROPIC_API_KEY") end
+  if orig_auth then cenv.unset("ANTHROPIC_AUTH_TOKEN") end
   cenv.set("CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat-test\r\n", true)
 
   local creds = auth.load_credentials()
@@ -155,14 +206,17 @@ local function test_oauth_token_crlf()
   if orig_key then cenv.set("ANTHROPIC_API_KEY", orig_key, true) end
   if orig_oauth then cenv.set("CLAUDE_CODE_OAUTH_TOKEN", orig_oauth, true)
   else cenv.unset("CLAUDE_CODE_OAUTH_TOKEN") end
+  if orig_auth then cenv.set("ANTHROPIC_AUTH_TOKEN", orig_auth, true) end
 end
 test_oauth_token_crlf()
 
 local function test_whitespace_only_token_rejected()
   local orig_key = os.getenv("ANTHROPIC_API_KEY")
   local orig_oauth = os.getenv("CLAUDE_CODE_OAUTH_TOKEN")
+  local orig_auth = os.getenv("ANTHROPIC_AUTH_TOKEN")
 
   if orig_key then cenv.unset("ANTHROPIC_API_KEY") end
+  if orig_auth then cenv.unset("ANTHROPIC_AUTH_TOKEN") end
   cenv.set("CLAUDE_CODE_OAUTH_TOKEN", "  \n\r  ", true)
 
   local creds, err = auth.load_credentials()
@@ -172,6 +226,7 @@ local function test_whitespace_only_token_rejected()
   if orig_key then cenv.set("ANTHROPIC_API_KEY", orig_key, true) end
   if orig_oauth then cenv.set("CLAUDE_CODE_OAUTH_TOKEN", orig_oauth, true)
   else cenv.unset("CLAUDE_CODE_OAUTH_TOKEN") end
+  if orig_auth then cenv.set("ANTHROPIC_AUTH_TOKEN", orig_auth, true) end
 end
 test_whitespace_only_token_rejected()
 
