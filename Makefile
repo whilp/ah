@@ -144,7 +144,7 @@ ah_sys := $(patsubst sys/%.tl,$(o)/embed/embed/sys/%.lua,$(ah_sys_tl)) \
           $(patsubst sys/%,$(o)/embed/embed/sys/%,$(ah_sys_other))
 
 # embed ci reference files (the actual files this repo uses)
-ah_ci_files := Makefile work.mk .github/workflows/work.yml .github/workflows/test.yml
+ah_ci_files := Makefile work.mk .github/workflows/work.yml .github/workflows/test.yml lib/work/work.tl
 ah_ci := $(patsubst %,$(o)/embed/embed/ci/%,$(ah_ci_files))
 
 $(o)/embed/embed/ci/%: %
