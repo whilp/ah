@@ -38,6 +38,7 @@ $(cosmic_debug): deps/cosmic.mk
 	@chmod +x $@
 
 reporter := $(cosmic) lib/build/reporter.tl
+linter := $(cosmic) lib/build/lint.tl
 
 # ah module
 ah_srcs := $(wildcard lib/ah/*.tl) $(wildcard sys/tools/*.tl) bin/ah.tl
@@ -87,7 +88,8 @@ help:
 	@echo "  ah-debug            Build ah executable archive with debug symbols"
 	@echo "  release             Create GitHub prerelease (RELEASE=1 for full)"
 	@echo "  check-types         Run teal type checker on all files"
-	@echo "  ci                  Run tests and type checks"
+	@echo "  lint                Run linter on all tracked files"
+	@echo "  ci                  Run tests, type checks, and linter"
 	@echo "  clean               Remove all build artifacts"
 
 .PHONY: test
@@ -180,9 +182,24 @@ $(o)/%.tl.teal.ok: %.tl $(cosmic)
 	fi; \
 	rm -f $@.err
 
+# lint
+lint_files := $(shell git ls-files 2>/dev/null)
+all_linted := $(patsubst %,$(o)/%.lint.ok,$(lint_files))
+
+.PHONY: lint
+## Run linter on all tracked files
+lint: $(o)/lint-summary.txt
+
+$(o)/lint-summary.txt: $(all_linted) $(cosmic)
+	@$(reporter) --dir $(o) $(all_linted) | tee $@
+
+$(o)/%.lint.ok: % lib/build/lint.tl $(cosmic)
+	@mkdir -p $(@D)
+	@$(linter) "$<" > $@ 2>&1 || true
+
 .PHONY: ci
-## Run tests and type checks
-ci: test check-types
+## Run tests, type checks, and linter
+ci: test check-types lint
 
 .PHONY: check
 check: ci
