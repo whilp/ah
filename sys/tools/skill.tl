@@ -1,5 +1,6 @@
 -- sys/tools/skill.tl: load a skill by name from available paths
 local skills = require("ah.skills")
+local tools = require("ah.tools")
 local cio = require("cosmic.io")
 
 -- Cache loaded skills (populated on first call)
@@ -53,6 +54,9 @@ return {
     for _ in body:gmatch("[^\n]*") do
       line_count = line_count + 1
     end
+
+    -- Auto-load tools from the skill's tools/ subdirectory
+    tools.load_skill_tools(skill.base_dir)
 
     return body, false, {
       path = skill.file_path,

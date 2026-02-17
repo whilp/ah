@@ -320,6 +320,33 @@ local function init_custom_tools(cwd?: string)
   end
 end
 
+-- Load tools from a skill's tools/ subdirectory and merge them into
+-- the active tool set. Called when a skill is invoked (--skill, /skill:name,
+-- or the skill tool at runtime). Skill tools override project-tier tools
+-- by name but are overridden by --tool CLI overrides.
+local function load_skill_tools(base_dir: string)
+  local tools_dir = base_dir .. "/tools"
+  local dh = fs.opendir(tools_dir)
+  if not dh then return end
+  dh:close()
+
+  -- Build name index of current tools
+  local by_name: {string:Tool} = {}
+  for _, tool in ipairs(tools) do
+    by_name[tool.name] = tool
+  end
+
+  -- Load CLI tools (executables) then module tools (.tl/.lua)
+  -- Module tools override CLI tools with the same basename
+  merge_tools(by_name, load_cli_tools_from_dir(tools_dir))
+  merge_tools(by_name, load_custom_tools_from_dir(tools_dir))
+
+  tools = {}
+  for _, tool in pairs(by_name) do
+    table.insert(tools, tool)
+  end
+end
+
 -- Add a tool override by name.
 -- If cmd ends in .tl or .lua, loads it as a module tool.
 -- Otherwise treats cmd as an executable path (wrapped as a CLI tool).
@@ -674,6 +701,7 @@ return {
   abort_running_tools = abort_running_tools,
   validate_input = validate_input,
   init_custom_tools = init_custom_tools,
+  load_skill_tools = load_skill_tools,
   add_tool_override = add_tool_override,
   remove_tool = remove_tool,
   load_custom_tools_from_dir = load_custom_tools_from_dir,

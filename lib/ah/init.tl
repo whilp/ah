@@ -1149,6 +1149,7 @@ local function main(args: {string}): integer, string
   local loaded_skills = skills.load_skills(cwd)
 
   -- --skill flag: prepend /skill:<name> to prompt
+  local active_skill_name: string = parsed.skill
   if parsed.skill then
     prompt = "/skill:" .. parsed.skill .. "\n" .. prompt
   end
@@ -1157,6 +1158,10 @@ local function main(args: {string}): integer, string
   local skill_expanded, was_skill = skills.expand_skill(prompt, loaded_skills)
   if was_skill then
     prompt = skill_expanded
+    -- Extract skill name if not already set from --skill flag
+    if not active_skill_name then
+      active_skill_name = prompt:match('^<skill name="([a-z0-9%-]+)"')
+    end
   end
 
   -- Expand commands (prompts starting with /)
@@ -1171,6 +1176,11 @@ local function main(args: {string}): integer, string
   -- Load system prompt
   -- Initialize custom tools (must happen before format_tools_for_prompt)
   tools.init_custom_tools(cwd)
+
+  -- Load tools from the active skill's tools/ subdirectory
+  if active_skill_name and loaded_skills[active_skill_name] then
+    tools.load_skill_tools(loaded_skills[active_skill_name].base_dir)
+  end
 
   -- Apply --tool overrides (highest precedence, overrides everything)
   -- name=cmd adds/replaces a tool; name= (empty cmd) removes it
