@@ -13,7 +13,7 @@ test_get_context_limit_known_model()
 
 local function test_get_context_limit_opus()
   local limit = compact.get_context_limit("claude-opus-4-6")
-  assert(limit == 200000, "opus context limit should be 200000: " .. tostring(limit))
+  assert(limit == 1000000, "opus context limit should be 1000000: " .. tostring(limit))
   print("✓ get_context_limit known model (opus)")
 end
 test_get_context_limit_opus()

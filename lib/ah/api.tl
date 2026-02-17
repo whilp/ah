@@ -61,7 +61,7 @@ do
   end
 end
 local DEFAULT_MODEL = "claude-opus-4-6"
-local DEFAULT_MAX_TOKENS = 8192
+local DEFAULT_MAX_TOKENS = 16384
 
 local MODELS: {string} = {
   "claude-sonnet-4-5-20250929",
