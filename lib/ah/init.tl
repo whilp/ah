@@ -19,6 +19,7 @@ local ulid = require("ulid")
 local queue = require("ah.queue")
 local sandbox = require("cosmic.sandbox")
 local util = require("ah.util")
+local highlight = require("ah.highlight")
 
 -- Session record for listing
 local record Session
@@ -331,6 +332,7 @@ end
 -- Other handlers (JSON logging, web UI, etc.) can be substituted.
 local function make_cli_handler(skill_name: string): events.EventCallback
   local is_tty = tty.isatty(2)
+  local stdout_is_tty = tty.isatty(1)
   local is_ci = os.getenv("GITHUB_ACTIONS") == "true"
   local DIM = is_tty and "\27[2m" or ""
   local RESET = is_tty and "\27[0m" or ""
@@ -340,7 +342,8 @@ local function make_cli_handler(skill_name: string): events.EventCallback
   -- Flush buffered agent response text to stdout
   local function flush_text()
     if #text_buffer > 0 then
-      io.write(table.concat(text_buffer))
+      local text = table.concat(text_buffer)
+      io.write(highlight.colorize_diff(text, stdout_is_tty))
       io.flush()
       text_buffer = {}
     end
