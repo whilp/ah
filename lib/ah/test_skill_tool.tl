@@ -114,4 +114,141 @@ end
 test_empty_name()
 
 cleanup()
+
+-- Test load_skill_tools: loading a skill with tools/ subdirectory auto-loads its tools
+local function test_load_skill_tools()
+  -- Create a test skill with a tools/ subdirectory
+  local skill_dir = fs.join(tmpdir, "test-skill-with-tools")
+  local tools_dir_path = fs.join(skill_dir, "tools")
+  fs.makedirs(tools_dir_path)
+
+  cio.barf(fs.join(skill_dir, "SKILL.md"),
+    "---\nname: zz-test-with-tools\ndescription: A test skill with tools.\n---\n# Test\n\nHas tools.")
+
+  -- Create a simple .lua tool in the tools/ subdirectory
+  cio.barf(fs.join(tools_dir_path, "zz-test-skill-tool-auto.lua"), [[
+return {
+  name = "zz-test-skill-tool-auto",
+  description = "Auto-loaded test tool",
+  input_schema = {type = "object", properties = {}},
+  execute = function(input) return "ok", false end,
+}
+]])
+
+  -- Initialize tools (standard tiers only)
+  tools.init_custom_tools(cwd)
+
+  -- Verify tool is NOT loaded yet
+  local defs_before = tools.get_tool_definitions()
+  local found_before = false
+  for _, d in ipairs(defs_before) do
+    if d.name == "zz-test-skill-tool-auto" then
+      found_before = true
+      break
+    end
+  end
+  assert(not found_before, "skill tool should NOT be loaded before load_skill_tools")
+
+  -- Load skill tools
+  tools.load_skill_tools(skill_dir)
+
+  -- Verify tool IS loaded now
+  local defs_after = tools.get_tool_definitions()
+  local found_after = false
+  for _, d in ipairs(defs_after) do
+    if d.name == "zz-test-skill-tool-auto" then
+      found_after = true
+      break
+    end
+  end
+  assert(found_after, "skill tool should be loaded after load_skill_tools")
+
+  -- Verify the tool is functional
+  local result, is_error = tools.execute_tool("zz-test-skill-tool-auto", {})
+  assert(not is_error, "skill tool should execute without error")
+  assert(result == "ok", "skill tool should return 'ok'")
+
+  -- Cleanup
+  os.remove(fs.join(tools_dir_path, "zz-test-skill-tool-auto.lua"))
+  os.remove(fs.join(skill_dir, "SKILL.md"))
+  fs.rmdir(tools_dir_path)
+  fs.rmdir(skill_dir)
+
+  print("PASS: load_skill_tools auto-loads tools")
+end
+test_load_skill_tools()
+
+-- Test load_skill_tools with no tools/ directory is a no-op
+local function test_load_skill_tools_no_dir()
+  tools.init_custom_tools(cwd)
+  local count_before = #tools.get_tool_definitions()
+
+  -- Call with a directory that has no tools/ subdirectory
+  tools.load_skill_tools(tmpdir)
+
+  local count_after = #tools.get_tool_definitions()
+  assert(count_before == count_after, "tool count should not change when no tools/ dir exists")
+  print("PASS: load_skill_tools no-op without tools/ dir")
+end
+test_load_skill_tools_no_dir()
+
+-- Test that skill tool invocation auto-loads tools
+local function test_skill_tool_auto_loads()
+  -- Create a test skill with tools in the project skills dir
+  local skill_name_auto = "zz-test-auto-load"
+  local skill_dir_auto: string
+  local skill_tools_dir_auto: string
+  local dh2 = fs.opendir(dot_ah_skills)
+  if dh2 then
+    dh2:close()
+    skill_dir_auto = fs.join(dot_ah_skills, skill_name_auto)
+  else
+    skill_dir_auto = fs.join(skills_dir, skill_name_auto)
+  end
+  skill_tools_dir_auto = fs.join(skill_dir_auto, "tools")
+  fs.makedirs(skill_tools_dir_auto)
+
+  cio.barf(fs.join(skill_dir_auto, "SKILL.md"),
+    "---\nname: " .. skill_name_auto .. "\ndescription: Test auto load.\n---\n# Auto\n\nTest.")
+
+  cio.barf(fs.join(skill_tools_dir_auto, "zz-auto-tool.lua"), [[
+return {
+  name = "zz-auto-tool",
+  description = "Auto-loaded via skill tool",
+  input_schema = {type = "object", properties = {}},
+  execute = function(input) return "auto-ok", false end,
+}
+]])
+
+  -- Re-initialize tools
+  tools.init_custom_tools(cwd)
+
+  -- Verify tool NOT loaded yet
+  local found = false
+  for _, d in ipairs(tools.get_tool_definitions()) do
+    if d.name == "zz-auto-tool" then found = true; break end
+  end
+  assert(not found, "zz-auto-tool should not be loaded before skill tool invocation")
+
+  -- Invoke the skill tool — this should auto-load skill tools
+  local result, is_error = tools.execute_tool("skill", {name = skill_name_auto})
+  assert(not is_error, "skill tool should succeed: " .. tostring(result))
+
+  -- Verify tool IS loaded now
+  found = false
+  for _, d in ipairs(tools.get_tool_definitions()) do
+    if d.name == "zz-auto-tool" then found = true; break end
+  end
+  assert(found, "zz-auto-tool should be loaded after skill tool invocation")
+
+  -- Cleanup
+  os.remove(fs.join(skill_tools_dir_auto, "zz-auto-tool.lua"))
+  os.remove(fs.join(skill_dir_auto, "SKILL.md"))
+  fs.rmdir(skill_tools_dir_auto)
+  fs.rmdir(skill_dir_auto)
+
+  print("PASS: skill tool invocation auto-loads tools")
+end
+test_skill_tool_auto_loads()
+
 print("all skill tool tests passed")
