@@ -5,7 +5,7 @@ description: Build ah and create a GitHub prerelease with the binary and checksu
 
 # prerelease
 
-Trigger the `prerelease.yml` GitHub Actions workflow, watch it, and verify
+Trigger the `release.yml` GitHub Actions workflow, watch it, and verify
 the release was created.
 
 ## Steps
@@ -16,9 +16,9 @@ Default is prerelease. If the user asks for a full release, pass
 `-f release=true`.
 
 ```bash
-gh workflow run prerelease.yml --ref main
+gh workflow run release.yml --ref main
 # full release:
-gh workflow run prerelease.yml --ref main -f release=true
+gh workflow run release.yml --ref main -f release=true
 ```
 
 ### 2. Find the run
@@ -27,7 +27,7 @@ Wait a few seconds, then locate the in-progress run:
 
 ```bash
 sleep 5
-gh run list --workflow prerelease.yml -L 3
+gh run list --workflow release.yml -L 3
 ```
 
 Capture the run ID of the most recent run.
@@ -64,7 +64,7 @@ Print a summary:
 
 - run: <run-id>
 - tag: <tag>
-- artifacts: ah, SHA256SUMS
+- artifacts: ah, ah-debug, SHA256SUMS
 - url: <release-url>
 ```
 
