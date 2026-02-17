@@ -193,9 +193,9 @@ lint: $(o)/lint-summary.txt
 $(o)/lint-summary.txt: $(all_linted) $(cosmic)
 	@$(reporter) --dir $(o) $(all_linted) | tee $@
 
-$(o)/%.lint.ok: % lib/build/lint.tl lint.limits $(cosmic)
+$(o)/%.lint.ok: % lib/build/lint.tl $(cosmic)
 	@mkdir -p $(@D)
-	@$(linter) --limits lint.limits "$<" > $@ 2>&1 || true
+	@$(linter) "$<" > $@ 2>&1 || true
 
 .PHONY: ci
 ## Run tests, type checks, and linter
