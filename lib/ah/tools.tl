@@ -330,6 +330,10 @@ local function load_skill_tools(base_dir: string)
   if not dh then return end
   dh:close()
 
+  -- Ensure project root is in package.path so skill tools
+  -- can require() shared modules (e.g. "lib.mcp")
+  add_to_package_path((fs.getcwd()))
+
   -- Build name index of current tools
   local by_name: {string:Tool} = {}
   for _, tool in ipairs(tools) do
