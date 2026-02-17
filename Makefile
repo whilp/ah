@@ -207,10 +207,8 @@ check: ci
 ## Create GitHub release with ah and ah-debug binaries
 ## Set RELEASE=1 for a full release (default is prerelease)
 release: $(o)/bin/ah $(o)/bin/ah-debug
+	@cd $(o)/bin && sha256sum ah ah-debug > SHA256SUMS
 	@tag=$(ah_version); \
-	sha_ah=$$(sha256sum $(o)/bin/ah | awk '{print $$1}'); \
-	sha_dbg=$$(sha256sum $(o)/bin/ah-debug | awk '{print $$1}'); \
-	printf 'ah      %s\nah-debug %s\n' "$$sha_ah" "$$sha_dbg" > $(o)/bin/SHA256SUMS; \
 	echo "==> creating release $$tag"; \
 	gh release delete "$$tag" --yes 2>/dev/null || true; \
 	gh release create "$$tag" \
