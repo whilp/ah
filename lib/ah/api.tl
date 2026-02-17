@@ -4,20 +4,21 @@ local fetch = require("cosmic.fetch")
 local time = require("cosmic.time")
 local auth = require("ah.auth")
 
--- Detect proxy from environment (set by work.tl for sandboxed processes)
-local proxy_url: string = nil
-do
+-- Detect proxy from environment (set by work.tl for sandboxed processes).
+-- Resolved lazily so envd.load() has time to set vars before first use.
+local function get_proxy_url(): string
   local http_proxy = os.getenv("https_proxy") or os.getenv("HTTPS_PROXY")
                   or os.getenv("http_proxy") or os.getenv("HTTP_PROXY")
   if http_proxy and http_proxy:sub(1, 7) == "unix://" then
     local path = http_proxy:sub(8)
     local url, err = fetch.unix_proxy(path)
     if url then
-      proxy_url = url
+      return url
     else
       io.stderr:write("[api] warning: invalid proxy url: " .. (err or "unknown") .. "\n")
     end
   end
+  return nil
 end
 
 -- Tool name mapping for Claude Code compatibility (OAuth mode)
@@ -50,14 +51,14 @@ local function now_ms(): integer
   return math.floor(s * 1000 + ns / 1e6) as integer
 end
 
-local API_URL: string
-do
+-- Resolve API URL lazily so envd.load() has time to set ANTHROPIC_BASE_URL.
+local function get_api_url(): string
   local base = os.getenv("ANTHROPIC_BASE_URL")
   if base then
     -- Strip trailing slash before appending path
-    API_URL = base:gsub("/$", "") .. "/v1/messages"
+    return base:gsub("/$", "") .. "/v1/messages"
   else
-    API_URL = "https://api.anthropic.com/v1/messages"
+    return "https://api.anthropic.com/v1/messages"
   end
 end
 local DEFAULT_MODEL = "claude-opus-4-6"
@@ -250,11 +251,11 @@ local function stream(messages: {any}, opts: {string:any}, callback: function({s
   local last_error: string = nil
 
   for attempt = 0, MAX_RETRIES do
-    local stream_result = fetch.stream(API_URL, {
+    local stream_result = fetch.stream(get_api_url(), {
       method = "POST",
       headers = auth_headers,
       body = body,
-      proxy = proxy_url,
+      proxy = get_proxy_url(),
     } as fetch.Opts)
 
     if not stream_result.ok then
@@ -444,6 +445,8 @@ return {
   resolve_model = resolve_model,
   to_claude_code_name = to_claude_code_name,
   from_claude_code_name = from_claude_code_name,
+  get_api_url = get_api_url,
+  get_proxy_url = get_proxy_url,
   DEFAULT_MODEL = DEFAULT_MODEL,
   MODEL_ALIASES = MODEL_ALIASES,
   MAX_RETRIES = MAX_RETRIES,
