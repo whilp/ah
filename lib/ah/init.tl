@@ -737,7 +737,6 @@ local function main(args: {string}): integer, string
   -- Supervisor mode: --sandbox starts proxy, re-execs as sandboxed child
   if parsed.sandbox then
     local sbox = require("ah.sandbox") as SandboxMod
-    local env_mod = require("cosmic.env") as EnvMod
     local fetch = require("cosmic.fetch") as FetchMod
 
     local ctx, sbox_err = sbox.start_sandbox()
@@ -747,8 +746,9 @@ local function main(args: {string}): integer, string
     end
     util.debug("[sandbox] proxy started on " .. ctx.socket_path)
 
-    -- Build child environment
-    local run_env: {string} = env_mod.all() as {string}
+    -- Build child environment from raw environ (list of "KEY=VALUE" strings)
+    local unix = require("cosmo.unix")
+    local run_env: {string} = unix.environ() as {string}
     sbox.setup_git_env(run_env)
 
     -- Set TMPDIR for APE binary extraction
