@@ -1380,4 +1380,58 @@ return {
 end
 test_add_tool_override_require()
 
+-- Test that skill tools can require() modules from the project root (cwd)
+-- Regression: load_skill_tools did not add cwd to package.path, so
+-- skill tools that require("lib.foo") failed to resolve (issue #361)
+local function test_skill_tool_requires_project_module()
+  -- Set up a fake project with a shared lib and a skill tool that requires it
+  local project = fs.join(TEST_TMPDIR, "skill_cwd_require")
+  local lib_dir = fs.join(project, "lib")
+  local skill_dir = fs.join(project, "skills", "myskill")
+  local skill_tools = fs.join(skill_dir, "tools")
+  fs.makedirs(lib_dir)
+  fs.makedirs(skill_tools)
+
+  -- Shared library at lib/shared.lua
+  cio.barf(fs.join(lib_dir, "shared.lua"), [[
+return { value = function() return "from-shared-lib" end }
+]])
+
+  -- Skill tool that requires "lib.shared" (needs cwd in package.path)
+  cio.barf(fs.join(skill_tools, "myskill.lua"), [[
+local shared = require("lib.shared")
+return {
+  name = "myskill",
+  description = "Skill tool that uses shared lib",
+  input_schema = {type = "object", properties = {}, required = {}},
+  execute = function()
+    return shared.value(), false
+  end,
+}
+]])
+
+  -- init with this project as cwd, then load skill tools
+  tools.init_custom_tools(project)
+
+  -- Save and change to project dir so fs.getcwd() returns it
+  local orig_dir = fs.getcwd()
+  fs.chdir(project)
+
+  tools.load_skill_tools(skill_dir)
+
+  -- Restore cwd
+  fs.chdir(orig_dir)
+
+  -- The skill tool should be loaded and functional
+  local result, is_error = tools.execute_tool("myskill", {})
+  assert(not is_error, "skill tool should load and execute: " .. tostring(result))
+  assert(result == "from-shared-lib", "skill tool should require project module: " .. result)
+
+  -- Clean up
+  package.loaded["lib.shared"] = nil
+  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
+  print("✓ skill tools can require() modules from project root (cwd)")
+end
+test_skill_tool_requires_project_module()
+
 print("\nAll tools tests passed!")
