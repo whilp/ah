@@ -19,7 +19,12 @@ Read `o/work/plan/plan.md` for the plan. Read `o/work/do/do.md` for the executio
    ```
 2. Run validation steps from the plan
 3. Check for unintended changes
-4. Write your assessment
+4. Check for security issues and code smells:
+   - hardcoded secrets or credentials
+   - injection vulnerabilities (SQL, command, path traversal)
+   - unsafe error handling (swallowed errors, missing validation)
+   - obvious code smells (dead code, duplicated logic, magic numbers)
+5. Write your assessment
 
 ## Output
 
@@ -32,6 +37,9 @@ Write `o/work/check/check.md`:
 
     ## Validation
     <results of running validation steps>
+
+    ## Security & Quality
+    <security issues or code smells found, or "none">
 
     ## Issues
     <problems found, grouped by severity>
