@@ -142,4 +142,73 @@ local function test_embed_roundtrip()
 end
 test_embed_roundtrip()
 
+-- Extract-add-embed roundtrip: extract existing, add env.d, re-embed
+local function test_extract_add_embed()
+  local embed_mod = require("cosmic.embed")
+  local zip = require("cosmic.zip")
+
+  local tmpdir = fs.mkdtemp(fs.join(TEST_TMPDIR, "envd_extract_XXXXXX"))
+
+  -- copy running exe as base
+  local exe_data = cio.slurp(arg[-1] as string)
+  assert(exe_data, "should read running executable")
+  local bin = fs.join(tmpdir, "testbin")
+  cio.barf(bin, exe_data)
+
+  -- first: embed a tool
+  local src1 = fs.join(tmpdir, "src1")
+  fs.makedirs(fs.join(src1, "embed", "tools"))
+  cio.barf(fs.join(src1, "embed", "tools", "mytool.lua"), "return {}")
+  local r1 = embed_mod.run({src1}, bin)
+  assert(r1.ok, "first embed should succeed")
+
+  -- extract into a working dir (simulates `ah extract myconfig`)
+  local extracted = fs.join(tmpdir, "myconfig")
+  fs.makedirs(extracted)
+  local data = cio.slurp(bin)
+  local reader = zip.from(data)
+  for _, name in ipairs(reader:list()) do
+    local prefix = "embed/"
+    if name:sub(1, #prefix) == prefix and name:sub(-1) ~= "/" then
+      local content = reader:read(name)
+      if content then
+        local rel = name:sub(#prefix + 1)
+        local filepath = fs.join(extracted, rel)
+        fs.makedirs(fs.dirname(filepath))
+        cio.barf(filepath, content)
+      end
+    end
+  end
+  reader:close()
+
+  -- add env.d to the extracted dir
+  fs.makedirs(fs.join(extracted, "env.d"))
+  cio.barf(fs.join(extracted, "env.d", "auth.env"), "MY_KEY=secret\n")
+
+  -- re-embed (simulates `ah embed myconfig`)
+  local src2 = fs.join(tmpdir, "src2")
+  fs.makedirs(src2)
+  fs.symlink(extracted, fs.join(src2, "embed"))
+  local r2 = embed_mod.run({src2}, bin)
+  assert(r2.ok, "re-embed should succeed")
+
+  -- verify both tool and env.d survived
+  local data2 = cio.slurp(bin)
+  local reader2 = zip.from(data2)
+  local found_tool = false
+  local found_envd = false
+  for _, name in ipairs(reader2:list()) do
+    if name == "embed/tools/mytool.lua" then found_tool = true end
+    if name == "embed/env.d/auth.env" then found_envd = true end
+  end
+  reader2:close()
+
+  assert(found_tool, "tool should survive extract-add-embed")
+  assert(found_envd, "env.d should be present after extract-add-embed")
+
+  fs.rmrf(tmpdir)
+  print("PASS test_extract_add_embed")
+end
+test_extract_add_embed()
+
 print("all envd tests passed")

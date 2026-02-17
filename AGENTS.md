@@ -97,10 +97,11 @@ Makefile               build system
   directory with `KEY=VALUE` files (`.env` format), then `ah embed <dir>`
   where `<dir>` contains an `env.d/` subdirectory. on startup, ah loads
   all files from `/zip/embed/env.d/` and sets variables that aren't already
-  in the environment. real env vars always take precedence. note: each
-  `ah embed` replaces all previously embedded files, so put everything
-  (tools, skills, env.d, system.md) in one directory.
+  in the environment. real env vars always take precedence. each
+  `ah embed` replaces all previously embedded files, so to add env.d to
+  an existing binary, extract first:
   ```sh
+  ah extract myconfig
   mkdir -p myconfig/env.d
   echo 'ANTHROPIC_API_KEY=sk-ant-...' > myconfig/env.d/auth.env
   ah embed myconfig
