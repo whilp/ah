@@ -527,15 +527,15 @@ local init_diff = require("ah.init") as InitDiff
 
 local function test_colorize_diff_line_plus()
   local result = init_diff.colorize_diff_line("+added line")
-  assert(result == "\27[32m+added line\27[0m", "plus line should be green, got: " .. result)
-  print("✓ colorize_diff_line: + lines green")
+  assert(result == "\27[34m+added line\27[0m", "plus line should be blue, got: " .. result)
+  print("✓ colorize_diff_line: + lines blue")
 end
 test_colorize_diff_line_plus()
 
 local function test_colorize_diff_line_minus()
   local result = init_diff.colorize_diff_line("-removed line")
-  assert(result == "\27[31m-removed line\27[0m", "minus line should be red, got: " .. result)
-  print("✓ colorize_diff_line: - lines red")
+  assert(result == "\27[33m-removed line\27[0m", "minus line should be yellow, got: " .. result)
+  print("✓ colorize_diff_line: - lines yellow")
 end
 test_colorize_diff_line_minus()
 
@@ -570,8 +570,8 @@ test_colorize_diff_line_plain()
 local function test_colorize_diff_block()
   local input = "some text\n```diff\n+added\n-removed\n context\n```\nmore text\n"
   local result = init_diff.colorize_diff_block(input)
-  assert(result:find("\27%[32m%+added\27%[0m"), "should colorize + line green in diff fence")
-  assert(result:find("\27%[31m%-removed\27%[0m"), "should colorize - line red in diff fence")
+  assert(result:find("\27%[34m%+added\27%[0m"), "should colorize + line blue in diff fence")
+  assert(result:find("\27%[33m%-removed\27%[0m"), "should colorize - line yellow in diff fence")
   assert(result:find(" context"), "context line should be unchanged")
   assert(result:find("some text"), "text outside fence should be unchanged")
   assert(result:find("more text"), "text after fence should be unchanged")
