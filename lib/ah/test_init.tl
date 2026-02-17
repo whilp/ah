@@ -517,4 +517,82 @@ local function test_parse_args_sandbox_with_allow_host()
 end
 test_parse_args_sandbox_with_allow_host()
 
+-- Diff colorization tests
+
+local record InitDiff
+  colorize_diff_line: function(string): string
+  colorize_diff_block: function(string): string
+end
+local init_diff = require("ah.init") as InitDiff
+
+local function test_colorize_diff_line_plus()
+  local result = init_diff.colorize_diff_line("+added line")
+  assert(result == "\27[32m+added line\27[0m", "plus line should be green, got: " .. result)
+  print("✓ colorize_diff_line: + lines green")
+end
+test_colorize_diff_line_plus()
+
+local function test_colorize_diff_line_minus()
+  local result = init_diff.colorize_diff_line("-removed line")
+  assert(result == "\27[31m-removed line\27[0m", "minus line should be red, got: " .. result)
+  print("✓ colorize_diff_line: - lines red")
+end
+test_colorize_diff_line_minus()
+
+local function test_colorize_diff_line_hunk()
+  local result = init_diff.colorize_diff_line("@@ -1,3 +1,4 @@")
+  assert(result == "\27[36m@@ -1,3 +1,4 @@\27[0m", "hunk header should be cyan, got: " .. result)
+  print("✓ colorize_diff_line: @@ lines cyan")
+end
+test_colorize_diff_line_hunk()
+
+local function test_colorize_diff_line_header_plus()
+  local result = init_diff.colorize_diff_line("+++ b/file.txt")
+  assert(result == "\27[1m+++ b/file.txt\27[0m", "+++ header should be bold, got: " .. result)
+  print("✓ colorize_diff_line: +++ lines bold")
+end
+test_colorize_diff_line_header_plus()
+
+local function test_colorize_diff_line_header_minus()
+  local result = init_diff.colorize_diff_line("--- a/file.txt")
+  assert(result == "\27[1m--- a/file.txt\27[0m", "--- header should be bold, got: " .. result)
+  print("✓ colorize_diff_line: --- lines bold")
+end
+test_colorize_diff_line_header_minus()
+
+local function test_colorize_diff_line_plain()
+  local result = init_diff.colorize_diff_line(" context line")
+  assert(result == " context line", "context line should be unchanged, got: " .. result)
+  print("✓ colorize_diff_line: plain lines unchanged")
+end
+test_colorize_diff_line_plain()
+
+local function test_colorize_diff_block()
+  local input = "some text\n```diff\n+added\n-removed\n context\n```\nmore text\n"
+  local result = init_diff.colorize_diff_block(input)
+  assert(result:find("\27%[32m%+added\27%[0m"), "should colorize + line green in diff fence")
+  assert(result:find("\27%[31m%-removed\27%[0m"), "should colorize - line red in diff fence")
+  assert(result:find(" context"), "context line should be unchanged")
+  assert(result:find("some text"), "text outside fence should be unchanged")
+  assert(result:find("more text"), "text after fence should be unchanged")
+  print("✓ colorize_diff_block: full block with ```diff fence")
+end
+test_colorize_diff_block()
+
+local function test_colorize_diff_block_no_fence()
+  local input = "just some text\n+not a diff\n-also not\n"
+  local result = init_diff.colorize_diff_block(input)
+  assert(not result:find("\27"), "should not add ANSI codes outside diff fence, got: " .. result)
+  print("✓ colorize_diff_block: no fence means no colorization")
+end
+test_colorize_diff_block_no_fence()
+
+local function test_colorize_diff_block_other_fence()
+  local input = "```python\n+not a diff\n-also not\n```\n"
+  local result = init_diff.colorize_diff_block(input)
+  assert(not result:find("\27"), "should not colorize non-diff fences, got: " .. result)
+  print("✓ colorize_diff_block: non-diff fence unchanged")
+end
+test_colorize_diff_block_other_fence()
+
 print("all init tests passed")
