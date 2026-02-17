@@ -203,11 +203,13 @@ ci: test check-types
 .PHONY: check
 check: ci
 
+$(o)/bin/SHA256SUMS: $(o)/bin/ah $(o)/bin/ah-debug
+	@cd $(o)/bin && sha256sum ah ah-debug > SHA256SUMS
+
 .PHONY: release
 ## Create GitHub release with ah and ah-debug binaries
 ## Set RELEASE=1 for a full release (default is prerelease)
-release: $(o)/bin/ah $(o)/bin/ah-debug
-	@cd $(o)/bin && sha256sum ah ah-debug > SHA256SUMS
+release: $(o)/bin/SHA256SUMS
 	@tag=$(ah_version); \
 	echo "==> creating release $$tag"; \
 	gh release delete "$$tag" --yes 2>/dev/null || true; \

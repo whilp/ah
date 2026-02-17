@@ -23,36 +23,8 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Build
-        run: make -j ah ah-debug
-
-      - name: Generate checksums
-        run: |
-          cd o/bin
-          sha256sum ah ah-debug > SHA256SUMS
-
-      - name: Get tag
-        id: tag
-        run: |
-          if [ "${{ github.ref_type }}" = "tag" ]; then
-            echo "tag=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "tag=$(date -u +%Y-%m-%d)-$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Create release
+      - name: Release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          prerelease="--prerelease"
-          if [ "${{ github.ref_type }}" = "tag" ] || [ "${{ inputs.release }}" = "true" ]; then
-            prerelease=""
-          fi
-          gh release delete "${{ steps.tag.outputs.tag }}" --yes 2>/dev/null || true
-          gh release create "${{ steps.tag.outputs.tag }}" \
-            --title "${{ steps.tag.outputs.tag }}" \
-            --generate-notes \
-            $prerelease \
-            o/bin/ah \
-            o/bin/ah-debug \
-            o/bin/SHA256SUMS
+          RELEASE: ${{ (github.ref_type == 'tag' || inputs.release) && '1' || '' }}
+        run: make -j release
