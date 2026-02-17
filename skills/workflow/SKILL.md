@@ -94,12 +94,10 @@ Trace the error back to source code:
 
 ### 6. On failure — fix via red-green TDD
 
-Create a worktree and branch for the fix:
+Load the `worktree` skill (`skill(name="worktree")`) and use it to create
+an isolated worktree with branch `fix/<slug>`.
 
-```bash
-git worktree add ../fix-<slug> -b fix/<slug> origin/main
-cd ../fix-<slug>
-```
+Inside the worktree:
 
 #### RED: write a failing test first
 
@@ -132,43 +130,13 @@ git push -u origin fix/<slug>
 
 ### 7. Open a PR
 
-```bash
-gh pr create --fill --base main
-```
+Load the `pr` skill (`skill(name="pr")`) and use it to open a PR,
+watch CI, and handle failures.
 
-### 8. Watch CI on the PR
+### 8. Clean up
 
-```bash
-gh pr checks --watch --fail-fast
-```
-
-If checks aren't available yet, wait and retry:
-
-```bash
-sleep 15
-gh pr checks
-```
-
-Then watch the run:
-
-```bash
-gh run watch <run-id> --exit-status
-```
-
-### 9. Handle CI failure on the PR
-
-If PR checks fail:
-
-```bash
-gh run view <run-id> --log-failed
-```
-
-Diagnose, fix, commit, push, and re-watch. Repeat until green.
-
-### 10. Clean up
-
-Report the final state. If a worktree was created, note its location
-so the user can clean up later.
+Report the final state. Offer to remove the worktree (the `worktree`
+skill covers cleanup).
 
 ## Output
 

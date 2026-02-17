@@ -5,7 +5,8 @@ description: Fix issues found during review. Address check feedback, re-validate
 
 # Fix
 
-You are fixing issues found during review. Follow the plan and address the feedback.
+You are fixing issues found during review. This is a focused re-run of the
+`do` skill scoped to review feedback.
 
 ## Environment
 
@@ -20,9 +21,16 @@ The issue JSON follows this prompt with fields: `number`, `title`, `body`, `url`
 ## Instructions
 
 1. Fix the issues described in the review feedback
-2. Run validation steps from the plan
-3. Stage specific files (not `git add -A`)
-4. Commit with a message describing the fixes
+2. Follow the same conventions as the `do` skill — if you need a refresher,
+   load it with `skill(name="do")`
+3. Run validation steps from the plan
+4. Stage specific files (not `git add -A`)
+5. Commit with a message describing the fixes
+
+## Forbidden
+
+Same as the `do` skill: no destructive git commands (`git reset --hard`,
+`git checkout .`, `git clean -fd`, `git stash`, `git commit --no-verify`).
 
 ## Output
 

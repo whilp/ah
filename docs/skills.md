@@ -85,6 +85,40 @@ the agent can call `skill(name="plan")` instead of reading the skill file
 directly. the tool returns the skill body (frontmatter stripped) with a
 metadata header showing source path, base directory, and line count.
 
+## composing skills
+
+skills can reference other skills. when a skill needs behavior defined in
+another skill, it tells the agent to load that skill at runtime using the
+`skill` tool. this avoids duplicating instructions across skills.
+
+prefer runtime loading over inlining — it keeps skills small and lets the
+agent load only what it needs for the current step. use natural language
+directives:
+
+```markdown
+### 6. Create a worktree for the fix
+
+Load the `worktree` skill (`skill(name="worktree")`) and use it to create
+an isolated worktree with branch `fix/<slug>`.
+```
+
+guidelines:
+
+- **reference by name**: use `skill(name="<name>")` so the agent knows
+  exactly which tool call to make.
+- **explain what to use it for**: say what the referenced skill provides
+  in this context (e.g., "use it to create an isolated worktree").
+- **don't duplicate**: if another skill already covers the steps, reference
+  it instead of copying the instructions.
+- **keep it optional when possible**: say "if you need a refresher, load
+  skill X" for conventions the agent may already know.
+
+examples in built-in skills:
+
+- `workflow` references `worktree` for creating fix branches and `pr` for
+  opening pull requests.
+- `fix` references `do` for shared conventions (git rules, staging).
+
 ## built-in skills
 
 | skill | purpose |
