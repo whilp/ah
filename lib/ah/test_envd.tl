@@ -1,127 +1,100 @@
 #!/usr/bin/env cosmic
--- test_envd.tl: tests for env.d loading
+-- test_envd.tl: tests for env.d loading via cosmic.envd
 local fs = require("cosmic.fs")
 local cio = require("cosmic.io")
 local env = require("cosmic.env")
-local envd = require("ah.envd")
+local envd = require("cosmic.envd")
 
 local TEST_TMPDIR = os.getenv("TEST_TMPDIR") or "/tmp"
 
-local function test_load_env_dir_basic()
+local function test_load_dir_basic()
   local dir = fs.join(TEST_TMPDIR, "envd_basic")
   fs.makedirs(dir)
-  cio.barf(fs.join(dir, "AH_TEST_FOO"), "hello")
-  cio.barf(fs.join(dir, "AH_TEST_BAR"), "world\n")
+  cio.barf(fs.join(dir, "vars.env"), "AH_TEST_FOO=hello\nAH_TEST_BAR=world\n")
 
-  -- clear any existing values
   env.unset("AH_TEST_FOO")
   env.unset("AH_TEST_BAR")
 
-  local count = envd.load_env_dir(dir)
-  assert(count == 2, "should set 2 vars, got: " .. tostring(count))
+  local result = envd.load_dir(dir) as {string:any}
+  assert((result.count as integer) == 2, "should set 2 vars, got: " .. tostring(result.count))
   assert(env.get("AH_TEST_FOO") == "hello", "FOO should be hello, got: " .. tostring(env.get("AH_TEST_FOO")))
-  assert(env.get("AH_TEST_BAR") == "world", "BAR should be world (trimmed), got: " .. tostring(env.get("AH_TEST_BAR")))
+  assert(env.get("AH_TEST_BAR") == "world", "BAR should be world, got: " .. tostring(env.get("AH_TEST_BAR")))
 
   env.unset("AH_TEST_FOO")
   env.unset("AH_TEST_BAR")
-  print("PASS test_load_env_dir_basic")
+  print("PASS test_load_dir_basic")
 end
-test_load_env_dir_basic()
+test_load_dir_basic()
 
-local function test_load_env_dir_no_overwrite()
+local function test_load_dir_no_overwrite()
   local dir = fs.join(TEST_TMPDIR, "envd_nooverwrite")
   fs.makedirs(dir)
-  cio.barf(fs.join(dir, "AH_TEST_EXIST"), "new_value")
+  cio.barf(fs.join(dir, "vars.env"), "AH_TEST_EXIST=new_value\nAH_TEST_FRESH=brand_new\n")
 
-  -- set existing value
   env.set("AH_TEST_EXIST", "old_value")
+  env.unset("AH_TEST_FRESH")
 
-  local count = envd.load_env_dir(dir)
-  assert(count == 0, "should set 0 vars (existing not overwritten), got: " .. tostring(count))
+  local result = envd.load_dir(dir) as {string:any}
+  assert((result.count as integer) == 1, "should set 1 var (existing not overwritten), got: " .. tostring(result.count))
   assert(env.get("AH_TEST_EXIST") == "old_value", "should keep old value, got: " .. tostring(env.get("AH_TEST_EXIST")))
+  assert(env.get("AH_TEST_FRESH") == "brand_new", "fresh var should be set")
 
   env.unset("AH_TEST_EXIST")
-  print("PASS test_load_env_dir_no_overwrite")
+  env.unset("AH_TEST_FRESH")
+  print("PASS test_load_dir_no_overwrite")
 end
-test_load_env_dir_no_overwrite()
+test_load_dir_no_overwrite()
 
-local function test_load_env_dir_skips_dotfiles()
-  local dir = fs.join(TEST_TMPDIR, "envd_dotfiles")
+local function test_load_dir_comments()
+  local dir = fs.join(TEST_TMPDIR, "envd_comments")
   fs.makedirs(dir)
-  cio.barf(fs.join(dir, ".hidden"), "secret")
-  cio.barf(fs.join(dir, "AH_TEST_VISIBLE"), "visible")
+  cio.barf(fs.join(dir, "vars.env"), "# a comment\nAH_TEST_COMMENTED=value\n")
 
-  env.unset("AH_TEST_VISIBLE")
+  env.unset("AH_TEST_COMMENTED")
 
-  local count = envd.load_env_dir(dir)
-  assert(count == 1, "should set 1 var (skip dotfile), got: " .. tostring(count))
-  assert(env.get("AH_TEST_VISIBLE") == "visible", "VISIBLE should be set")
-  assert(not env.get(".hidden"), "dotfile should not be set as env var")
+  local result = envd.load_dir(dir) as {string:any}
+  assert((result.count as integer) == 1, "should set 1 var, got: " .. tostring(result.count))
+  assert(env.get("AH_TEST_COMMENTED") == "value", "should set value, got: " .. tostring(env.get("AH_TEST_COMMENTED")))
 
-  env.unset("AH_TEST_VISIBLE")
-  print("PASS test_load_env_dir_skips_dotfiles")
+  env.unset("AH_TEST_COMMENTED")
+  print("PASS test_load_dir_comments")
 end
-test_load_env_dir_skips_dotfiles()
+test_load_dir_comments()
 
-local function test_load_env_dir_skips_invalid_names()
-  local dir = fs.join(TEST_TMPDIR, "envd_invalid")
+local function test_load_dir_missing()
+  local result = envd.load_dir("/nonexistent/path/env.d") as {string:any}
+  assert((result.count as integer) == 0, "missing dir should return count 0, got: " .. tostring(result.count))
+  print("PASS test_load_dir_missing")
+end
+test_load_dir_missing()
+
+local function test_load_embedded()
+  -- load() reads /zip/embed/env.d/ which is empty in test context
+  local result = envd.load() as {string:any}
+  assert((result.count as integer) == 0, "embedded env.d should be empty in tests, got: " .. tostring(result.count))
+  assert((result.source as string) == "/zip/embed/env.d", "source should be /zip/embed/env.d, got: " .. tostring(result.source))
+  print("PASS test_load_embedded")
+end
+test_load_embedded()
+
+local function test_load_dir_multiple_files()
+  local dir = fs.join(TEST_TMPDIR, "envd_multi")
   fs.makedirs(dir)
-  cio.barf(fs.join(dir, "invalid-name"), "bad")
-  cio.barf(fs.join(dir, "also.bad"), "bad")
-  cio.barf(fs.join(dir, "123start"), "bad")
-  cio.barf(fs.join(dir, "VALID_NAME"), "good")
+  cio.barf(fs.join(dir, "auth.env"), "AH_TEST_KEY=secret\n")
+  cio.barf(fs.join(dir, "config.env"), "AH_TEST_CFG=value\n")
 
-  env.unset("VALID_NAME")
+  env.unset("AH_TEST_KEY")
+  env.unset("AH_TEST_CFG")
 
-  local count = envd.load_env_dir(dir)
-  assert(count == 1, "should set 1 var (skip invalid names), got: " .. tostring(count))
-  assert(env.get("VALID_NAME") == "good", "VALID_NAME should be set")
+  local result = envd.load_dir(dir) as {string:any}
+  assert((result.count as integer) == 2, "should set 2 vars from multiple files, got: " .. tostring(result.count))
+  assert(env.get("AH_TEST_KEY") == "secret", "KEY should be set")
+  assert(env.get("AH_TEST_CFG") == "value", "CFG should be set")
 
-  env.unset("VALID_NAME")
-  print("PASS test_load_env_dir_skips_invalid_names")
+  env.unset("AH_TEST_KEY")
+  env.unset("AH_TEST_CFG")
+  print("PASS test_load_dir_multiple_files")
 end
-test_load_env_dir_skips_invalid_names()
-
-local function test_load_env_dir_skips_empty()
-  local dir = fs.join(TEST_TMPDIR, "envd_empty")
-  fs.makedirs(dir)
-  cio.barf(fs.join(dir, "AH_TEST_EMPTY"), "")
-  cio.barf(fs.join(dir, "AH_TEST_WHITESPACE"), "   \n  \n  ")
-
-  env.unset("AH_TEST_EMPTY")
-  env.unset("AH_TEST_WHITESPACE")
-
-  local count = envd.load_env_dir(dir)
-  assert(count == 0, "should set 0 vars (empty content), got: " .. tostring(count))
-
-  env.unset("AH_TEST_EMPTY")
-  env.unset("AH_TEST_WHITESPACE")
-  print("PASS test_load_env_dir_skips_empty")
-end
-test_load_env_dir_skips_empty()
-
-local function test_load_env_dir_missing()
-  local count = envd.load_env_dir("/nonexistent/path/env.d")
-  assert(count == 0, "missing dir should return 0, got: " .. tostring(count))
-  print("PASS test_load_env_dir_missing")
-end
-test_load_env_dir_missing()
-
-local function test_load_env_dir_multiline_uses_full_content()
-  local dir = fs.join(TEST_TMPDIR, "envd_multiline")
-  fs.makedirs(dir)
-  -- multiline token (e.g. a PEM key) — full content should be preserved
-  cio.barf(fs.join(dir, "AH_TEST_MULTI"), "line1\nline2\nline3")
-
-  env.unset("AH_TEST_MULTI")
-
-  local count = envd.load_env_dir(dir)
-  assert(count == 1, "should set 1 var, got: " .. tostring(count))
-  assert(env.get("AH_TEST_MULTI") == "line1\nline2\nline3", "should preserve multiline content, got: " .. tostring(env.get("AH_TEST_MULTI")))
-
-  env.unset("AH_TEST_MULTI")
-  print("PASS test_load_env_dir_multiline_uses_full_content")
-end
-test_load_env_dir_multiline_uses_full_content()
+test_load_dir_multiple_files()
 
 print("all envd tests passed")

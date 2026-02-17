@@ -19,7 +19,7 @@ local ulid = require("ulid")
 local queue = require("ah.queue")
 local sandbox = require("cosmic.sandbox")
 local util = require("ah.util")
-local envd = require("ah.envd")
+local envd = require("cosmic.envd")
 
 -- Session record for listing
 local record Session
