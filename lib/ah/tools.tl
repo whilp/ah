@@ -52,6 +52,11 @@ local function add_to_package_path(dir: string)
   end
 end
 
+-- Track whether the teal package searcher has been installed.
+-- tl.loader() registers a searcher in package.searchers so that
+-- require() inside .tl files can find other .tl modules.
+local tl_searcher_installed = false
+
 -- Load a tool module from a .tl or .lua file.
 -- Returns the loaded chunk or nil + error string.
 local function load_tool_file(tool_path: string): any, string
@@ -61,6 +66,11 @@ local function load_tool_file(tool_path: string): any, string
       return nil, "failed to read file"
     end
     local tl = require("tl") as {string:any}
+    if not tl_searcher_installed then
+      local tl_loader = tl.loader as function()
+      tl_loader()
+      tl_searcher_installed = true
+    end
     local loader = tl.load as function(string): any, string
     return loader(content)
   end
