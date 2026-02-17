@@ -15,9 +15,9 @@ TMP ?= /tmp
 export TMPDIR := $(TMP)
 
 # cosmic dependency
-cosmic_version := 2026-02-16-ce741fe
+cosmic_version := 2026-02-17-93239ce
 cosmic_url := https://github.com/whilp/cosmic/releases/download/$(cosmic_version)/cosmic-lua
-cosmic_sha := 3768aa209638248dc73e2c5d3382d896eacbfc170505ca4d1c72392af48e3b34
+cosmic_sha := f7847182ec5c1c205e34b5e99dd68ddb02e280fda0f9cad4ee7eb19fd52a4858
 cosmic := $(o)/bin/cosmic
 
 # stamp file tracks pinned version; if version changes the binary is re-fetched
@@ -37,7 +37,7 @@ $(cosmic_stamp):
 
 # cosmic-debug dependency (with debug symbols)
 cosmic_debug_url := https://github.com/whilp/cosmic/releases/download/$(cosmic_version)/cosmic-lua-debug
-cosmic_debug_sha := b07bd80b4b054b5307d7eb494f3d745ead683a9248bbaac2dce37590b17c3dc1
+cosmic_debug_sha := 517426f6327123eebf781f114646002da7b0eb969aac785e5ce2c9340f936197
 cosmic_debug := $(o)/bin/cosmic-debug
 cosmic_debug_stamp := $(o)/bin/.cosmic-debug-$(cosmic_version)
 
