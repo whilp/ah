@@ -595,4 +595,94 @@ local function test_colorize_diff_block_other_fence()
 end
 test_colorize_diff_block_other_fence()
 
+-- Tool output colorization tests
+
+local record InitTool
+  colorize_tool_line: function(string): string, boolean
+end
+local init_tool = require("ah.init") as InitTool
+
+local function test_colorize_tool_line_pass()
+  local result, colored = init_tool.colorize_tool_line("PASS test_foo")
+  assert(colored == true, "PASS should be colored")
+  assert(result == "\27[1;34mPASS test_foo\27[0m", "PASS should be blue+bold, got: " .. result)
+  print("✓ colorize_tool_line: PASS lines blue+bold")
+end
+test_colorize_tool_line_pass()
+
+local function test_colorize_tool_line_pass_prefix()
+  -- "PASSING" should also match (prefix match)
+  local result, colored = init_tool.colorize_tool_line("PASSING all tests")
+  assert(colored == true, "PASSING should be colored")
+  assert(result:find("\27%[1;34m"), "PASSING should be blue+bold")
+  print("✓ colorize_tool_line: PASSING prefix matches")
+end
+test_colorize_tool_line_pass_prefix()
+
+local function test_colorize_tool_line_fail()
+  local result, colored = init_tool.colorize_tool_line("FAIL test_bar")
+  assert(colored == true, "FAIL should be colored")
+  assert(result == "\27[1;33mFAIL test_bar\27[0m", "FAIL should be yellow+bold, got: " .. result)
+  print("✓ colorize_tool_line: FAIL lines yellow+bold")
+end
+test_colorize_tool_line_fail()
+
+local function test_colorize_tool_line_failure_prefix()
+  -- "FAILURE" should also match (prefix match)
+  local result, colored = init_tool.colorize_tool_line("FAILURE in module X")
+  assert(colored == true, "FAILURE should be colored")
+  assert(result:find("\27%[1;33m"), "FAILURE should be yellow+bold")
+  print("✓ colorize_tool_line: FAILURE prefix matches")
+end
+test_colorize_tool_line_failure_prefix()
+
+local function test_colorize_tool_line_error_lower()
+  local result, colored = init_tool.colorize_tool_line("error: something broke")
+  assert(colored == true, "error: should be colored")
+  assert(result == "\27[1;33merror: something broke\27[0m", "error: should be yellow+bold, got: " .. result)
+  print("✓ colorize_tool_line: error: lines yellow+bold")
+end
+test_colorize_tool_line_error_lower()
+
+local function test_colorize_tool_line_error_upper()
+  local result, colored = init_tool.colorize_tool_line("Error: compilation failed")
+  assert(colored == true, "Error: should be colored")
+  assert(result == "\27[1;33mError: compilation failed\27[0m", "Error: should be yellow+bold, got: " .. result)
+  print("✓ colorize_tool_line: Error: lines yellow+bold")
+end
+test_colorize_tool_line_error_upper()
+
+local function test_colorize_tool_line_exit_code()
+  local result, colored = init_tool.colorize_tool_line("exit code: 1")
+  assert(colored == true, "exit code: should be colored")
+  assert(result == "\27[1;33mexit code: 1\27[0m", "exit code: should be yellow+bold, got: " .. result)
+  print("✓ colorize_tool_line: exit code: lines yellow+bold")
+end
+test_colorize_tool_line_exit_code()
+
+local function test_colorize_tool_line_no_match()
+  local result, colored = init_tool.colorize_tool_line("just a normal line")
+  assert(colored == false, "normal line should not be colored")
+  assert(result == "just a normal line", "normal line should be unchanged, got: " .. result)
+  print("✓ colorize_tool_line: plain lines unchanged")
+end
+test_colorize_tool_line_no_match()
+
+local function test_colorize_tool_line_lowercase_pass()
+  -- "passed" (lowercase) should NOT match
+  local result, colored = init_tool.colorize_tool_line("passed all tests")
+  assert(colored == false, "lowercase 'passed' should not be colored")
+  assert(result == "passed all tests", "lowercase 'passed' should be unchanged")
+  print("✓ colorize_tool_line: lowercase 'passed' does not match")
+end
+test_colorize_tool_line_lowercase_pass()
+
+local function test_colorize_tool_line_empty()
+  local result, colored = init_tool.colorize_tool_line("")
+  assert(colored == false, "empty line should not be colored")
+  assert(result == "", "empty line should be unchanged")
+  print("✓ colorize_tool_line: empty line unchanged")
+end
+test_colorize_tool_line_empty()
+
 print("all init tests passed")

@@ -342,6 +342,23 @@ local function colorize_diff_line(line: string): string
   return line
 end
 
+-- Colorize a single tool output line with ANSI escape codes.
+-- Uses blue+bold for success (PASS) and yellow+bold for errors (FAIL, error, exit code).
+-- Uses blue/yellow instead of green/red for colorblind accessibility.
+-- Returns the line (possibly colored) and a boolean indicating if color was applied.
+local function colorize_tool_line(line: string): string, boolean
+  if line:sub(1, 4) == "PASS" then
+    return "\27[1;34m" .. line .. "\27[0m", true
+  elseif line:sub(1, 4) == "FAIL" then
+    return "\27[1;33m" .. line .. "\27[0m", true
+  elseif line:sub(1, 6) == "error:" or line:sub(1, 6) == "Error:" then
+    return "\27[1;33m" .. line .. "\27[0m", true
+  elseif line:sub(1, 10) == "exit code:" then
+    return "\27[1;33m" .. line .. "\27[0m", true
+  end
+  return line, false
+end
+
 -- Colorize diff content inside ```diff fenced code blocks.
 -- Finds ```diff ... ``` fences and applies colorize_diff_line to lines inside them.
 -- Non-diff fences and text outside fences are left unchanged.
@@ -479,12 +496,17 @@ local function make_cli_handler(skill_name: string): events.EventCallback
       end
 
     elseif t == "tool_call_end" then
-      local prefix = is_tty and "⠋ " or ""
       local indent = "  "
       local elapsed = (event.duration_ms or 0) / 1000
 
       -- Line 1: tool name and timing
-      io.stderr:write(string.format("%s%s%s (%.1fs)%s\n", DIM, prefix, event.tool_name, elapsed, RESET))
+      -- Use yellow+bold with ✗ prefix for errors, dim with ⠋ for success
+      if is_tty and event.is_error then
+        io.stderr:write(string.format("\27[1;33m✗ %s (%.1fs)\27[0m\n", event.tool_name, elapsed))
+      else
+        local prefix = is_tty and "⠋ " or ""
+        io.stderr:write(string.format("%s%s%s (%.1fs)%s\n", DIM, prefix, event.tool_name, elapsed, RESET))
+      end
 
       -- Line 2: command (for bash) or key param
       local key = event.tool_key or ""
@@ -524,6 +546,13 @@ local function make_cli_handler(skill_name: string): events.EventCallback
           if is_diff_cmd then
             local colored = colorize_diff_line(line)
             if colored ~= line then
+              io.stderr:write(string.format("%s%s%s\n", indent, colored, ""))
+            else
+              io.stderr:write(string.format("%s%s%s%s\n", DIM, indent, line, RESET))
+            end
+          elseif is_tty then
+            local colored, was_colored = colorize_tool_line(line)
+            if was_colored then
               io.stderr:write(string.format("%s%s%s\n", indent, colored, ""))
             else
               io.stderr:write(string.format("%s%s%s%s\n", DIM, indent, line, RESET))
@@ -1277,4 +1306,5 @@ return {
   usage_text = usage_text,
   colorize_diff_line = colorize_diff_line,
   colorize_diff_block = colorize_diff_block,
+  colorize_tool_line = colorize_tool_line,
 }
