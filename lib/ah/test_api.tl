@@ -275,4 +275,74 @@ local function test_build_request_non_oauth_tool_names()
 end
 test_build_request_non_oauth_tool_names()
 
+-- Tests for lazy API URL resolution
+local env = require("cosmic.env")
+
+local function test_get_api_url_default()
+  -- With no ANTHROPIC_BASE_URL set, should return the default
+  local saved = os.getenv("ANTHROPIC_BASE_URL")
+  env.unset("ANTHROPIC_BASE_URL")
+  local url = api.get_api_url()
+  assert(url == "https://api.anthropic.com/v1/messages",
+    "default API URL should be anthropic, got: " .. url)
+  if saved then env.set("ANTHROPIC_BASE_URL", saved) end
+  print("PASS test_get_api_url_default")
+end
+test_get_api_url_default()
+
+local function test_get_api_url_custom()
+  -- With ANTHROPIC_BASE_URL set, should use it (stripping trailing slash)
+  local saved = os.getenv("ANTHROPIC_BASE_URL")
+  env.set("ANTHROPIC_BASE_URL", "http://localhost:8080/")
+  local url = api.get_api_url()
+  assert(url == "http://localhost:8080/v1/messages",
+    "custom API URL should use base, got: " .. url)
+  -- Without trailing slash
+  env.set("ANTHROPIC_BASE_URL", "http://localhost:9090")
+  url = api.get_api_url()
+  assert(url == "http://localhost:9090/v1/messages",
+    "custom API URL without trailing slash, got: " .. url)
+  if saved then env.set("ANTHROPIC_BASE_URL", saved) else env.unset("ANTHROPIC_BASE_URL") end
+  print("PASS test_get_api_url_custom")
+end
+test_get_api_url_custom()
+
+local function test_get_api_url_lazy_after_env_change()
+  -- Simulate the envd.load() scenario: env var not set at first, then set later.
+  -- get_api_url should reflect the change because it reads lazily.
+  local saved = os.getenv("ANTHROPIC_BASE_URL")
+  env.unset("ANTHROPIC_BASE_URL")
+  local url1 = api.get_api_url()
+  assert(url1 == "https://api.anthropic.com/v1/messages", "before envd: default URL")
+  -- Simulate envd.load() setting the var
+  env.set("ANTHROPIC_BASE_URL", "http://litellm:4000")
+  local url2 = api.get_api_url()
+  assert(url2 == "http://litellm:4000/v1/messages",
+    "after envd: should use new base, got: " .. url2)
+  if saved then env.set("ANTHROPIC_BASE_URL", saved) else env.unset("ANTHROPIC_BASE_URL") end
+  print("PASS test_get_api_url_lazy_after_env_change")
+end
+test_get_api_url_lazy_after_env_change()
+
+local function test_get_proxy_url_none()
+  -- With no proxy env vars, should return nil
+  local saved = {
+    os.getenv("https_proxy"), os.getenv("HTTPS_PROXY"),
+    os.getenv("http_proxy"), os.getenv("HTTP_PROXY"),
+  }
+  env.unset("https_proxy")
+  env.unset("HTTPS_PROXY")
+  env.unset("http_proxy")
+  env.unset("HTTP_PROXY")
+  local url = api.get_proxy_url()
+  assert(url == nil, "no proxy vars should return nil, got: " .. tostring(url))
+  -- Restore
+  if saved[1] then env.set("https_proxy", saved[1]) end
+  if saved[2] then env.set("HTTPS_PROXY", saved[2]) end
+  if saved[3] then env.set("http_proxy", saved[3]) end
+  if saved[4] then env.set("HTTP_PROXY", saved[4]) end
+  print("PASS test_get_proxy_url_none")
+end
+test_get_proxy_url_none()
+
 print("all api tests passed")
