@@ -97,4 +97,49 @@ local function test_load_dir_multiple_files()
 end
 test_load_dir_multiple_files()
 
+-- Roundtrip test: embed env.d alongside other files, verify both survive
+local function test_embed_roundtrip()
+  local embed_mod = require("cosmic.embed")
+  local zip = require("cosmic.zip")
+
+  local tmpdir = fs.mkdtemp(fs.join(TEST_TMPDIR, "envd_roundtrip_XXXXXX"))
+
+  -- copy running exe as base
+  local exe_data = cio.slurp(arg[-1] as string)
+  assert(exe_data, "should read running executable")
+  local out = fs.join(tmpdir, "testbin")
+  cio.barf(out, exe_data)
+
+  -- single embed dir with both tools and env.d
+  local src = fs.join(tmpdir, "src")
+  fs.makedirs(fs.join(src, "embed", "tools"))
+  fs.makedirs(fs.join(src, "embed", "env.d"))
+  cio.barf(fs.join(src, "embed", "tools", "mytool.lua"), "return {}")
+  cio.barf(fs.join(src, "embed", "env.d", "auth.env"), "MY_KEY=secret\n")
+
+  local result = embed_mod.run({src}, out)
+  assert(result.ok, "embed should succeed: " .. tostring(result.message))
+
+  -- extract and verify both files present
+  local data = cio.slurp(out)
+  assert(data, "should read embedded binary")
+  local reader = zip.from(data)
+  assert(reader, "should parse zip")
+  local entries = reader:list()
+  local found_tool = false
+  local found_envd = false
+  for _, name in ipairs(entries) do
+    if name == "embed/tools/mytool.lua" then found_tool = true end
+    if name == "embed/env.d/auth.env" then found_envd = true end
+  end
+  reader:close()
+
+  assert(found_tool, "tool should survive embed")
+  assert(found_envd, "env.d file should be present")
+
+  fs.rmrf(tmpdir)
+  print("PASS test_embed_roundtrip")
+end
+test_embed_roundtrip()
+
 print("all envd tests passed")
