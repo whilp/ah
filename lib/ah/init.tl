@@ -33,25 +33,6 @@ end
 -- Global for signal handling
 global interrupted: boolean = false
 
--- Load CLAUDE.md with embedded base prepended
-local function load_claude_md(cwd: string): string
-  cwd = cwd or fs.getcwd()
-
-  -- CLAUDE.md supersedes AGENTS.md when both exist.
-  -- Projects should pick one file; CLAUDE.md is the conventional name.
-  local project_claude = cio.slurp(fs.join(cwd, "CLAUDE.md"))
-  if project_claude then
-    return "\n\n# Project Context\n\n" .. project_claude
-  end
-
-  local agents_md = cio.slurp(fs.join(cwd, "AGENTS.md"))
-  if agents_md then
-    return "\n\n# Agent Context\n\n" .. agents_md
-  end
-
-  return ""
-end
-
 local child = require("cosmic.child")
 
 -- Run a git command in cwd with a 2s timeout. Returns trimmed stdout or nil.
@@ -72,6 +53,50 @@ local function git_cmd(cwd: string, ...: string): string
   end)
   if not ok then return nil end
   return result
+end
+
+-- Return the git repo root for cwd, or nil if not in a git repo.
+local function git_toplevel(cwd: string): string
+  return git_cmd(cwd, "rev-parse", "--show-toplevel")
+end
+
+-- Load CLAUDE.md / AGENTS.md from cwd and all ancestor directories up to
+-- the git root (or filesystem root). At each directory, CLAUDE.md supersedes
+-- AGENTS.md. Results are concatenated root-first so more-specific context
+-- appears last.
+local function load_claude_md(cwd: string): string
+  cwd = cwd or fs.getcwd()
+
+  local stop = git_toplevel(cwd) or "/"
+
+  -- Collect context entries from cwd upward
+  local entries: {string} = {}
+  local dir = cwd
+  while true do
+    -- CLAUDE.md supersedes AGENTS.md per directory
+    local content = cio.slurp(fs.join(dir, "CLAUDE.md"))
+    if content then
+      entries[#entries + 1] = "\n\n# Project Context\n\n" .. content
+    else
+      local agents = cio.slurp(fs.join(dir, "AGENTS.md"))
+      if agents then
+        entries[#entries + 1] = "\n\n# Agent Context\n\n" .. agents
+      end
+    end
+
+    if dir == stop then break end
+    local parent = fs.dirname(dir)
+    if parent == dir then break end
+    dir = parent
+  end
+
+  -- Reverse so root-first (most general → most specific)
+  local reversed: {string} = {}
+  for i = #entries, 1, -1 do
+    reversed[#reversed + 1] = entries[i]
+  end
+
+  return table.concat(reversed)
 end
 
 -- Gather git context for the working directory. Each value is nil

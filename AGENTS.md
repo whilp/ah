@@ -88,8 +88,11 @@ Makefile               build system
   triggers re-fetch.
 - **releasing**: `make release` creates a GitHub prerelease (`RELEASE=1` for
   full). `.github/workflows/release.yml` runs daily and on manual dispatch.
-- **project context**: ah reads `CLAUDE.md` or `AGENTS.md` from the working
-  directory and appends it to the system prompt. `CLAUDE.md` takes precedence.
+- **project context**: ah walks from the working directory up to the git root
+  (or filesystem root), collecting `CLAUDE.md` and `AGENTS.md` files at each
+  level. At each directory, `CLAUDE.md` takes precedence over `AGENTS.md`.
+  Files are concatenated root-first so more-specific context appears last in
+  the system prompt.
 - **credentials**: set `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN`.
   ah also reads `.env` files.
 - **models**: aliases `sonnet`, `opus`, `haiku` resolve to full model names

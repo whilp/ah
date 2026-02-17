@@ -52,7 +52,7 @@ end
 test_load_agents_md()
 
 local function test_load_both_claude_and_agents_md()
-  -- CLAUDE.md supersedes AGENTS.md when both exist
+  -- CLAUDE.md supersedes AGENTS.md when both exist in the same directory
   local cwd = fs.join(TEST_TMPDIR, "cwd_both")
   fs.makedirs(cwd)
   cio.barf(fs.join(cwd, "CLAUDE.md"), "claude context")
@@ -61,10 +61,89 @@ local function test_load_both_claude_and_agents_md()
   local content = init.load_claude_md(cwd)
   assert(content:match("Project Context"), "should have CLAUDE.md header")
   assert(content:match("claude context"), "should include CLAUDE.md content")
-  assert(not content:match("Agent Context"), "should NOT have AGENTS.md header")
   assert(not content:match("agents context"), "should NOT include AGENTS.md content")
 end
 test_load_both_claude_and_agents_md()
+
+-- Ancestor walking tests
+
+local function test_load_claude_md_ancestor()
+  -- Create a git repo at root, context files at root and sub
+  local root = fs.join(TEST_TMPDIR, "ancestor_test")
+  local sub = fs.join(root, "sub")
+  local deep = fs.join(sub, "deep")
+  fs.makedirs(deep)
+
+  -- Init a git repo at root so walk stops there
+  os.execute("git init -q " .. root)
+
+  cio.barf(fs.join(root, "CLAUDE.md"), "root context")
+  cio.barf(fs.join(sub, "CLAUDE.md"), "sub context")
+
+  local content = init.load_claude_md(deep)
+  -- root context should appear before sub context (root-first)
+  local root_pos = content:find("root context", 1, true)
+  local sub_pos = content:find("sub context", 1, true)
+  assert(root_pos, "should include root CLAUDE.md")
+  assert(sub_pos, "should include sub CLAUDE.md")
+  assert(root_pos < sub_pos, "root context should appear before sub context")
+end
+test_load_claude_md_ancestor()
+
+local function test_load_claude_md_ancestor_agents()
+  -- AGENTS.md in parent, CLAUDE.md in child
+  local root = fs.join(TEST_TMPDIR, "ancestor_agents")
+  local child_dir = fs.join(root, "child")
+  fs.makedirs(child_dir)
+
+  os.execute("git init -q " .. root)
+
+  cio.barf(fs.join(root, "AGENTS.md"), "root agents")
+  cio.barf(fs.join(child_dir, "CLAUDE.md"), "child claude")
+
+  local content = init.load_claude_md(child_dir)
+  assert(content:match("Agent Context"), "should have AGENTS.md header from root")
+  assert(content:match("root agents"), "should include root AGENTS.md")
+  assert(content:match("Project Context"), "should have CLAUDE.md header from child")
+  assert(content:match("child claude"), "should include child CLAUDE.md")
+end
+test_load_claude_md_ancestor_agents()
+
+local function test_load_claude_md_ancestor_precedence()
+  -- Both CLAUDE.md and AGENTS.md in same parent: only CLAUDE.md used
+  local root = fs.join(TEST_TMPDIR, "ancestor_prec")
+  local child_dir = fs.join(root, "child")
+  fs.makedirs(child_dir)
+
+  os.execute("git init -q " .. root)
+
+  cio.barf(fs.join(root, "CLAUDE.md"), "root claude")
+  cio.barf(fs.join(root, "AGENTS.md"), "root agents")
+
+  local content = init.load_claude_md(child_dir)
+  assert(content:match("root claude"), "should include root CLAUDE.md")
+  assert(not content:match("root agents"), "should NOT include root AGENTS.md")
+end
+test_load_claude_md_ancestor_precedence()
+
+local function test_load_claude_md_stops_at_git_root()
+  -- Context above git root should NOT be included
+  local outer = fs.join(TEST_TMPDIR, "ancestor_stop")
+  local repo = fs.join(outer, "repo")
+  local inner = fs.join(repo, "inner")
+  fs.makedirs(inner)
+
+  -- Put context above the git root
+  cio.barf(fs.join(outer, "CLAUDE.md"), "outer context")
+  -- Git repo at repo/
+  os.execute("git init -q " .. repo)
+  cio.barf(fs.join(repo, "CLAUDE.md"), "repo context")
+
+  local content = init.load_claude_md(inner)
+  assert(content:match("repo context"), "should include repo CLAUDE.md")
+  assert(not content:match("outer context"), "should NOT include context above git root")
+end
+test_load_claude_md_stops_at_git_root()
 
 local function test_load_system_prompt_with_claude_md()
   local cwd = fs.join(TEST_TMPDIR, "cwd_with_claude")
