@@ -326,11 +326,66 @@ local function cmd_usage(d: db.DB)
   end
 end
 
+-- Colorize a single diff line with ANSI escape codes.
+-- Uses blue/yellow instead of green/red for colorblind accessibility.
+-- Returns the line with color prefix/suffix applied, or unchanged if not a diff line.
+local function colorize_diff_line(line: string): string
+  if line:sub(1, 3) == "+++" or line:sub(1, 3) == "---" then
+    return "\27[1m" .. line .. "\27[0m"
+  elseif line:sub(1, 2) == "@@" then
+    return "\27[36m" .. line .. "\27[0m"
+  elseif line:sub(1, 1) == "+" then
+    return "\27[34m" .. line .. "\27[0m"
+  elseif line:sub(1, 1) == "-" then
+    return "\27[33m" .. line .. "\27[0m"
+  end
+  return line
+end
+
+-- Colorize diff content inside ```diff fenced code blocks.
+-- Finds ```diff ... ``` fences and applies colorize_diff_line to lines inside them.
+-- Non-diff fences and text outside fences are left unchanged.
+local function colorize_diff_block(text: string): string
+  local result: {string} = {}
+  local in_diff_fence = false
+  local in_other_fence = false
+
+  for line in text:gmatch("([^\n]*)\n?") do
+    -- Check for fence boundaries
+    if not in_diff_fence and not in_other_fence then
+      if line:match("^```diff") then
+        in_diff_fence = true
+        table.insert(result, line)
+      elseif line:match("^```") then
+        in_other_fence = true
+        table.insert(result, line)
+      else
+        table.insert(result, line)
+      end
+    elseif in_diff_fence then
+      if line:match("^```$") or line:match("^```%s") then
+        in_diff_fence = false
+        table.insert(result, line)
+      else
+        table.insert(result, colorize_diff_line(line))
+      end
+    elseif in_other_fence then
+      if line:match("^```$") or line:match("^```%s") then
+        in_other_fence = false
+      end
+      table.insert(result, line)
+    end
+  end
+
+  return table.concat(result, "\n")
+end
+
 -- CLI display handler: renders structured events to stderr/stdout for terminal use.
 -- This is the application-layer implementation of the event callback.
 -- Other handlers (JSON logging, web UI, etc.) can be substituted.
 local function make_cli_handler(skill_name: string): events.EventCallback
   local is_tty = tty.isatty(2)
+  local is_stdout_tty = tty.isatty(1)
   local is_ci = os.getenv("GITHUB_ACTIONS") == "true"
   local DIM = is_tty and "\27[2m" or ""
   local RESET = is_tty and "\27[0m" or ""
@@ -340,7 +395,11 @@ local function make_cli_handler(skill_name: string): events.EventCallback
   -- Flush buffered agent response text to stdout
   local function flush_text()
     if #text_buffer > 0 then
-      io.write(table.concat(text_buffer))
+      local text = table.concat(text_buffer)
+      if is_stdout_tty then
+        text = colorize_diff_block(text)
+      end
+      io.write(text)
       io.flush()
       text_buffer = {}
     end
@@ -444,6 +503,14 @@ local function make_cli_handler(skill_name: string): events.EventCallback
       -- Show truncated output (first 3 lines, then count)
       local result = event.tool_output or ""
       if result ~= "" and result ~= "(no output)" then
+        -- Detect diff-like commands for colorization
+        local is_diff_cmd = false
+        if is_tty and event.tool_name == "bash" and key ~= "" then
+          is_diff_cmd = key:match("diff") ~= nil
+            or key:match("show") ~= nil
+            or key:match("log %-p") ~= nil
+        end
+
         local lines: {string} = {}
         for line in result:gmatch("[^\n]+") do
           table.insert(lines, line)
@@ -454,7 +521,16 @@ local function make_cli_handler(skill_name: string): events.EventCallback
           if #line > 80 then
             line = line:sub(1, 77) .. "..."
           end
-          io.stderr:write(string.format("%s%s%s%s\n", DIM, indent, line, RESET))
+          if is_diff_cmd then
+            local colored = colorize_diff_line(line)
+            if colored ~= line then
+              io.stderr:write(string.format("%s%s%s\n", indent, colored, ""))
+            else
+              io.stderr:write(string.format("%s%s%s%s\n", DIM, indent, line, RESET))
+            end
+          else
+            io.stderr:write(string.format("%s%s%s%s\n", DIM, indent, line, RESET))
+          end
         end
         if #lines > max_lines then
           io.stderr:write(string.format("%s%s... (%d more lines)%s\n", DIM, indent, #lines - max_lines, RESET))
@@ -1199,4 +1275,6 @@ return {
   parse_protect_dirs = parse_protect_dirs,
   parse_unveil_entry = parse_unveil_entry,
   usage_text = usage_text,
+  colorize_diff_line = colorize_diff_line,
+  colorize_diff_block = colorize_diff_block,
 }
