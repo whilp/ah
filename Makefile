@@ -101,7 +101,7 @@ help:
 	@echo "  build               Build all files"
 	@echo "  ah                  Build ah executable archive"
 	@echo "  ah-debug            Build ah executable archive with debug symbols"
-	@echo "  release             Create GitHub release with ah and ah-debug"
+	@echo "  release             Create GitHub prerelease (RELEASE=1 for full)"
 	@echo "  check-types         Run teal type checker on all files"
 	@echo "  ci                  Run tests and type checks"
 	@echo "  clean               Remove all build artifacts"
@@ -205,16 +205,18 @@ check: ci
 
 .PHONY: release
 ## Create GitHub release with ah and ah-debug binaries
+## Set RELEASE=1 for a full release (default is prerelease)
 release: $(o)/bin/ah $(o)/bin/ah-debug
 	@tag=$(ah_version); \
 	sha_ah=$$(sha256sum $(o)/bin/ah | awk '{print $$1}'); \
 	sha_dbg=$$(sha256sum $(o)/bin/ah-debug | awk '{print $$1}'); \
 	printf 'ah      %s\nah-debug %s\n' "$$sha_ah" "$$sha_dbg" > $(o)/bin/SHA256SUMS; \
 	echo "==> creating release $$tag"; \
+	gh release delete "$$tag" --yes 2>/dev/null || true; \
 	gh release create "$$tag" \
 		--title "$$tag" \
-		--prerelease \
 		--generate-notes \
+		$(if $(filter 1,$(RELEASE)),,--prerelease) \
 		$(o)/bin/ah \
 		$(o)/bin/ah-debug \
 		$(o)/bin/SHA256SUMS

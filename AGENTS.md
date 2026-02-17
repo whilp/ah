@@ -11,7 +11,7 @@ make test          # run tests only
 make check-types   # type checks only
 make build         # compile .tl → .lua
 make ah            # build executable
-make release       # create GitHub release with ah + ah-debug
+make release       # create GitHub prerelease (RELEASE=1 for full)
 ```
 
 use `make ci` as the default validation command after changes.
