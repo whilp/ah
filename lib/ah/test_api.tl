@@ -214,6 +214,7 @@ local function test_resolve_model()
   -- Aliases should resolve to full names
   assert(api.resolve_model("sonnet") == "claude-sonnet-4-5-20250929", "sonnet alias")
   assert(api.resolve_model("opus") == "claude-opus-4-6", "opus alias")
+  assert(api.resolve_model("opus-1m") == "claude-opus-4-6-1m", "opus-1m alias")
   assert(api.resolve_model("haiku") == "claude-haiku-4-5-20251001", "haiku alias")
   -- Full names should pass through
   assert(api.resolve_model("claude-sonnet-4-5-20250929") == "claude-sonnet-4-5-20250929", "full name passthrough")

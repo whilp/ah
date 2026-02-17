@@ -238,7 +238,7 @@ options:
   -S, --session ULID  use specific session (prefix match)
   --name NAME         set or match session by name
   --db PATH           use custom database path (default: .ah/<ulid>.db)
-  -m, --model MODEL   set model (default: sonnet)
+  -m, --model MODEL   set model (default: opus, or AH_MODEL env)
   -o, --output FILE   output file (used with embed)
   --steer MSG         send steering message to running session
   --followup MSG      queue followup message for after session completes
@@ -1264,8 +1264,8 @@ local function main(args: {string}): integer, string
     queue.release_lock(qdb)
   end)
 
-  -- Resolve model alias
-  local effective_model = api.resolve_model(model)
+  -- Resolve model: --model flag > AH_MODEL env > default
+  local effective_model = api.resolve_model(model or os.getenv("AH_MODEL"))
 
   -- Run agent with CLI event handler
   local on_event = make_cli_handler(parsed.skill)
