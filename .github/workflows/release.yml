@@ -1,8 +1,14 @@
 name: release
 
 on:
-  push:
-    tags: ["*"]
+  schedule:
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+    inputs:
+      release:
+        description: 'Create a full release (not prerelease)'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -13,7 +19,8 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
-      - name: Build and release
-        run: make -j release
+      - name: Release
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE: ${{ inputs.release && '1' || '' }}
+        run: make -j release
