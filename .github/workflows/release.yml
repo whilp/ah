@@ -1,8 +1,6 @@
 name: release
 
 on:
-  push:
-    tags: ["*"]
   schedule:
     - cron: '0 0 * * *'
   workflow_dispatch:
@@ -20,11 +18,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-        with:
-          fetch-depth: 0
 
       - name: Release
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE: ${{ (github.ref_type == 'tag' || inputs.release) && '1' || '' }}
+          RELEASE: ${{ inputs.release && '1' || '' }}
         run: make -j release

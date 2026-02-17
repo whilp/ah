@@ -87,9 +87,8 @@ Makefile               build system
   (`cosmic_version`, `cosmic_sha`). a stamp file (`o/bin/.cosmic-<version>`)
   triggers re-fetch when the version changes. if you update `cosmic_version`,
   update the sha too. run `make clean && make ci` after bumping.
-- **releasing**: push a tag to trigger `.github/workflows/release.yml` (full
-  release), or dispatch it manually for a prerelease. daily prereleases run
-  on schedule. `make release` works locally (requires `gh` CLI and `GH_TOKEN`).
+- **releasing**: `make release` creates a GitHub prerelease (`RELEASE=1` for
+  full). `.github/workflows/release.yml` runs daily and on manual dispatch.
 - **project context**: ah reads `CLAUDE.md` or `AGENTS.md` from the working
   directory and appends it to the system prompt. `CLAUDE.md` takes precedence.
 - **credentials**: set `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN`.
