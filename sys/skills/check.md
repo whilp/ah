@@ -19,7 +19,14 @@ Read `o/work/plan/plan.md` for the plan. Read `o/work/do/do.md` for the executio
    ```
 2. Run validation steps from the plan
 3. Check for unintended changes
-4. Write your assessment
+4. If the changes add features, change behavior, or modify CLI flags/commands,
+   check whether documentation updates are needed:
+   - README.md or project docs
+   - help text / usage strings
+   - code comments on public interfaces
+   - skill files (sys/skills/*.md) if the change affects a skill's workflow
+   Flag missing docs as Suggestions, not Warnings — not all projects maintain docs.
+5. Write your assessment
 
 ## Output
 
