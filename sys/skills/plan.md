@@ -45,7 +45,18 @@ Write `o/work/plan/plan.md`:
     # Plan: <issue title>
 
     ## Context
-    <gathered context from files, inline>
+
+    ### Files Retrieved
+    - <path/to/file.ext> — <why it's relevant>
+
+    ### Key Code
+    <specific functions, types, or patterns that matter for this change>
+
+    ### Architecture
+    <how the relevant pieces connect>
+
+    ### Start Here
+    <the specific function/file where changes should begin>
 
     ## Goal
     <one sentence summary of what this change achieves>
