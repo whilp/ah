@@ -1,4 +1,4 @@
-cosmic_url := https://github.com/whilp/cosmic/releases/download/2026-02-17-4946a7c/cosmic-lua
-cosmic_sha := 1fe111c317425a389bbaea2ecb068cc9223c4502c2b98763546600ac82350049
-cosmic_debug_url := https://github.com/whilp/cosmic/releases/download/2026-02-17-4946a7c/cosmic-lua-debug
-cosmic_debug_sha := 960c856b3f9ee6a9511331d427b4c5b373cc5a59b20edcfc4612b8c2a33c13fc
+cosmic_url := https://github.com/whilp/cosmic/releases/download/2026-02-17-9d592ee/cosmic-lua
+cosmic_sha := 93380f198bd0e6f75887835bdcc9e8255009eb29e08373591ca8c2d8567d11bc
+cosmic_debug_url := https://github.com/whilp/cosmic/releases/download/2026-02-17-9d592ee/cosmic-lua-debug
+cosmic_debug_sha := 03e6d8f3972750779e7dbc3e73feb3794e7fae9987fe71b15dbc59fb8755e53d
