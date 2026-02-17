@@ -68,6 +68,10 @@ are collected into `o/test-summary.txt` via `lib/build/reporter.tl`.
 
 embedded files are accessible at runtime under `/zip/embed/`.
 
+users can overlay additional files with `ah embed <dir>`. notably,
+`env.d/` files (`KEY=VALUE` format) are loaded at startup to set
+environment variables (e.g. API keys). see AGENTS.md for usage.
+
 ## cosmic dependency
 
 ah depends on [cosmic](https://github.com/whilp/cosmic), a lua runtime.

@@ -91,7 +91,21 @@ Makefile               build system
 - **project context**: ah reads `CLAUDE.md` or `AGENTS.md` from the working
   directory and appends it to the system prompt. `CLAUDE.md` takes precedence.
 - **credentials**: set `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN`.
-  ah also reads `.env` files.
+  ah also reads `.env` files. credentials can be embedded via `env.d/`
+  (see below).
+- **env.d**: embed environment variables into the executable. create a
+  directory with `KEY=VALUE` files (`.env` format), then `ah embed <dir>`
+  where `<dir>` contains an `env.d/` subdirectory. on startup, ah loads
+  all files from `/zip/embed/env.d/` and sets variables that aren't already
+  in the environment. real env vars always take precedence. each
+  `ah embed` replaces all previously embedded files, so to add env.d to
+  an existing binary, extract first:
+  ```sh
+  ah extract myconfig
+  mkdir -p myconfig/env.d
+  echo 'ANTHROPIC_API_KEY=sk-ant-...' > myconfig/env.d/auth.env
+  ah embed myconfig
+  ```
 - **models**: aliases `sonnet`, `opus`, `haiku` resolve to full model names
   in `api.tl`. default model is `claude-opus-4-6`.
 - **accessibility**: terminal colors must be colorblind-friendly. avoid

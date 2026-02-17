@@ -19,6 +19,7 @@ local ulid = require("ulid")
 local queue = require("ah.queue")
 local sandbox = require("cosmic.sandbox")
 local util = require("ah.util")
+local envd = require("cosmic.envd")
 
 -- Session record for listing
 local record Session
@@ -749,6 +750,11 @@ local record StderrHandle
 end
 
 local function main(args: {string}): integer, string
+  -- Load embedded env.d/ variables before anything else.
+  -- This allows embedding credentials (API keys, OAuth tokens) into the
+  -- executable so they're available for auth and all subsequent logic.
+  envd.load()
+
   -- Enable core dumps for crash debugging
   -- RLIMIT_CORE = 4 on Linux, RLIM_INFINITY = -1
   proc.setrlimit(4, -1, -1)
