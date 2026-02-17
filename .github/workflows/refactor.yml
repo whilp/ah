@@ -1,0 +1,55 @@
+name: refactor
+
+on:
+  schedule:
+    - cron: '0 3 * * 1'
+  workflow_dispatch:
+
+permissions:
+  issues: write
+
+jobs:
+  refactor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Check for existing refactor issue
+        id: guard
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          count=$(gh issue list --label refactor --state open --json number --jq length)
+          if [ "$count" -gt 0 ]; then
+            echo "refactor issue already open, skipping"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Find largest file over 750 lines
+        if: steps.guard.outputs.skip != 'true'
+        id: find
+        run: |
+          largest=$(find lib/ -name '*.tl' -exec awk 'END{if(NR>750) print NR, FILENAME}' {} + | sort -rn | head -1)
+          if [ -z "$largest" ]; then
+            echo "no files over 750 lines"
+            exit 0
+          fi
+          lines=$(echo "$largest" | awk '{print $1}')
+          file=$(echo "$largest" | awk '{print $2}')
+          echo "lines=$lines" >> "$GITHUB_OUTPUT"
+          echo "file=$file" >> "$GITHUB_OUTPUT"
+
+      - name: Open refactor issue
+        if: steps.guard.outputs.skip != 'true' && steps.find.outputs.file != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          file="${{ steps.find.outputs.file }}"
+          lines="${{ steps.find.outputs.lines }}"
+          gh issue create \
+            --title "refactor: split $file ($lines lines, target <750)" \
+            --label "todo,refactor" \
+            --body "$file is $lines lines. Extract logical groups of functions into
+          separate modules to bring it under 750 lines.
+
+          Do not change functionality. Run make test to validate."
