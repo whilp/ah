@@ -95,3 +95,4 @@ metadata header showing source path, base directory, and line count.
 | fix | address check feedback, re-validate, commit |
 | analyze-session | analyze session.db for agent friction |
 | init | generate agent-friendly documentation |
+| write-skill | write a new ah skill with correct format and conventions |
