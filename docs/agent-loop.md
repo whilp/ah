@@ -27,8 +27,8 @@ user prompt
 `api.tl` handles streaming requests to the Claude Messages API.
 
 - endpoint: `https://api.anthropic.com/v1/messages`
-- default model: `claude-opus-4-6-1m`
-- aliases: `sonnet` → `claude-sonnet-4-5-20250929`, `opus` → `claude-opus-4-6-1m`, `haiku` → `claude-haiku-4-5-20251001`
+- default model: `claude-opus-4-6`
+- aliases: `sonnet` → `claude-sonnet-4-5-20250929`, `opus` → `claude-opus-4-6`, `opus-1m` → `claude-opus-4-6-1m`, `haiku` → `claude-haiku-4-5-20251001`
 - max retries: 3, with exponential backoff (1s base, 60s max)
 - supports OAuth tokens (Claude Max) and API keys
 - adds `cache_control` breakpoint on the last content block for prompt caching

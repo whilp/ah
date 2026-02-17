@@ -93,7 +93,7 @@ Makefile               build system
 - **credentials**: set `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN`.
   ah also reads `.env` files.
 - **models**: aliases `sonnet`, `opus`, `haiku` resolve to full model names
-  in `api.tl`. default model is `claude-opus-4-6-1m`.
+  in `api.tl`. default model is `claude-opus-4-6`.
 - **accessibility**: terminal colors must be colorblind-friendly. avoid
   red/green distinctions — use blue/yellow or bold/dim instead. all visual
   indicators should be distinguishable without color (e.g. via shape, symbol,
