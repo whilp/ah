@@ -61,7 +61,7 @@ test_extract_tool_calls_mixed()
 local function test_build_request_default_model()
   local req = api.build_request({}, {}, false)
   assert(req.model == api.DEFAULT_MODEL, "should use default model")
-  assert(req.model == "claude-opus-4-6", "default model should be opus")
+  assert(req.model == "claude-opus-4-6-1m", "default model should be opus 1m")
 end
 test_build_request_default_model()
 
@@ -213,7 +213,7 @@ test_extract_retry_delay()
 local function test_resolve_model()
   -- Aliases should resolve to full names
   assert(api.resolve_model("sonnet") == "claude-sonnet-4-5-20250929", "sonnet alias")
-  assert(api.resolve_model("opus") == "claude-opus-4-6", "opus alias")
+  assert(api.resolve_model("opus") == "claude-opus-4-6-1m", "opus alias")
   assert(api.resolve_model("haiku") == "claude-haiku-4-5-20251001", "haiku alias")
   -- Full names should pass through
   assert(api.resolve_model("claude-sonnet-4-5-20250929") == "claude-sonnet-4-5-20250929", "full name passthrough")
