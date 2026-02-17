@@ -83,10 +83,9 @@ Makefile               build system
 - **validation**: always run `make ci` before committing. it runs tests and
   type checks in parallel.
 - **build output**: everything goes under `o/`. never commit `o/`.
-- **cosmic dependency**: cosmic version is pinned in `Makefile`
-  (`cosmic_version`, `cosmic_sha`). a stamp file (`o/bin/.cosmic-<version>`)
-  triggers re-fetch when the version changes. if you update `cosmic_version`,
-  update the sha too. run `make clean && make ci` after bumping.
+- **cosmic dependency**: cosmic is pinned by URL and sha256 in `deps/cosmic.mk`
+  and `deps/cosmic-debug.mk`, included by the Makefile. binaries depend on
+  their `.mk` file — changing it triggers re-fetch.
 - **releasing**: `make release` creates a GitHub prerelease (`RELEASE=1` for
   full). `.github/workflows/release.yml` runs daily and on manual dispatch.
 - **project context**: ah reads `CLAUDE.md` or `AGENTS.md` from the working
