@@ -3,7 +3,6 @@
 
 local sandbox = require("cosmic.sandbox")
 local child = require("cosmic.child")
-local env = require("cosmic.env")
 local fs = require("cosmic.fs")
 
 print("=== Bash Sandbox Test ===")
@@ -37,10 +36,8 @@ print("sandbox applied")
 
 -- Test 1: spawn with absolute paths works in sandbox
 print("\nTest 1: absolute paths")
-local all_env = env.all() as {string}
 local handle, err = child.spawn(
-  {"/usr/bin/timeout", "5", "/usr/bin/bash", "-c", "echo hello"},
-  {env = all_env}
+  {"/usr/bin/timeout", "5", "/usr/bin/bash", "-c", "echo hello"}
 )
 assert(handle, "spawn with absolute paths should succeed: " .. tostring(err))
 
@@ -86,8 +83,7 @@ print("✓ find_executable resolves: bash=" .. bash_path .. ", timeout=" .. time
 -- Test 3: resolved paths work in sandbox
 print("\nTest 3: resolved paths in sandbox")
 local handle2, err2 = child.spawn(
-  {timeout_path, "5", bash_path, "-c", "echo resolved"},
-  {env = all_env}
+  {timeout_path, "5", bash_path, "-c", "echo resolved"}
 )
 assert(handle2, "spawn with resolved paths should succeed: " .. tostring(err2))
 

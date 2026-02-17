@@ -4,7 +4,6 @@ local cio = require("cosmic.io")
 local child = require("cosmic.child")
 local signal = require("cosmic.signal")
 local time = require("cosmic.time")
-local env = require("cosmic.env")
 
 local record ToolDetails
   path: string
@@ -123,7 +122,7 @@ end
 
 -- Check if a file is executable
 local function is_executable(path: string): boolean
-  local handle, err = child.spawn({"test", "-x", path}, {env = env.all() as {string}})
+  local handle, err = child.spawn({"test", "-x", path})
   if not handle then return false end
   local _, _, exit_str = handle:read()
   return tonumber(exit_str) == 0
@@ -204,7 +203,7 @@ local function load_cli_tools_from_dir(dir: string): {Tool}
       end
     else
       -- Try --help
-      local handle = child.spawn({bin_path, "--help"}, {env = env.all() as {string}})
+      local handle = child.spawn({bin_path, "--help"})
       if handle then
         local _, stdout = handle:read()
         if stdout and stdout ~= "" then
@@ -238,7 +237,7 @@ local function load_cli_tools_from_dir(dir: string): {Tool}
           shell_cmd = shell_cmd .. " " .. args_str
         end
 
-        local handle, err = child.spawn({os.getenv("AH_SHELL") or "bash", "-c", shell_cmd}, {env = env.all() as {string}})
+        local handle, err = child.spawn({os.getenv("AH_SHELL") or "bash", "-c", shell_cmd})
         if not handle then
           return "error: failed to spawn: " .. tostring(err), true, nil
         end
@@ -397,7 +396,7 @@ local function add_tool_override(name: string, cmd: string)
         shell_cmd = shell_cmd .. " " .. args_str
       end
 
-      local handle, spawn_err = child.spawn({os.getenv("AH_SHELL") or "bash", "-c", shell_cmd}, {env = env.all() as {string}})
+      local handle, spawn_err = child.spawn({os.getenv("AH_SHELL") or "bash", "-c", shell_cmd})
       if not handle then
         return "error: failed to spawn: " .. tostring(spawn_err), true, nil
       end

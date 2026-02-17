@@ -15,33 +15,43 @@ TMP ?= /tmp
 export TMPDIR := $(TMP)
 
 # cosmic dependency
-cosmic_version := 2026-02-16-0069f69
+cosmic_version := 2026-02-16-ce741fe
 cosmic_url := https://github.com/whilp/cosmic/releases/download/$(cosmic_version)/cosmic-lua
-cosmic_sha := 08ad1421cfa3cada2530e00b47bb31067b97936ca29f4c9607256bb325a31a59
+cosmic_sha := 3768aa209638248dc73e2c5d3382d896eacbfc170505ca4d1c72392af48e3b34
 cosmic := $(o)/bin/cosmic
+
+# stamp file tracks pinned version; if version changes the binary is re-fetched
+cosmic_stamp := $(o)/bin/.cosmic-$(cosmic_version)
 
 .PHONY: cosmic
 cosmic: $(cosmic)
-$(cosmic):
+$(cosmic): $(cosmic_stamp)
+$(cosmic_stamp):
 	@mkdir -p $(@D)
+	@rm -f $(cosmic) $(o)/bin/.cosmic-*
 	@echo "==> fetching cosmic $(cosmic_version)"
-	@curl -fsSL -o $@ $(cosmic_url)
-	@echo "$(cosmic_sha)  $@" | sha256sum -c - >/dev/null
-	@chmod +x $@
+	@curl -fsSL -o $(cosmic) $(cosmic_url)
+	@echo "$(cosmic_sha)  $(cosmic)" | sha256sum -c - >/dev/null
+	@chmod +x $(cosmic)
+	@touch $@
 
 # cosmic-debug dependency (with debug symbols)
 cosmic_debug_url := https://github.com/whilp/cosmic/releases/download/$(cosmic_version)/cosmic-lua-debug
-cosmic_debug_sha := 32e813d9425aa98481432017807ab29217a6654e1e2db3af14c20344064c4067
+cosmic_debug_sha := b07bd80b4b054b5307d7eb494f3d745ead683a9248bbaac2dce37590b17c3dc1
 cosmic_debug := $(o)/bin/cosmic-debug
+cosmic_debug_stamp := $(o)/bin/.cosmic-debug-$(cosmic_version)
 
 .PHONY: cosmic-debug
 cosmic-debug: $(cosmic_debug)
-$(cosmic_debug):
+$(cosmic_debug): $(cosmic_debug_stamp)
+$(cosmic_debug_stamp):
 	@mkdir -p $(@D)
+	@rm -f $(cosmic_debug) $(o)/bin/.cosmic-debug-*
 	@echo "==> fetching cosmic-debug $(cosmic_version)"
-	@curl -fsSL -o $@ $(cosmic_debug_url)
-	@echo "$(cosmic_debug_sha)  $@" | sha256sum -c - >/dev/null
-	@chmod +x $@
+	@curl -fsSL -o $(cosmic_debug) $(cosmic_debug_url)
+	@echo "$(cosmic_debug_sha)  $(cosmic_debug)" | sha256sum -c - >/dev/null
+	@chmod +x $(cosmic_debug)
+	@touch $@
 
 reporter := $(cosmic) lib/build/reporter.tl
 
@@ -91,6 +101,7 @@ help:
 	@echo "  build               Build all files"
 	@echo "  ah                  Build ah executable archive"
 	@echo "  ah-debug            Build ah executable archive with debug symbols"
+	@echo "  release             Create GitHub release with ah and ah-debug"
 	@echo "  check-types         Run teal type checker on all files"
 	@echo "  ci                  Run tests and type checks"
 	@echo "  clean               Remove all build artifacts"
@@ -191,6 +202,22 @@ ci: test check-types
 
 .PHONY: check
 check: ci
+
+.PHONY: release
+## Create GitHub release with ah and ah-debug binaries
+release: $(o)/bin/ah $(o)/bin/ah-debug
+	@tag=$(ah_version); \
+	sha_ah=$$(sha256sum $(o)/bin/ah | awk '{print $$1}'); \
+	sha_dbg=$$(sha256sum $(o)/bin/ah-debug | awk '{print $$1}'); \
+	printf 'ah      %s\nah-debug %s\n' "$$sha_ah" "$$sha_dbg" > $(o)/bin/SHA256SUMS; \
+	echo "==> creating release $$tag"; \
+	gh release create "$$tag" \
+		--title "$$tag" \
+		--prerelease \
+		--generate-notes \
+		$(o)/bin/ah \
+		$(o)/bin/ah-debug \
+		$(o)/bin/SHA256SUMS
 
 
 .PHONY: clean

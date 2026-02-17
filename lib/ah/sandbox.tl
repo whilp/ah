@@ -4,7 +4,6 @@
 -- builds the child environment, and provides stdin preparation.
 
 local spawn = require("cosmic.child")
-local env = require("cosmic.env")
 local cfs = require("cosmic.fs")
 local time = require("cosmic.time")
 local signal = require("cosmic.signal")
@@ -70,7 +69,7 @@ local function start_sandbox(): SandboxCtx, string
   end
 
   if pid == 0 then
-    require("cosmic.proc").execve(exe, {exe, "proxy", socket_path}, env.all() as {string})
+    require("cosmic.proc").execve(exe, {exe, "proxy", socket_path}, require("cosmo.unix").environ())
     os.exit(1)
   end
 

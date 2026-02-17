@@ -1,6 +1,5 @@
 -- sys/tools/bash.tl: bash command execution tool
 local child = require("cosmic.child")
-local env = require("cosmic.env")
 
 -- Track running process handles for abort cleanup.
 -- Exported as .running_processes so tools.tl can abort them.
@@ -55,8 +54,7 @@ return {
     local shell = find_executable(os.getenv("AH_SHELL") or "bash")
     local timeout_cmd = find_executable("timeout")
     local handle, err = child.spawn(
-      {timeout_cmd, tostring(timeout_sec), shell, "-c", command},
-      {env = env.all() as {string}}
+      {timeout_cmd, tostring(timeout_sec), shell, "-c", command}
     )
     if not handle then
       return "error: failed to spawn: " .. tostring(err), true
