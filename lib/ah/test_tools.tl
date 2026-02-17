@@ -1434,4 +1434,63 @@ return {
 end
 test_skill_tool_requires_project_module()
 
+-- Test that .tl skill tools can require() .tl modules from project root (cwd)
+-- Regression: tl.loader() was never called, so the teal package searcher
+-- was not installed and require() only searched for .lua files (issue #364)
+local function test_tl_skill_tool_requires_tl_module()
+  local project = fs.join(TEST_TMPDIR, "tl_skill_cwd_require")
+  local lib_dir = fs.join(project, "lib")
+  local skill_dir = fs.join(project, "skills", "tskill")
+  local skill_tools = fs.join(skill_dir, "tools")
+  fs.makedirs(lib_dir)
+  fs.makedirs(skill_tools)
+
+  -- Shared teal library at lib/tl_shared.tl
+  cio.barf(fs.join(lib_dir, "tl_shared.tl"), [[
+local record M
+  value: function(): string
+end
+
+function M.value(): string
+  return "from-tl-shared-lib"
+end
+
+return M
+]])
+
+  -- Skill tool (.tl) that requires "lib.tl_shared"
+  cio.barf(fs.join(skill_tools, "tskill.tl"), [[
+local shared = require("lib.tl_shared")
+return {
+  name = "tskill",
+  description = "Teal skill tool that uses teal shared lib",
+  input_schema = {type = "object", properties = {}, required = {}},
+  execute = function(): string, boolean
+    return shared.value(), false
+  end,
+}
+]])
+
+  -- init with this project as cwd, then load skill tools
+  tools.init_custom_tools(project)
+
+  local orig_dir = fs.getcwd()
+  fs.chdir(project)
+
+  tools.load_skill_tools(skill_dir)
+
+  fs.chdir(orig_dir)
+
+  -- The .tl skill tool should be loaded and functional
+  local result, is_error = tools.execute_tool("tskill", {})
+  assert(not is_error, "tl skill tool should load and execute: " .. tostring(result))
+  assert(result == "from-tl-shared-lib", "tl skill tool should require tl project module: " .. result)
+
+  -- Clean up
+  package.loaded["lib.tl_shared"] = nil
+  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
+  print("✓ .tl skill tools can require() .tl modules from project root (cwd)")
+end
+test_tl_skill_tool_requires_tl_module()
+
 print("\nAll tools tests passed!")
