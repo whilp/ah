@@ -16,7 +16,6 @@ export TMPDIR := $(TMP)
 
 # dependencies
 include deps/cosmic.mk
-include deps/cosmic-debug.mk
 
 cosmic := $(o)/bin/cosmic
 
@@ -30,7 +29,7 @@ $(cosmic): deps/cosmic.mk
 
 cosmic_debug := $(o)/bin/cosmic-debug
 
-$(cosmic_debug): deps/cosmic-debug.mk
+$(cosmic_debug): deps/cosmic.mk
 	@rm -f $@
 	@mkdir -p $(@D)
 	@echo "==> fetching $(cosmic_debug_url)"

@@ -71,7 +71,7 @@ embedded files are accessible at runtime under `/zip/embed/`.
 ## cosmic dependency
 
 ah depends on [cosmic](https://github.com/whilp/cosmic), a lua runtime.
-the Makefile includes `deps/cosmic.mk` and `deps/cosmic-debug.mk` which pin
-URL and sha256. binaries depend on their `.mk` file — changing it triggers
-re-fetch. cosmic provides: sqlite, http fetch, filesystem, process management,
+the Makefile includes `deps/cosmic.mk` which pins URL and sha256 for both
+cosmic and cosmic-debug. binaries depend on the `.mk` file — changing it
+triggers re-fetch. cosmic provides: sqlite, http fetch, filesystem, process management,
 signal handling, networking, json, sandbox primitives (unveil/pledge).
