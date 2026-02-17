@@ -327,6 +327,7 @@ local function cmd_usage(d: db.DB)
 end
 
 -- Colorize a single diff line with ANSI escape codes.
+-- Uses blue/yellow instead of green/red for colorblind accessibility.
 -- Returns the line with color prefix/suffix applied, or unchanged if not a diff line.
 local function colorize_diff_line(line: string): string
   if line:sub(1, 3) == "+++" or line:sub(1, 3) == "---" then
@@ -334,9 +335,9 @@ local function colorize_diff_line(line: string): string
   elseif line:sub(1, 2) == "@@" then
     return "\27[36m" .. line .. "\27[0m"
   elseif line:sub(1, 1) == "+" then
-    return "\27[32m" .. line .. "\27[0m"
+    return "\27[34m" .. line .. "\27[0m"
   elseif line:sub(1, 1) == "-" then
-    return "\27[31m" .. line .. "\27[0m"
+    return "\27[33m" .. line .. "\27[0m"
   end
   return line
 end
