@@ -444,7 +444,6 @@ local function make_cli_handler(skill_name: string): events.EventCallback
   local text_buffer: {string} = {}
   local run_input = 0
   local run_output = 0
-  local run_cache_read = 0
   local call_count = 0
 
   -- Flush buffered agent response text to stdout
@@ -519,11 +518,9 @@ local function make_cli_handler(skill_name: string): events.EventCallback
       -- Track and display per-turn token cost with running total
       local call_in = event.input_tokens or 0
       local call_out = event.output_tokens or 0
-      local call_cache = event.cache_read_input_tokens or 0
       call_count = call_count + 1
       run_input = run_input + call_in
       run_output = run_output + call_out
-      run_cache_read = run_cache_read + call_cache
       io.stderr:write(string.format("%s+%s in / +%s out (session: %s in / %s out)%s\n",
         DIM, format_tokens(call_in), format_tokens(call_out),
         format_tokens(run_input), format_tokens(run_output), RESET))
