@@ -20,6 +20,7 @@ local queue = require("ah.queue")
 local sandbox = require("cosmic.sandbox")
 local util = require("ah.util")
 local envd = require("cosmic.envd")
+local render = require("ah.render")
 
 -- Session record for listing
 local record Session
@@ -450,7 +451,7 @@ local function make_cli_handler(skill_name: string): events.EventCallback
     if #text_buffer > 0 then
       local text = table.concat(text_buffer)
       if is_stdout_tty then
-        text = colorize_diff_block(text)
+        text = render.render_markdown(text)
       end
       io.write(text)
       io.flush()
