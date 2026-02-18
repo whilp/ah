@@ -289,6 +289,16 @@ local function cmd_sessions(cwd: string, current_ulid: string)
   end
 end
 
+-- Extract short model alias from full model name
+local function short_model(name: string): string
+  if not name then return "unknown" end
+  if name:match("sonnet") then return "sonnet"
+  elseif name:match("opus") then return "opus"
+  elseif name:match("haiku") then return "haiku"
+  else return name
+  end
+end
+
 -- Token usage summary for a session
 local function cmd_usage(d: db.DB)
   local json = require("cosmic.json")
@@ -300,15 +310,28 @@ local function cmd_usage(d: db.DB)
   local total_cache_create = 0
   local api_calls = 0
 
+  local record CallInfo
+    input: integer
+    output: integer
+    latency: integer
+    model: string
+  end
+  local calls: {CallInfo} = {}
+
   for _, e in ipairs(ev) do
     if e.details then
       local detail = json.decode(e.details) as {string:any}
       if detail then
-        total_input = total_input + ((detail.input_tokens or 0) as integer)
-        total_output = total_output + ((detail.output_tokens or 0) as integer)
+        local inp = (detail.input_tokens or 0) as integer
+        local out = (detail.output_tokens or 0) as integer
+        local lat = (detail.api_latency_ms or 0) as integer
+        local mdl = (detail.model or "unknown") as string
+        total_input = total_input + inp
+        total_output = total_output + out
         total_cache_read = total_cache_read + ((detail.cache_read_input_tokens or 0) as integer)
         total_cache_create = total_cache_create + ((detail.cache_creation_input_tokens or 0) as integer)
         api_calls = api_calls + 1
+        table.insert(calls, {input = inp, output = out, latency = lat, model = mdl})
       end
     end
   end
@@ -324,6 +347,16 @@ local function cmd_usage(d: db.DB)
   if total_input > 0 then
     local cache_pct = math.floor(total_cache_read * 100 / total_input)
     io.write(string.format("cache hit:     %d%%\n", cache_pct))
+  end
+
+  -- Per-call breakdown
+  if #calls > 0 then
+    io.write("\ncalls:\n")
+    for i, c in ipairs(calls) do
+      io.write(string.format("  #%-3d +%-6s in  +%-6s out  %4dms  %s\n",
+        i, format_tokens(c.input), format_tokens(c.output),
+        c.latency, short_model(c.model)))
+    end
   end
 end
 
@@ -409,6 +442,8 @@ local function make_cli_handler(skill_name: string): events.EventCallback
   local RESET = is_tty and "\27[0m" or ""
   local has_text = false
   local text_buffer: {string} = {}
+  local run_input = 0
+  local run_output = 0
 
   -- Flush buffered agent response text to stdout
   local function flush_text()
@@ -479,6 +514,14 @@ local function make_cli_handler(skill_name: string): events.EventCallback
     elseif t == "api_call_end" then
       -- Flush buffered agent response text now that the response is complete
       flush_text()
+      -- Track and display per-turn token cost with running total
+      local call_in = event.input_tokens or 0
+      local call_out = event.output_tokens or 0
+      run_input = run_input + call_in
+      run_output = run_output + call_out
+      io.stderr:write(string.format("%s+%s in / +%s out (session: %s in / %s out)%s\n",
+        DIM, format_tokens(call_in), format_tokens(call_out),
+        format_tokens(run_input), format_tokens(run_output), RESET))
 
     elseif t == "compaction_triggered" then
       io.stderr:write(string.format("\n%scompacting conversation (%d/%d tokens)...%s\n", DIM, event.input_tokens, event.context_limit, RESET))
