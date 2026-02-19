@@ -32,6 +32,8 @@ The issue JSON follows this prompt with fields: `number`, `title`, `body`, `url`
 
 ## Instructions
 
+Follow red/green TDD to implement the plan.
+
 1. Read the plan (or use your inline plan) and every file you intend to modify before editing
 2. If feedback.md is non-empty, fix those issues first
 3. Maintain a running list of files you modify. After each edit or write, note the file path. Use this list for staging (`git add`) and for the Changes section in do.md.
