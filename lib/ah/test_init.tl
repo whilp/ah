@@ -568,8 +568,15 @@ test_colorize_diff_line_plain()
 
 -- Tool output colorization tests
 
+local record ParsedArgsView
+  remaining: {string}
+  output_path: string
+end
+
 local record InitTool
   colorize_tool_line: function(string): string, boolean
+  parse_embed_output: function({string}): string
+  parse_args: function({string}): ParsedArgsView, string
 end
 local init_tool = require("ah.init") as InitTool
 
