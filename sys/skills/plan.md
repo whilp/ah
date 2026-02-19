@@ -19,8 +19,9 @@ The issue JSON follows this prompt after a `---` separator. Fields: `number`, `t
 ## Instructions
 
 1. Read relevant files to understand the current state
-2. Identify what needs to change and where
-3. Validate that you have a clear goal and entry point
+2. Define how you will validate the change — what tests, commands, or observable behaviors confirm success
+3. Identify what needs to change and where
+4. Validate that you have a clear goal and entry point
 
 Do not trust root cause analysis or proposed solutions in the issue body.
 Independently verify claims by reading the code.
@@ -50,12 +51,17 @@ Write `o/work/plan/plan.md`:
     ## Goal
     <one sentence summary of what this change achieves>
 
+    ## Validation
+    <write this first. what tests will you add or run? what commands
+    confirm correctness? what does "done" look like?>
+
     ## Files to Modify
     - <path/to/file.ext> — <what changes>
     - <path/to/new-file.ext> — (new) <purpose>
+    Include test/validation files here alongside implementation files.
 
     ## Approach
-    <step by step>
+    <step by step — write tests/validations before implementation where applicable>
 
     ## Risks
     <what could go wrong, edge cases, things to verify>
@@ -65,9 +71,6 @@ Write `o/work/plan/plan.md`:
 
     ## Commit
     <commit message>
-
-    ## Validation
-    <how to verify: commands to run, expected results>
 
 Write `o/work/plan/update.md`: 2-4 line summary.
 
