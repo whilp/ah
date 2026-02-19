@@ -5,7 +5,7 @@ local compact = require("ah.compact")
 -- get_context_limit tests
 
 local function test_get_context_limit_known_model()
-  local limit = compact.get_context_limit("claude-sonnet-4-5-20250929")
+  local limit = compact.get_context_limit("claude-sonnet-4-6")
   assert(limit == 200000, "sonnet context limit should be 200000: " .. tostring(limit))
   print("✓ get_context_limit known model (sonnet)")
 end
@@ -50,56 +50,56 @@ test_get_context_limit_nil_model()
 
 local function test_needs_compaction_below_threshold()
   -- 50% of 200k = 100k tokens
-  assert(not compact.needs_compaction(100000, "claude-sonnet-4-5-20250929"), "100k/200k should not trigger compaction")
+  assert(not compact.needs_compaction(100000, "claude-sonnet-4-6"), "100k/200k should not trigger compaction")
   print("✓ needs_compaction below threshold")
 end
 test_needs_compaction_below_threshold()
 
 local function test_needs_compaction_at_threshold()
   -- Exactly at 80% = 160k tokens (0.8 is not > 0.8)
-  assert(not compact.needs_compaction(160000, "claude-sonnet-4-5-20250929"), "exactly at threshold should not trigger")
+  assert(not compact.needs_compaction(160000, "claude-sonnet-4-6"), "exactly at threshold should not trigger")
   print("✓ needs_compaction at threshold boundary")
 end
 test_needs_compaction_at_threshold()
 
 local function test_needs_compaction_above_threshold()
   -- 85% = 170k tokens
-  assert(compact.needs_compaction(170000, "claude-sonnet-4-5-20250929"), "170k/200k should trigger compaction")
+  assert(compact.needs_compaction(170000, "claude-sonnet-4-6"), "170k/200k should trigger compaction")
   print("✓ needs_compaction above threshold")
 end
 test_needs_compaction_above_threshold()
 
 local function test_needs_compaction_just_above_threshold()
   -- 80.1% = 160001 tokens
-  assert(compact.needs_compaction(160001, "claude-sonnet-4-5-20250929"), "160001/200000 should trigger compaction")
+  assert(compact.needs_compaction(160001, "claude-sonnet-4-6"), "160001/200000 should trigger compaction")
   print("✓ needs_compaction just above threshold")
 end
 test_needs_compaction_just_above_threshold()
 
 local function test_needs_compaction_zero_tokens()
-  assert(not compact.needs_compaction(0, "claude-sonnet-4-5-20250929"), "zero tokens should not trigger")
+  assert(not compact.needs_compaction(0, "claude-sonnet-4-6"), "zero tokens should not trigger")
   print("✓ needs_compaction zero tokens")
 end
 test_needs_compaction_zero_tokens()
 
 local function test_needs_compaction_custom_threshold_low()
   -- 60% of 200k = 120k tokens, custom threshold 0.5
-  assert(compact.needs_compaction(120000, "claude-sonnet-4-5-20250929", 0.5), "120k at 0.5 threshold should trigger")
+  assert(compact.needs_compaction(120000, "claude-sonnet-4-6", 0.5), "120k at 0.5 threshold should trigger")
   print("✓ needs_compaction custom threshold (triggers)")
 end
 test_needs_compaction_custom_threshold_low()
 
 local function test_needs_compaction_custom_threshold_high()
   -- 80k at 0.5 threshold = 40% < 50%
-  assert(not compact.needs_compaction(80000, "claude-sonnet-4-5-20250929", 0.5), "80k at 0.5 threshold should not trigger")
+  assert(not compact.needs_compaction(80000, "claude-sonnet-4-6", 0.5), "80k at 0.5 threshold should not trigger")
   print("✓ needs_compaction custom threshold (no trigger)")
 end
 test_needs_compaction_custom_threshold_high()
 
 local function test_needs_compaction_custom_threshold_tight()
   -- Custom threshold of 0.9 (90%)
-  assert(not compact.needs_compaction(170000, "claude-sonnet-4-5-20250929", 0.9), "170k at 0.9 threshold should not trigger")
-  assert(compact.needs_compaction(190000, "claude-sonnet-4-5-20250929", 0.9), "190k at 0.9 threshold should trigger")
+  assert(not compact.needs_compaction(170000, "claude-sonnet-4-6", 0.9), "170k at 0.9 threshold should not trigger")
+  assert(compact.needs_compaction(190000, "claude-sonnet-4-6", 0.9), "190k at 0.9 threshold should trigger")
   print("✓ needs_compaction custom threshold (tight)")
 end
 test_needs_compaction_custom_threshold_tight()
@@ -142,7 +142,7 @@ end
 test_compaction_prompt_content()
 
 local function test_model_limits_all_present()
-  assert(compact.MODEL_CONTEXT_LIMITS["claude-sonnet-4-5-20250929"], "sonnet should have a limit")
+  assert(compact.MODEL_CONTEXT_LIMITS["claude-sonnet-4-6"], "sonnet should have a limit")
   assert(compact.MODEL_CONTEXT_LIMITS["claude-opus-4-6"], "opus should have a limit")
   assert(compact.MODEL_CONTEXT_LIMITS["claude-opus-4-6-1m"], "opus 1m should have a limit")
   assert(compact.MODEL_CONTEXT_LIMITS["claude-haiku-4-5-20251001"], "haiku should have a limit")

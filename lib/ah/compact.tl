@@ -9,7 +9,7 @@ local api = require("ah.api")
 
 -- Model context window limits (tokens)
 local MODEL_CONTEXT_LIMITS: {string:integer} = {
-  ["claude-sonnet-4-5-20250929"] = 200000,
+  ["claude-sonnet-4-6"] = 200000,
   ["claude-opus-4-5-20251101"] = 200000,
   ["claude-opus-4-6"] = 200000,
   ["claude-opus-4-6-1m"] = 1000000,
