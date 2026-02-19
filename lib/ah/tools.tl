@@ -112,8 +112,11 @@ local function load_custom_tools_from_dir(dir: string): {Tool}
   end
 
   for _, tool_path in pairs(candidates) do
-    local chunk, load_err = load_tool_file(tool_path)
-    if chunk then
+    local load_ok, chunk, load_err = pcall(load_tool_file, tool_path)
+    if not load_ok then
+      -- chunk holds the thrown error message when pcall catches a throw
+      io.stderr:write(string.format("warning: failed to load %s: %s\n", tool_path, tostring(chunk)))
+    elseif chunk then
       local ok, result = pcall(chunk as function(): any)
       if ok and is_valid_tool(result) then
         table.insert(loaded, result as Tool)
@@ -372,7 +375,12 @@ local function add_tool_override(name: string, cmd: string)
     local dir = cmd:match("^(.+)/[^/]+$") or "."
     add_to_package_path(dir)
 
-    local chunk, load_err = load_tool_file(cmd)
+    local load_ok, chunk, load_err = pcall(load_tool_file, cmd)
+    if not load_ok then
+      -- chunk holds the thrown error message when pcall catches a throw
+      io.stderr:write(string.format("warning: failed to load tool %s from %s: %s\n", name, cmd, tostring(chunk)))
+      return
+    end
     if not chunk then
       io.stderr:write(string.format("warning: failed to load tool %s from %s: %s\n", name, cmd, tostring(load_err)))
       return
