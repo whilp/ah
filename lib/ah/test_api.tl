@@ -213,11 +213,13 @@ test_extract_retry_delay()
 local function test_resolve_model()
   -- Aliases should resolve to full names
   assert(api.resolve_model("sonnet") == "claude-sonnet-4-6", "sonnet alias")
+  assert(api.resolve_model("sonnet-1m") == "claude-sonnet-4-6-1m", "sonnet-1m alias")
   assert(api.resolve_model("opus") == "claude-opus-4-6", "opus alias")
   assert(api.resolve_model("opus-1m") == "claude-opus-4-6-1m", "opus-1m alias")
   assert(api.resolve_model("haiku") == "claude-haiku-4-5-20251001", "haiku alias")
   -- Full names should pass through
   assert(api.resolve_model("claude-sonnet-4-6") == "claude-sonnet-4-6", "full name passthrough")
+  assert(api.resolve_model("claude-sonnet-4-6-1m") == "claude-sonnet-4-6-1m", "sonnet 4.6 1m passthrough")
   -- Unknown names should pass through
   assert(api.resolve_model("custom-model") == "custom-model", "unknown passthrough")
   -- Nil should return nil

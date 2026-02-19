@@ -66,6 +66,7 @@ local DEFAULT_MAX_TOKENS = 16384
 
 local MODELS: {string} = {
   "claude-sonnet-4-6",
+  "claude-sonnet-4-6-1m",
   "claude-opus-4-5-20251101",
   "claude-opus-4-6",
   "claude-opus-4-6-1m",
@@ -74,6 +75,7 @@ local MODELS: {string} = {
 
 local MODEL_ALIASES: {string:string} = {
   ["sonnet"] = "claude-sonnet-4-6",
+  ["sonnet-1m"] = "claude-sonnet-4-6-1m",
   ["opus"] = "claude-opus-4-6",
   ["opus-1m"] = "claude-opus-4-6-1m",
   ["haiku"] = "claude-haiku-4-5-20251001",
