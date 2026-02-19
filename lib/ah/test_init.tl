@@ -448,7 +448,7 @@ local function test_usage_text_contains_all_options()
   local defined_options = {
     "help", "new", "session", "name", "db", "model", "output",
     "steer", "followup", "max-tokens", "sandbox", "timeout",
-    "allow-host", "unveil", "skill", "must-produce",
+    "allow-host", "unveil", "skill", "must-produce", "agents",
   }
   for _, opt in ipairs(defined_options) do
     assert(help:find("--" .. opt, 1, true),
@@ -655,5 +655,51 @@ local function test_colorize_tool_line_empty()
   print("✓ colorize_tool_line: empty line unchanged")
 end
 test_colorize_tool_line_empty()
+
+-- --agents flag parsing tests
+
+local function test_parse_args_agents_single()
+  local parsed = init.parse_args({"--agents", "/tmp/foo/AGENTS.md", "hello"})
+  assert(parsed, "should parse --agents arg")
+  assert(#parsed.agents_files == 1, "should have 1 agents file, got: " .. #parsed.agents_files)
+  assert(parsed.agents_files[1] == "/tmp/foo/AGENTS.md", "agents file mismatch, got: " .. parsed.agents_files[1])
+  assert(parsed.remaining[1] == "hello", "remaining should be prompt")
+  print("✓ parse_args: --agents single")
+end
+test_parse_args_agents_single()
+
+local function test_parse_args_agents_multiple()
+  local parsed = init.parse_args({"--agents", "/tmp/foo/AGENTS.md", "--agents", "/tmp/bar/AGENTS.md", "hello"})
+  assert(parsed, "should parse multiple --agents args")
+  assert(#parsed.agents_files == 2, "should have 2 agents files, got: " .. #parsed.agents_files)
+  assert(parsed.agents_files[1] == "/tmp/foo/AGENTS.md", "first agents file")
+  assert(parsed.agents_files[2] == "/tmp/bar/AGENTS.md", "second agents file")
+  print("✓ parse_args: --agents multiple")
+end
+test_parse_args_agents_multiple()
+
+local function test_load_system_prompt_with_extra_agents()
+  local cwd = fs.join(TEST_TMPDIR, "extra_agents")
+  fs.makedirs(cwd)
+  local agents_path = fs.join(cwd, "extra_AGENTS.md")
+  cio.barf(agents_path, "# Extra\nExtra agent instructions")
+
+  local prompt = init.load_system_prompt(cwd, {agents_path})
+  assert(prompt:match("Extra agent instructions"), "should include extra agents content")
+  assert(prompt:match("Agent Context"), "should have Agent Context header for extra agents")
+  print("✓ load_system_prompt: extra agents file included")
+end
+test_load_system_prompt_with_extra_agents()
+
+local function test_load_system_prompt_extra_agents_missing_file()
+  local cwd = fs.join(TEST_TMPDIR, "extra_agents_missing")
+  fs.makedirs(cwd)
+
+  -- passing a nonexistent path should not crash
+  local prompt = init.load_system_prompt(cwd, {"/nonexistent/AGENTS.md"})
+  assert(prompt:match("Current date:"), "should still contain runtime context")
+  print("✓ load_system_prompt: missing extra agents file silently skipped")
+end
+test_load_system_prompt_extra_agents_missing_file()
 
 print("all init tests passed")
