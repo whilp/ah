@@ -405,8 +405,7 @@ local function make_cli_handler(skill_name: string): events.EventCallback
   local RESET = is_tty and "\27[0m" or ""
   local has_text = false
   local text_buffer: {string} = {}
-  local run_input = 0
-  local run_output = 0
+
 
   -- Flush buffered agent response text to stdout
   local function flush_text()
@@ -477,14 +476,6 @@ local function make_cli_handler(skill_name: string): events.EventCallback
     elseif t == "api_call_end" then
       -- Flush buffered agent response text now that the response is complete
       flush_text()
-      -- Track and display per-turn token cost with running total
-      local call_in = event.input_tokens or 0
-      local call_out = event.output_tokens or 0
-      run_input = run_input + call_in
-      run_output = run_output + call_out
-      io.stderr:write(string.format("%s+%s in / +%s out (session: %s in / %s out)%s\n",
-        DIM, format_tokens(call_in), format_tokens(call_out),
-        format_tokens(run_input), format_tokens(run_output), RESET))
 
     elseif t == "compaction_triggered" then
       io.stderr:write(string.format("\n%scompacting conversation (%d/%d tokens)...%s\n", DIM, event.input_tokens, event.context_limit, RESET))
