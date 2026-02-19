@@ -521,7 +521,6 @@ test_parse_args_sandbox_with_allow_host()
 
 local record InitDiff
   colorize_diff_line: function(string): string
-  colorize_diff_block: function(string): string
 end
 local init_diff = require("ah.init") as InitDiff
 
@@ -566,34 +565,6 @@ local function test_colorize_diff_line_plain()
   print("✓ colorize_diff_line: plain lines unchanged")
 end
 test_colorize_diff_line_plain()
-
-local function test_colorize_diff_block()
-  local input = "some text\n```diff\n+added\n-removed\n context\n```\nmore text\n"
-  local result = init_diff.colorize_diff_block(input)
-  assert(result:find("\27%[34m%+added\27%[0m"), "should colorize + line blue in diff fence")
-  assert(result:find("\27%[33m%-removed\27%[0m"), "should colorize - line yellow in diff fence")
-  assert(result:find(" context"), "context line should be unchanged")
-  assert(result:find("some text"), "text outside fence should be unchanged")
-  assert(result:find("more text"), "text after fence should be unchanged")
-  print("✓ colorize_diff_block: full block with ```diff fence")
-end
-test_colorize_diff_block()
-
-local function test_colorize_diff_block_no_fence()
-  local input = "just some text\n+not a diff\n-also not\n"
-  local result = init_diff.colorize_diff_block(input)
-  assert(not result:find("\27"), "should not add ANSI codes outside diff fence, got: " .. result)
-  print("✓ colorize_diff_block: no fence means no colorization")
-end
-test_colorize_diff_block_no_fence()
-
-local function test_colorize_diff_block_other_fence()
-  local input = "```python\n+not a diff\n-also not\n```\n"
-  local result = init_diff.colorize_diff_block(input)
-  assert(not result:find("\27"), "should not colorize non-diff fences, got: " .. result)
-  print("✓ colorize_diff_block: non-diff fence unchanged")
-end
-test_colorize_diff_block_other_fence()
 
 -- Tool output colorization tests
 

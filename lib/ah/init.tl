@@ -20,6 +20,7 @@ local queue = require("ah.queue")
 local sandbox = require("cosmic.sandbox")
 local util = require("ah.util")
 local envd = require("cosmic.envd")
+local render = require("ah.render")
 
 -- Session record for listing
 local record Session
@@ -393,44 +394,6 @@ local function colorize_tool_line(line: string): string, boolean
   return line, false
 end
 
--- Colorize diff content inside ```diff fenced code blocks.
--- Finds ```diff ... ``` fences and applies colorize_diff_line to lines inside them.
--- Non-diff fences and text outside fences are left unchanged.
-local function colorize_diff_block(text: string): string
-  local result: {string} = {}
-  local in_diff_fence = false
-  local in_other_fence = false
-
-  for line in text:gmatch("([^\n]*)\n?") do
-    -- Check for fence boundaries
-    if not in_diff_fence and not in_other_fence then
-      if line:match("^```diff") then
-        in_diff_fence = true
-        table.insert(result, line)
-      elseif line:match("^```") then
-        in_other_fence = true
-        table.insert(result, line)
-      else
-        table.insert(result, line)
-      end
-    elseif in_diff_fence then
-      if line:match("^```$") or line:match("^```%s") then
-        in_diff_fence = false
-        table.insert(result, line)
-      else
-        table.insert(result, colorize_diff_line(line))
-      end
-    elseif in_other_fence then
-      if line:match("^```$") or line:match("^```%s") then
-        in_other_fence = false
-      end
-      table.insert(result, line)
-    end
-  end
-
-  return table.concat(result, "\n")
-end
-
 -- CLI display handler: renders structured events to stderr/stdout for terminal use.
 -- This is the application-layer implementation of the event callback.
 -- Other handlers (JSON logging, web UI, etc.) can be substituted.
@@ -450,7 +413,7 @@ local function make_cli_handler(skill_name: string): events.EventCallback
     if #text_buffer > 0 then
       local text = table.concat(text_buffer)
       if is_stdout_tty then
-        text = colorize_diff_block(text)
+        text = render.render_markdown(text)
       end
       io.write(text)
       io.flush()
@@ -1354,6 +1317,5 @@ return {
   parse_unveil_entry = parse_unveil_entry,
   usage_text = usage_text,
   colorize_diff_line = colorize_diff_line,
-  colorize_diff_block = colorize_diff_block,
   colorize_tool_line = colorize_tool_line,
 }
