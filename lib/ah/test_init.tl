@@ -656,4 +656,60 @@ local function test_colorize_tool_line_empty()
 end
 test_colorize_tool_line_empty()
 
+-- parse_embed_output tests
+local function test_parse_embed_output_long_flag()
+  local out = init_tool.parse_embed_output({"--output", "o/bin/ah"})
+  assert(out == "o/bin/ah", "expected 'o/bin/ah', got: " .. tostring(out))
+  print("✓ parse_embed_output: --output <value>")
+end
+test_parse_embed_output_long_flag()
+
+local function test_parse_embed_output_short_flag()
+  local out = init_tool.parse_embed_output({"-o", "o/bin/ah"})
+  assert(out == "o/bin/ah", "expected 'o/bin/ah', got: " .. tostring(out))
+  print("✓ parse_embed_output: -o <value>")
+end
+test_parse_embed_output_short_flag()
+
+local function test_parse_embed_output_short_no_space()
+  local out = init_tool.parse_embed_output({"-oo/bin/ah"})
+  assert(out == "o/bin/ah", "expected 'o/bin/ah', got: " .. tostring(out))
+  print("✓ parse_embed_output: -o<value> (no space)")
+end
+test_parse_embed_output_short_no_space()
+
+local function test_parse_embed_output_none()
+  local out = init_tool.parse_embed_output({"somefile"})
+  assert(out == nil, "expected nil, got: " .. tostring(out))
+  print("✓ parse_embed_output: no flag returns nil")
+end
+test_parse_embed_output_none()
+
+local function test_parse_embed_output_empty()
+  local out = init_tool.parse_embed_output({})
+  assert(out == nil, "expected nil for empty args, got: " .. tostring(out))
+  print("✓ parse_embed_output: empty args returns nil")
+end
+test_parse_embed_output_empty()
+
+local function test_parse_embed_output_last_wins()
+  -- when both appear, last one wins
+  local out = init_tool.parse_embed_output({"--output", "first", "--output", "second"})
+  assert(out == "second", "expected 'second', got: " .. tostring(out))
+  print("✓ parse_embed_output: last --output wins")
+end
+test_parse_embed_output_last_wins()
+
+local function test_parse_args_embed_remaining_contains_output()
+  -- parse_args with POSIX mode: --output after embed lands in remaining
+  local parsed = init_tool.parse_args({"embed", "mydir", "--output", "o/bin/ah"})
+  assert(parsed.remaining[1] == "embed", "remaining[1] should be 'embed'")
+  assert(parsed.remaining[2] == "mydir", "remaining[2] should be 'mydir'")
+  assert(parsed.remaining[3] == "--output", "remaining[3] should be '--output'")
+  assert(parsed.remaining[4] == "o/bin/ah", "remaining[4] should be 'o/bin/ah'")
+  assert(parsed.output_path == nil, "top-level output_path should be nil")
+  print("✓ parse_args: embed --output args land in remaining, not parsed.output_path")
+end
+test_parse_args_embed_remaining_contains_output()
+
 print("all init tests passed")

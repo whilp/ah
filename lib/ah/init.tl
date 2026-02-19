@@ -746,6 +746,27 @@ local record StderrHandle
   read: function(StderrHandle): string
 end
 
+-- parse_embed_output scans args (from remaining[3:]) for -o/--output <value>
+-- and returns the last value found, or nil if not present.
+-- This handles the case where --output appears after the embed subcommand.
+local function parse_embed_output(args: {string}): string
+  local result: string = nil
+  local i = 1
+  while i <= #args do
+    local a = args[i]
+    if (a == "-o" or a == "--output") and args[i + 1] then
+      result = args[i + 1]
+      i = i + 2
+    elseif a:sub(1, 2) == "-o" and #a > 2 then
+      result = a:sub(3)
+      i = i + 1
+    else
+      i = i + 1
+    end
+  end
+  return result
+end
+
 local function main(args: {string}): integer, string
   -- Load embedded env.d/ variables before anything else.
   -- This allows embedding credentials (API keys, OAuth tokens) into the
@@ -966,11 +987,20 @@ local function main(args: {string}): integer, string
       io.stderr:write("usage: ah embed <dir> [-o <file>]\n")
       return 1
     end
+    -- Scan remaining args (after subcommand and src_dir) for -o/--output.
+    -- This allows `ah embed <dir> --output <path>` in addition to
+    -- the top-level `ah -o <path> embed <dir>` form.
+    local sub_args: {string} = {}
+    for si = 3, #remaining do
+      sub_args[#sub_args + 1] = remaining[si]
+    end
+    local sub_output = parse_embed_output(sub_args)
+    local effective_output = sub_output or output_path
     -- Create temp structure with embed/ prefix
     local tmpdir = fs.mkdtemp("/tmp/ah-embed-XXXXXX")
     local embed_link = fs.join(tmpdir, "embed")
     fs.symlink(fs.realpath(src_dir), embed_link)
-    local result = embed.run({tmpdir}, output_path)
+    local result = embed.run({tmpdir}, effective_output)
     fs.rmrf(tmpdir)
     if result.ok then
       io.write(result.message .. "\n")
@@ -1300,6 +1330,7 @@ end
 return {
   main = main,
   parse_args = parse_args,
+  parse_embed_output = parse_embed_output,
   load_system_prompt = load_system_prompt,
   load_claude_md = load_claude_md,
   list_sessions = list_sessions,
