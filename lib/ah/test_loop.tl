@@ -342,3 +342,31 @@ local function test_wrap_command_default_width()
   assert(result:find("\\\n"), "should wrap at width 80: " .. result)
 end
 test_wrap_command_default_width()
+
+local function test_wrap_command_comment_break()
+  -- Commands with # comments should break at # boundaries
+  local cmd = "# check how bin/ah works # it's a wrapper that sets env vars # Let me check grep -r embed Makefile"
+  local result = loop.wrap_command(cmd, 120, "    ")
+  -- Should break at # tokens even though line hasn't hit width limit
+  assert(result:find("\\\n"), "should contain line breaks: " .. result)
+  -- Count the lines
+  local lines = 0
+  for _ in result:gmatch("[^\n]+") do lines = lines + 1 end
+  assert(lines >= 3, "should have at least 3 lines (one per # comment): got " .. lines)
+  -- First line should start with the first # comment
+  local first_line = result:match("^([^\n]+)")
+  assert(first_line:sub(1, 1) == "#", "first line should start with #: " .. first_line)
+  -- Subsequent lines should start with indent + #
+  local second_line = result:match("\n(    #[^\n]*)")
+  assert(second_line, "second line should start with indent + #")
+end
+test_wrap_command_comment_break()
+
+local function test_wrap_command_comment_no_false_positive()
+  -- A # inside a word (no space before) should not trigger a break
+  local cmd = "echo color:#fff background:#000 border:#ccc other:#aaa"
+  local result = loop.wrap_command(cmd, 120, "    ")
+  -- These are single tokens (no space before #), so no break expected
+  assert(not result:find("\\\n"), "should not break inside tokens: " .. result)
+end
+test_wrap_command_comment_no_false_positive()
