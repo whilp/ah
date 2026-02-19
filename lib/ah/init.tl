@@ -90,9 +90,18 @@ end
 -- 1. /zip/embed/system.md (user override)
 -- 2. /zip/embed/sys/system.md (ah default)
 -- Project CLAUDE.md and AGENTS.md are always appended
-local function load_system_prompt(cwd: string): string
+local function load_system_prompt(cwd: string, extra_agents?: {string}): string
   cwd = cwd or fs.getcwd()
   local claude_md = load_claude_md(cwd)
+
+  if extra_agents then
+    for _, path in ipairs(extra_agents) do
+      local content = cio.slurp(path)
+      if content then
+        claude_md = claude_md .. "\n\n# Agent Context\n\n" .. content
+      end
+    end
+  end
 
   local base: string
   local user_system = cio.slurp("/zip/embed/system.md")
@@ -248,6 +257,7 @@ options:
   --skill NAME        invoke a skill by name (prepends /skill:<name> to prompt)
   --must-produce FILE require the agent to write FILE before finishing
   -t, --tool NAME=CMD register a CLI tool (repeatable, overrides all tiers)
+  --agents PATH       load additional agent context file (repeatable)
   --sandbox           run inside network sandbox (proxy + unveil + pledge)
   --timeout N         wall-clock timeout in seconds
   --allow-host H:P    allow egress to host:port (repeatable, default: api.anthropic.com:443)
@@ -587,6 +597,7 @@ local record ParsedArgs
   skill: string
   must_produce: string
   tool_overrides: {string}
+  agents_files: {string}
   remaining: {string}
 end
 
@@ -597,6 +608,7 @@ local function parse_args(args: {string}): ParsedArgs, string
     allow_hosts = {},
     unveil_dirs = {},
     tool_overrides = {},
+    agents_files = {},
     remaining = {},
   }
 
@@ -619,6 +631,7 @@ local function parse_args(args: {string}): ParsedArgs, string
     {name = "skill", has_arg = "required"},
     {name = "must-produce", has_arg = "required"},
     {name = "tool", has_arg = "required", short = "t"},
+    {name = "agents", has_arg = "required"},
   }
 
   -- Use + prefix for POSIX mode: stop parsing options at first non-option arg.
@@ -666,6 +679,8 @@ local function parse_args(args: {string}): ParsedArgs, string
       result.must_produce = optarg
     elseif opt == "t" or opt == "tool" then
       table.insert(result.tool_overrides, optarg)
+    elseif opt == "agents" then
+      table.insert(result.agents_files, optarg)
     elseif opt == "?" then
       return nil, "unknown"
     end
@@ -1227,7 +1242,7 @@ local function main(args: {string}): integer, string
     end
   end
 
-  local effective_system = load_system_prompt(cwd)
+  local effective_system = load_system_prompt(cwd, parsed.agents_files)
 
   -- Append dynamic tool guidance to system prompt
   local tools_prompt = tools.format_tools_for_prompt()
