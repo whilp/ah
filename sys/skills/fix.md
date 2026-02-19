@@ -13,7 +13,7 @@ You are fixing issues found during review. Follow the plan and address the feedb
 
 ## Setup
 
-Read `o/work/plan/plan.md` for the plan. Read `o/work/check/check.md` for the review feedback.
+Read `.ah/plan/plan.md` for the plan. Read `.ah/check/check.md` for the review feedback.
 
 The issue JSON follows this prompt with fields: `number`, `title`, `body`, `url`, `branch`.
 
@@ -26,7 +26,7 @@ The issue JSON follows this prompt with fields: `number`, `title`, `body`, `url`
 
 ## Output
 
-Write `o/work/fix/do.md`:
+Write `.ah/fix/do.md`:
 
     # Fix: <issue title>
 
@@ -42,6 +42,6 @@ Write `o/work/fix/do.md`:
     ## Notes
     <issues encountered>
 
-Write `o/work/fix/update.md`: 2-4 line summary.
+Write `.ah/fix/update.md`: 2-4 line summary.
 
 Fix only the issues identified in the review. Do not add unrequested changes.

@@ -268,18 +268,18 @@ end
 local init_sandbox = require("ah.init") as InitSandbox
 
 local function test_parse_protect_dirs_single()
-  local dirs = init_sandbox.parse_protect_dirs("o/work/plan")
+  local dirs = init_sandbox.parse_protect_dirs(".ah/plan")
   assert(#dirs == 1, "should have 1 dir, got: " .. #dirs)
-  assert(dirs[1] == "o/work/plan", "dir should match, got: " .. dirs[1])
+  assert(dirs[1] == ".ah/plan", "dir should match, got: " .. dirs[1])
   print("✓ parse_protect_dirs handles single dir")
 end
 test_parse_protect_dirs_single()
 
 local function test_parse_protect_dirs_multiple()
-  local dirs = init_sandbox.parse_protect_dirs("o/work/plan:o/work/do")
+  local dirs = init_sandbox.parse_protect_dirs(".ah/plan:.ah/do")
   assert(#dirs == 2, "should have 2 dirs, got: " .. #dirs)
-  assert(dirs[1] == "o/work/plan", "first dir, got: " .. dirs[1])
-  assert(dirs[2] == "o/work/do", "second dir, got: " .. dirs[2])
+  assert(dirs[1] == ".ah/plan", "first dir, got: " .. dirs[1])
+  assert(dirs[2] == ".ah/do", "second dir, got: " .. dirs[2])
   print("✓ parse_protect_dirs handles multiple dirs")
 end
 test_parse_protect_dirs_multiple()
@@ -339,21 +339,21 @@ end
 test_parse_args_allow_host_multiple()
 
 local function test_parse_args_unveil_single()
-  local parsed = init.parse_args({"--sandbox", "--unveil", "o/work/plan:r", "hello"})
+  local parsed = init.parse_args({"--sandbox", "--unveil", ".ah/plan:r", "hello"})
   assert(parsed, "should parse successfully")
   assert(parsed.unveil_dirs, "unveil_dirs should be set")
   assert(#parsed.unveil_dirs == 1, "should have 1 unveil, got: " .. #parsed.unveil_dirs)
-  assert(parsed.unveil_dirs[1] == "o/work/plan:r", "unveil mismatch, got: " .. parsed.unveil_dirs[1])
+  assert(parsed.unveil_dirs[1] == ".ah/plan:r", "unveil mismatch, got: " .. parsed.unveil_dirs[1])
   print("✓ parse_args: --unveil single")
 end
 test_parse_args_unveil_single()
 
 local function test_parse_args_unveil_multiple()
-  local parsed = init.parse_args({"--sandbox", "--unveil", "o/work/plan:r", "--unveil", "o/work/do:rw", "hello"})
+  local parsed = init.parse_args({"--sandbox", "--unveil", ".ah/plan:r", "--unveil", ".ah/do:rw", "hello"})
   assert(parsed, "should parse successfully")
   assert(#parsed.unveil_dirs == 2, "should have 2 unveils, got: " .. #parsed.unveil_dirs)
-  assert(parsed.unveil_dirs[1] == "o/work/plan:r", "first unveil")
-  assert(parsed.unveil_dirs[2] == "o/work/do:rw", "second unveil")
+  assert(parsed.unveil_dirs[1] == ".ah/plan:r", "first unveil")
+  assert(parsed.unveil_dirs[2] == ".ah/do:rw", "second unveil")
   print("✓ parse_args: --unveil multiple")
 end
 test_parse_args_unveil_multiple()
@@ -362,7 +362,7 @@ local function test_parse_args_sandbox_combined()
   local parsed = init.parse_args({
     "--sandbox", "--timeout", "180",
     "--allow-host", "hooks.slack.com:443",
-    "--unveil", "o/work/plan:r",
+    "--unveil", ".ah/plan:r",
     "-m", "opus", "--db", "test.db",
     "do the thing"
   })
@@ -372,7 +372,7 @@ local function test_parse_args_sandbox_combined()
   assert(#parsed.allow_hosts == 1, "should have 1 allow-host")
   assert(parsed.allow_hosts[1] == "hooks.slack.com:443", "allow-host value")
   assert(#parsed.unveil_dirs == 1, "should have 1 unveil")
-  assert(parsed.unveil_dirs[1] == "o/work/plan:r", "unveil value")
+  assert(parsed.unveil_dirs[1] == ".ah/plan:r", "unveil value")
   assert(parsed.model == "opus", "model should be opus")
   assert(parsed.db_path == "test.db", "db should be test.db")
   assert(parsed.remaining[1] == "do the thing", "prompt in remaining")
@@ -406,8 +406,8 @@ test_parse_args_no_sandbox_defaults()
 -- parse_unveil helper tests
 
 local function test_parse_unveil_entry()
-  local path, perms = init.parse_unveil_entry("o/work/plan:r")
-  assert(path == "o/work/plan", "path should be o/work/plan, got: " .. tostring(path))
+  local path, perms = init.parse_unveil_entry(".ah/plan:r")
+  assert(path == ".ah/plan", "path should be .ah/plan, got: " .. tostring(path))
   assert(perms == "r", "perms should be r, got: " .. tostring(perms))
   print("✓ parse_unveil_entry: basic")
 end
@@ -430,8 +430,8 @@ end
 test_parse_unveil_entry_absolute()
 
 local function test_parse_unveil_entry_no_perms()
-  local path, perms = init.parse_unveil_entry("o/work/plan")
-  assert(path == "o/work/plan", "path should be o/work/plan")
+  local path, perms = init.parse_unveil_entry(".ah/plan")
+  assert(path == ".ah/plan", "path should be .ah/plan")
   assert(perms == "r", "perms should default to r, got: " .. tostring(perms))
   print("✓ parse_unveil_entry: defaults to r when no perms")
 end

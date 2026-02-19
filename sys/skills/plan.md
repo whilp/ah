@@ -37,11 +37,11 @@ files, then write plan.md. Do not re-research what the issue already covers.
 ## Bail conditions
 
 If you cannot identify BOTH a clear goal AND an entry point, write ONLY
-`o/work/plan/update.md` explaining why. Do NOT write `plan.md`.
+`.ah/plan/update.md` explaining why. Do NOT write `plan.md`.
 
 ## Output
 
-Write `o/work/plan/plan.md`:
+Write `.ah/plan/plan.md`:
 
     # Plan: <issue title>
 
@@ -72,6 +72,6 @@ Write `o/work/plan/plan.md`:
     ## Commit
     <commit message>
 
-Write `o/work/plan/update.md`: 2-4 line summary.
+Write `.ah/plan/update.md`: 2-4 line summary.
 
 Do NOT modify any source files. Research only.

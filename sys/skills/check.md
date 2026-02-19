@@ -9,7 +9,7 @@ You are checking a work item. Review the execution against the plan.
 
 ## Setup
 
-Read `o/work/plan/plan.md` for the plan. Read `o/work/do/do.md` for the execution summary.
+Read `.ah/plan/plan.md` for the plan. Read `.ah/do/do.md` for the execution summary.
 
 ## Instructions
 
@@ -30,7 +30,7 @@ Read `o/work/plan/plan.md` for the plan. Read `o/work/do/do.md` for the executio
 
 ## Output
 
-Write `o/work/check/check.md`:
+Write `.ah/check/check.md`:
 
     # Check
 
@@ -57,7 +57,7 @@ Write `o/work/check/check.md`:
     ## Verdict
     <pass|needs-fixes|fail>
 
-Write `o/work/check/actions.json`:
+Write `.ah/check/actions.json`:
 
     {
       "verdict": "pass|needs-fixes|fail",
@@ -71,10 +71,10 @@ Action rules:
 - Always include `comment_issue` with verdict and summary
 - Include `create_pr` only when verdict is "pass" and changes were committed
 
-Write `o/work/check/update.md`: 2-4 line summary.
+Write `.ah/check/update.md`: 2-4 line summary.
 
 If verdict is "needs-fixes", copy the critical and warning issues into
-`o/work/do/feedback.md` so the do phase can address them on re-run.
-If verdict is "pass" or "fail", do NOT write `o/work/do/feedback.md`.
+`.ah/do/feedback.md` so the do phase can address them on re-run.
+If verdict is "pass" or "fail", do NOT write `.ah/do/feedback.md`.
 
 Do NOT modify any source files.

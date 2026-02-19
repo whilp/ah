@@ -43,8 +43,8 @@ two modes: **open** (default) and **review**.
 
 ### output
 
-write `o/work/pr/pr.md` with url, conflict status, check status, notes.
-write `o/work/pr/update.md` with 2-4 line summary.
+write `.ah/pr/pr.md` with url, conflict status, check status, notes.
+write `.ah/pr/update.md` with 2-4 line summary.
 
 ## review mode
 

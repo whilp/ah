@@ -14,9 +14,9 @@ You are executing a work item. Follow the plan.
 
 ## Setup
 
-Read `o/work/plan/plan.md` for the full plan.
+Read `.ah/plan/plan.md` for the full plan.
 
-If `o/work/plan/plan.md` does not exist or is empty, you are running without
+If `.ah/plan/plan.md` does not exist or is empty, you are running without
 a pre-built plan. In this case:
 
 1. Read the issue JSON below to understand the task
@@ -25,7 +25,7 @@ a pre-built plan. In this case:
 4. Keep changes minimal — limit scope to what the issue directly requests
 5. Skip any validation steps you cannot determine from the issue
 
-Read `o/work/do/feedback.md` — if non-empty, it contains review feedback from a
+Read `.ah/do/feedback.md` — if non-empty, it contains review feedback from a
 previous check. Address those issues first, then continue with any remaining plan steps.
 
 The issue JSON follows this prompt with fields: `number`, `title`, `body`, `url`, `branch`.
@@ -54,7 +54,7 @@ Do not use destructive git commands: `git reset --hard`, `git checkout .`,
 
 ## Output
 
-Write `o/work/do/do.md`:
+Write `.ah/do/do.md`:
 
     # Do: <issue title>
 
@@ -70,6 +70,6 @@ Write `o/work/do/do.md`:
     ## Notes
     <issues encountered>
 
-Write `o/work/do/update.md`: 2-4 line summary.
+Write `.ah/do/update.md`: 2-4 line summary.
 
 Follow the plan. Do not add unrequested changes.

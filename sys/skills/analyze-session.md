@@ -14,7 +14,7 @@ effort. Recommend concrete improvements.
 /skill:analyze-session <path-to-session.db> [<path2> ...]
 ```
 
-If no path given, search for session.db files under `o/work/` and `.ah/*.db`
+If no path given, search for session.db files under `.ah/` and `.ah/*.db`
 (the local session store).
 
 ## Steps
