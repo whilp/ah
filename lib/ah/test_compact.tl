@@ -11,6 +11,20 @@ local function test_get_context_limit_known_model()
 end
 test_get_context_limit_known_model()
 
+local function test_get_context_limit_sonnet_46()
+  local limit = compact.get_context_limit("claude-sonnet-4-6")
+  assert(limit == 200000, "sonnet 4.6 context limit should be 200000: " .. tostring(limit))
+  print("✓ get_context_limit known model (sonnet 4.6)")
+end
+test_get_context_limit_sonnet_46()
+
+local function test_get_context_limit_sonnet_46_1m()
+  local limit = compact.get_context_limit("claude-sonnet-4-6-1m")
+  assert(limit == 1000000, "sonnet 4.6 1m context limit should be 1000000: " .. tostring(limit))
+  print("✓ get_context_limit known model (sonnet 4.6 1m)")
+end
+test_get_context_limit_sonnet_46_1m()
+
 local function test_get_context_limit_opus()
   local limit = compact.get_context_limit("claude-opus-4-6")
   assert(limit == 200000, "opus 4.6 context limit should be 200000: " .. tostring(limit))
@@ -143,6 +157,7 @@ test_compaction_prompt_content()
 
 local function test_model_limits_all_present()
   assert(compact.MODEL_CONTEXT_LIMITS["claude-sonnet-4-6"], "sonnet should have a limit")
+  assert(compact.MODEL_CONTEXT_LIMITS["claude-sonnet-4-6-1m"], "sonnet 4.6 1m should have a limit")
   assert(compact.MODEL_CONTEXT_LIMITS["claude-opus-4-6"], "opus should have a limit")
   assert(compact.MODEL_CONTEXT_LIMITS["claude-opus-4-6-1m"], "opus 1m should have a limit")
   assert(compact.MODEL_CONTEXT_LIMITS["claude-haiku-4-5-20251001"], "haiku should have a limit")
