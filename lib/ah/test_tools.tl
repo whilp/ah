@@ -1493,4 +1493,71 @@ return {
 end
 test_tl_skill_tool_requires_tl_module()
 
+-- Tests for graceful handling of tools that fail to load (issue #321)
+
+local function test_teal_syntax_error_skipped()
+  -- A .tl file with invalid syntax should be skipped, not crash
+  local tool_dir = fs.join(TEST_TMPDIR, "teal_syntax_error")
+  fs.makedirs(tool_dir)
+
+  cio.barf(fs.join(tool_dir, "broken.tl"), "invalid syntax !!!")
+
+  local loaded = tools.load_custom_tools_from_dir(tool_dir)
+  assert(#loaded == 0, "broken .tl should be skipped, loaded: " .. tostring(#loaded))
+  print("✓ .tl file with syntax error is skipped without crash")
+end
+test_teal_syntax_error_skipped()
+
+local function test_lua_load_error_skipped()
+  -- A .lua file with invalid syntax should be skipped, not crash
+  local tool_dir = fs.join(TEST_TMPDIR, "lua_load_error")
+  fs.makedirs(tool_dir)
+
+  cio.barf(fs.join(tool_dir, "broken.lua"), "this is not lua !!!")
+
+  local loaded = tools.load_custom_tools_from_dir(tool_dir)
+  assert(#loaded == 0, "broken .lua should be skipped, loaded: " .. tostring(#loaded))
+  print("✓ .lua file with load error is skipped without crash")
+end
+test_lua_load_error_skipped()
+
+local function test_teal_runtime_error_at_load_skipped()
+  -- A .tl file that throws at module-level execution should be skipped
+  local tool_dir = fs.join(TEST_TMPDIR, "teal_runtime_error")
+  fs.makedirs(tool_dir)
+
+  cio.barf(fs.join(tool_dir, "throws.tl"), [[
+-- valid teal that throws at module level
+error("boom at load time")
+]])
+
+  local loaded = tools.load_custom_tools_from_dir(tool_dir)
+  assert(#loaded == 0, ".tl that throws at load should be skipped, loaded: " .. tostring(#loaded))
+  print("✓ .tl file that throws at module level is skipped without crash")
+end
+test_teal_runtime_error_at_load_skipped()
+
+local function test_add_tool_override_teal_syntax_error()
+  -- add_tool_override with a broken .tl file should warn but not crash
+  local tool_dir = fs.join(TEST_TMPDIR, "override_teal_syntax_error")
+  fs.makedirs(tool_dir)
+
+  local broken_path = fs.join(tool_dir, "broken.tl")
+  cio.barf(broken_path, "invalid syntax !!!")
+
+  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
+  local defs_before = #tools.get_tool_definitions()
+
+  -- Should warn but not crash
+  tools.add_tool_override("broken", broken_path)
+
+  local defs_after = #tools.get_tool_definitions()
+  assert(defs_before == defs_after, "broken .tl override should not add a tool")
+
+  -- Reset
+  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
+  print("✓ add_tool_override skips .tl file with syntax error without crash")
+end
+test_add_tool_override_teal_syntax_error()
+
 print("\nAll tools tests passed!")
