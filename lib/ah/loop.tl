@@ -79,17 +79,17 @@ end
 local function wrap_command(cmd: string, width: integer, indent: string): string
   width = width or 80
   indent = indent or "    "
-  if #cmd <= width then
+  if #cmd <= width and not cmd:find(" #") then
     return cmd
   end
 
-  -- Try splitting at flag boundaries (space before - or --)
+  -- Try splitting at comment/flag boundaries
   local parts: {string} = {}
   local current = ""
-  -- Split into tokens by space
   for token in cmd:gmatch("%S+") do
-    if #parts > 0 and token:sub(1, 1) == "-" and #current + 1 + #token > width then
-      -- This flag would exceed width, start a new line
+    local is_comment = token:sub(1, 1) == "#" and current ~= ""
+    local is_flag = #parts > 0 and token:sub(1, 1) == "-" and #current + 1 + #token > width
+    if is_comment or is_flag then
       table.insert(parts, current)
       current = indent .. token
     elseif current == "" then
