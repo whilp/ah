@@ -223,7 +223,12 @@ end
 
 local function usage_text(): string
   local parts: {string} = {}
-  table.insert(parts, [[usage: ah [options] [command] [args...]
+  
+  -- Load base help text from embedded file
+  local base_help = cio.slurp("/zip/embed/sys/help.md")
+  if not base_help or base_help == "" then
+    -- Fallback for backwards compatibility
+    base_help = [[usage: ah [options] [command] [args...]
 
 commands:
   <prompt>            send prompt to agent
@@ -255,7 +260,12 @@ options:
   --unveil PATH:PERM  set filesystem visibility (repeatable, perms: r/w/x/c)
 
 models:
-]])
+]]
+  end
+  
+  table.insert(parts, base_help)
+  
+  -- Append dynamic model aliases
   for alias, full in pairs(api.MODEL_ALIASES) do
     table.insert(parts, string.format("  %-18s  %s\n", alias, full))
   end
