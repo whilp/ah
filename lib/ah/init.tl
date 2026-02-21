@@ -86,6 +86,33 @@ local function git_context(cwd: string): {string:string}
   }
 end
 
+-- Select model based on skill name with precedence:
+-- 1. CLI --model flag (always wins)
+-- 2. Skill-based default (plan/check/triage→haiku, do/fix→sonnet)
+-- 3. AH_MODEL environment variable
+-- 4. Fallback to opus for interactive/unknown
+local function select_model_for_skill(skill_name: string, cli_model: string, env_model: string): string
+  -- CLI flag takes absolute precedence
+  if cli_model then
+    return cli_model
+  end
+
+  -- Skill-based defaults
+  if skill_name then
+    -- Read-only or structured tasks → haiku (cheap, fast)
+    if skill_name == "plan" or skill_name == "check" or skill_name == "triage" then
+      return "haiku"
+    end
+    -- Code generation or repairs → sonnet (capable, reasonable cost)
+    if skill_name == "do" or skill_name == "fix" or skill_name == "workflow" or skill_name == "pr" then
+      return "sonnet"
+    end
+  end
+
+  -- Fall back to environment variable or default
+  return env_model or "opus"
+end
+
 -- Load system prompt with precedence:
 -- 1. /zip/embed/system.md (user override)
 -- 2. /zip/embed/sys/system.md (ah default)
@@ -1267,8 +1294,9 @@ local function main(args: {string}): integer, string
     queue.release_lock(qdb)
   end)
 
-  -- Resolve model: --model flag > AH_MODEL env > default
-  local effective_model = api.resolve_model(model or os.getenv("AH_MODEL"))
+  -- Select model based on skill, with CLI override precedence
+  local selected_model = select_model_for_skill(active_skill_name, model, os.getenv("AH_MODEL"))
+  local effective_model = api.resolve_model(selected_model)
 
   -- Run agent with CLI event handler
   local on_event = make_cli_handler(parsed.skill)
