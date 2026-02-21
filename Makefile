@@ -169,15 +169,7 @@ $(o)/teal-summary.txt: $(all_teals) $(cosmic)
 
 $(o)/%.tl.teal.ok: %.tl $(cosmic)
 	@mkdir -p $(@D)
-	@if TL_PATH='$(TL_PATH)' $(cosmic) --check-types "$<" >/dev/null 2>$@.err; then \
-		echo "pass:" > $@; \
-	else \
-		n=$$(grep -c ': error:' $@.err 2>/dev/null || echo 0); \
-		echo "fail: $$n issues" > $@; \
-		echo "" >> $@; echo "## stderr" >> $@; echo "" >> $@; \
-		grep ': error:' $@.err >> $@ 2>/dev/null || true; \
-	fi; \
-	rm -f $@.err
+	@TL_PATH='$(TL_PATH)' $(cosmic) --test $@ $(cosmic) --check-types "$<"
 
 # lint
 lint_files := $(shell git ls-files 2>/dev/null)
@@ -192,7 +184,7 @@ $(o)/lint-summary.txt: $(all_linted) $(cosmic)
 
 $(o)/%.lint.ok: % lib/build/lint.tl $(cosmic)
 	@mkdir -p $(@D)
-	@$(linter) "$<" > $@ 2>&1 || true
+	@$(cosmic) --test $@ $(linter) "$<"
 
 .PHONY: ci
 ## Run tests, type checks, and linter
