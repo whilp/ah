@@ -22,7 +22,7 @@ local FILE_LINES: {string:integer} = {
   ["lib/ah/init.tl"] = 1359,
   ["lib/ah/loop.tl"] = 952,
   ["lib/ah/test_db.tl"] = 506,
-  ["lib/ah/test_init.tl"] = 688,
+  ["lib/ah/test_init.tl"] = 773,
   ["lib/ah/test_tools.tl"] = 1563,
   ["lib/ah/tools.tl"] = 734,
 }
