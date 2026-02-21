@@ -656,4 +656,118 @@ local function test_colorize_tool_line_empty()
 end
 test_colorize_tool_line_empty()
 
+-- Model selection tests
+
+local function test_select_model_cli_override()
+  -- CLI --model flag should always win
+  local result = init.select_model_for_skill("plan", "opus", nil)
+  assert(result == "opus", "CLI model should override skill default, got: " .. result)
+  print("✓ select_model_for_skill: CLI override takes precedence")
+end
+test_select_model_cli_override()
+
+local function test_select_model_plan_haiku()
+  -- plan skill should default to haiku
+  local result = init.select_model_for_skill("plan", nil, nil)
+  assert(result == "haiku", "plan should default to haiku, got: " .. result)
+  print("✓ select_model_for_skill: plan → haiku")
+end
+test_select_model_plan_haiku()
+
+local function test_select_model_check_haiku()
+  -- check skill should default to haiku
+  local result = init.select_model_for_skill("check", nil, nil)
+  assert(result == "haiku", "check should default to haiku, got: " .. result)
+  print("✓ select_model_for_skill: check → haiku")
+end
+test_select_model_check_haiku()
+
+local function test_select_model_triage_haiku()
+  -- triage skill should default to haiku
+  local result = init.select_model_for_skill("triage", nil, nil)
+  assert(result == "haiku", "triage should default to haiku, got: " .. result)
+  print("✓ select_model_for_skill: triage → haiku")
+end
+test_select_model_triage_haiku()
+
+local function test_select_model_do_sonnet()
+  -- do skill should default to sonnet
+  local result = init.select_model_for_skill("do", nil, nil)
+  assert(result == "sonnet", "do should default to sonnet, got: " .. result)
+  print("✓ select_model_for_skill: do → sonnet")
+end
+test_select_model_do_sonnet()
+
+local function test_select_model_fix_sonnet()
+  -- fix skill should default to sonnet
+  local result = init.select_model_for_skill("fix", nil, nil)
+  assert(result == "sonnet", "fix should default to sonnet, got: " .. result)
+  print("✓ select_model_for_skill: fix → sonnet")
+end
+test_select_model_fix_sonnet()
+
+local function test_select_model_workflow_sonnet()
+  -- workflow skill should default to sonnet
+  local result = init.select_model_for_skill("workflow", nil, nil)
+  assert(result == "sonnet", "workflow should default to sonnet, got: " .. result)
+  print("✓ select_model_for_skill: workflow → sonnet")
+end
+test_select_model_workflow_sonnet()
+
+local function test_select_model_pr_sonnet()
+  -- pr skill should default to sonnet
+  local result = init.select_model_for_skill("pr", nil, nil)
+  assert(result == "sonnet", "pr should default to sonnet, got: " .. result)
+  print("✓ select_model_for_skill: pr → sonnet")
+end
+test_select_model_pr_sonnet()
+
+local function test_select_model_nil_skill_opus()
+  -- nil skill (interactive) should default to opus
+  local result = init.select_model_for_skill(nil, nil, nil)
+  assert(result == "opus", "nil skill should default to opus, got: " .. result)
+  print("✓ select_model_for_skill: nil skill → opus")
+end
+test_select_model_nil_skill_opus()
+
+local function test_select_model_unknown_skill_opus()
+  -- unknown skill should default to opus
+  local result = init.select_model_for_skill("unknown-skill", nil, nil)
+  assert(result == "opus", "unknown skill should default to opus, got: " .. result)
+  print("✓ select_model_for_skill: unknown skill → opus")
+end
+test_select_model_unknown_skill_opus()
+
+local function test_select_model_env_fallback()
+  -- env var should be used if no CLI flag and skill doesn't match
+  local result = init.select_model_for_skill("unknown", nil, "sonnet")
+  assert(result == "sonnet", "should use env var for unknown skill, got: " .. result)
+  print("✓ select_model_for_skill: env var fallback for unknown skill")
+end
+test_select_model_env_fallback()
+
+local function test_select_model_cli_overrides_skill()
+  -- CLI should override skill default
+  local result = init.select_model_for_skill("plan", "opus", nil)
+  assert(result == "opus", "CLI should override plan→haiku default, got: " .. result)
+  print("✓ select_model_for_skill: CLI overrides skill default")
+end
+test_select_model_cli_overrides_skill()
+
+local function test_select_model_cli_overrides_env()
+  -- CLI should override env var
+  local result = init.select_model_for_skill(nil, "haiku", "opus")
+  assert(result == "haiku", "CLI should override env var, got: " .. result)
+  print("✓ select_model_for_skill: CLI overrides env var")
+end
+test_select_model_cli_overrides_env()
+
+local function test_select_model_skill_overrides_env()
+  -- skill default should override env var
+  local result = init.select_model_for_skill("plan", nil, "opus")
+  assert(result == "haiku", "skill default should override env var, got: " .. result)
+  print("✓ select_model_for_skill: skill default overrides env var")
+end
+test_select_model_skill_overrides_env()
+
 print("all init tests passed")
