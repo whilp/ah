@@ -746,24 +746,65 @@ local record StderrHandle
   read: function(StderrHandle): string
 end
 
--- parse_embed_output scans args (from remaining[3:]) for -o/--output <value>
--- and returns the last value found, or nil if not present.
--- This handles the case where --output appears after the embed subcommand.
-local function parse_embed_output(args: {string}): string
-  local result: string = nil
+-- OptionArgType indicates whether an option requires an argument
+local enum OptionArgType
+  "required"
+  "none"
+end
+
+-- OptionDef describes a command-line option
+local record OptionDef
+  name: string           -- long name (e.g. "output")
+  short: string          -- short name (e.g. "o")
+  has_arg: OptionArgType
+end
+
+-- parse_subcommand_options scans args for options defined in opts.
+-- Returns a table mapping option names to their values (nil if not present).
+-- Supports -s val, -sval, --name val forms. Last occurrence wins.
+-- This allows parsing options that appear after a subcommand.
+local function parse_subcommand_options(args: {string}, opts: {OptionDef}): {string:string}
+  local result: {string:string} = {}
+  
   local i = 1
   while i <= #args do
     local a = args[i]
-    if (a == "-o" or a == "--output") and args[i + 1] then
-      result = args[i + 1]
-      i = i + 2
-    elseif a:sub(1, 2) == "-o" and #a > 2 then
-      result = a:sub(3)
-      i = i + 1
-    else
+    local matched = false
+    
+    for _, opt in ipairs(opts) do
+      local short_prefix = "-" .. opt.short
+      local long_flag = "--" .. opt.name
+      
+      if opt.has_arg == "required" then
+        -- Handle --name val and -s val
+        if (a == long_flag or a == short_prefix) and args[i + 1] then
+          result[opt.name] = args[i + 1]
+          i = i + 2
+          matched = true
+          break
+        -- Handle -sval (short flag with no space)
+        elseif a:sub(1, #short_prefix) == short_prefix and #a > #short_prefix then
+          result[opt.name] = a:sub(#short_prefix + 1)
+          i = i + 1
+          matched = true
+          break
+        end
+      elseif opt.has_arg == "none" then
+        -- Handle flags without arguments
+        if a == long_flag or a == short_prefix then
+          result[opt.name] = "true"
+          i = i + 1
+          matched = true
+          break
+        end
+      end
+    end
+    
+    if not matched then
       i = i + 1
     end
   end
+  
   return result
 end
 
@@ -994,8 +1035,13 @@ local function main(args: {string}): integer, string
     for si = 3, #remaining do
       sub_args[#sub_args + 1] = remaining[si]
     end
-    local sub_output = parse_embed_output(sub_args)
-    local effective_output = sub_output or output_path
+    local embed_opts: {OptionDef} = {{
+      name = "output",
+      short = "o",
+      has_arg = "required"
+    }}
+    local opts = parse_subcommand_options(sub_args, embed_opts)
+    local effective_output = opts.output or output_path
     -- Create temp structure with embed/ prefix
     local tmpdir = fs.mkdtemp("/tmp/ah-embed-XXXXXX")
     local embed_link = fs.join(tmpdir, "embed")
@@ -1330,7 +1376,7 @@ end
 return {
   main = main,
   parse_args = parse_args,
-  parse_embed_output = parse_embed_output,
+  parse_subcommand_options = parse_subcommand_options,
   load_system_prompt = load_system_prompt,
   load_claude_md = load_claude_md,
   list_sessions = list_sessions,

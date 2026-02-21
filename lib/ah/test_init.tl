@@ -573,9 +573,20 @@ local record ParsedArgsView
   output_path: string
 end
 
+local enum OptionArgType
+  "required"
+  "none"
+end
+
+local record OptionDef
+  name: string
+  short: string
+  has_arg: OptionArgType
+end
+
 local record InitTool
   colorize_tool_line: function(string): string, boolean
-  parse_embed_output: function({string}): string
+  parse_subcommand_options: function({string}, {OptionDef}): {string:string}
   parse_args: function({string}): ParsedArgsView, string
 end
 local init_tool = require("ah.init") as InitTool
@@ -664,48 +675,73 @@ end
 test_colorize_tool_line_empty()
 
 -- parse_embed_output tests
-local function test_parse_embed_output_long_flag()
-  local out = init_tool.parse_embed_output({"--output", "o/bin/ah"})
-  assert(out == "o/bin/ah", "expected 'o/bin/ah', got: " .. tostring(out))
-  print("✓ parse_embed_output: --output <value>")
+local function test_parse_subcommand_options_long_flag()
+  local opts: {OptionDef} = {{name = "output", short = "o", has_arg = "required"}}
+  local result = init_tool.parse_subcommand_options({"--output", "o/bin/ah"}, opts)
+  assert(result.output == "o/bin/ah", "expected 'o/bin/ah', got: " .. tostring(result.output))
+  print("✓ parse_subcommand_options: --output <value>")
 end
-test_parse_embed_output_long_flag()
+test_parse_subcommand_options_long_flag()
 
-local function test_parse_embed_output_short_flag()
-  local out = init_tool.parse_embed_output({"-o", "o/bin/ah"})
-  assert(out == "o/bin/ah", "expected 'o/bin/ah', got: " .. tostring(out))
-  print("✓ parse_embed_output: -o <value>")
+local function test_parse_subcommand_options_short_flag()
+  local opts: {OptionDef} = {{name = "output", short = "o", has_arg = "required"}}
+  local result = init_tool.parse_subcommand_options({"-o", "o/bin/ah"}, opts)
+  assert(result.output == "o/bin/ah", "expected 'o/bin/ah', got: " .. tostring(result.output))
+  print("✓ parse_subcommand_options: -o <value>")
 end
-test_parse_embed_output_short_flag()
+test_parse_subcommand_options_short_flag()
 
-local function test_parse_embed_output_short_no_space()
-  local out = init_tool.parse_embed_output({"-oo/bin/ah"})
-  assert(out == "o/bin/ah", "expected 'o/bin/ah', got: " .. tostring(out))
-  print("✓ parse_embed_output: -o<value> (no space)")
+local function test_parse_subcommand_options_short_no_space()
+  local opts: {OptionDef} = {{name = "output", short = "o", has_arg = "required"}}
+  local result = init_tool.parse_subcommand_options({"-oo/bin/ah"}, opts)
+  assert(result.output == "o/bin/ah", "expected 'o/bin/ah', got: " .. tostring(result.output))
+  print("✓ parse_subcommand_options: -o<value> (no space)")
 end
-test_parse_embed_output_short_no_space()
+test_parse_subcommand_options_short_no_space()
 
-local function test_parse_embed_output_none()
-  local out = init_tool.parse_embed_output({"somefile"})
-  assert(out == nil, "expected nil, got: " .. tostring(out))
-  print("✓ parse_embed_output: no flag returns nil")
+local function test_parse_subcommand_options_none()
+  local opts: {OptionDef} = {{name = "output", short = "o", has_arg = "required"}}
+  local result = init_tool.parse_subcommand_options({"somefile"}, opts)
+  assert(result.output == nil, "expected nil, got: " .. tostring(result.output))
+  print("✓ parse_subcommand_options: no flag returns nil")
 end
-test_parse_embed_output_none()
+test_parse_subcommand_options_none()
 
-local function test_parse_embed_output_empty()
-  local out = init_tool.parse_embed_output({})
-  assert(out == nil, "expected nil for empty args, got: " .. tostring(out))
-  print("✓ parse_embed_output: empty args returns nil")
+local function test_parse_subcommand_options_empty()
+  local opts: {OptionDef} = {{name = "output", short = "o", has_arg = "required"}}
+  local result = init_tool.parse_subcommand_options({}, opts)
+  assert(result.output == nil, "expected nil for empty args, got: " .. tostring(result.output))
+  print("✓ parse_subcommand_options: empty args returns nil")
 end
-test_parse_embed_output_empty()
+test_parse_subcommand_options_empty()
 
-local function test_parse_embed_output_last_wins()
-  -- when both appear, last one wins
-  local out = init_tool.parse_embed_output({"--output", "first", "--output", "second"})
-  assert(out == "second", "expected 'second', got: " .. tostring(out))
-  print("✓ parse_embed_output: last --output wins")
+local function test_parse_subcommand_options_last_wins()
+  local opts: {OptionDef} = {{name = "output", short = "o", has_arg = "required"}}
+  local result = init_tool.parse_subcommand_options({"--output", "first", "--output", "second"}, opts)
+  assert(result.output == "second", "expected 'second', got: " .. tostring(result.output))
+  print("✓ parse_subcommand_options: last --output wins")
 end
-test_parse_embed_output_last_wins()
+test_parse_subcommand_options_last_wins()
+
+local function test_parse_subcommand_options_multiple()
+  local opts: {OptionDef} = {
+    {name = "output", short = "o", has_arg = "required"},
+    {name = "verbose", short = "v", has_arg = "none"}
+  }
+  local result = init_tool.parse_subcommand_options({"-v", "--output", "out.bin"}, opts)
+  assert(result.verbose == "true", "expected verbose='true', got: " .. tostring(result.verbose))
+  assert(result.output == "out.bin", "expected output='out.bin', got: " .. tostring(result.output))
+  print("✓ parse_subcommand_options: multiple options parsed")
+end
+test_parse_subcommand_options_multiple()
+
+local function test_parse_subcommand_options_flag_no_arg()
+  local opts: {OptionDef} = {{name = "verbose", short = "v", has_arg = "none"}}
+  local result = init_tool.parse_subcommand_options({"-v", "otherarg"}, opts)
+  assert(result.verbose == "true", "expected verbose='true', got: " .. tostring(result.verbose))
+  print("✓ parse_subcommand_options: flag with has_arg='none'")
+end
+test_parse_subcommand_options_flag_no_arg()
 
 local function test_parse_args_embed_remaining_contains_output()
   -- parse_args with POSIX mode: --output after embed lands in remaining
