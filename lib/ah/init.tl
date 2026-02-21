@@ -766,42 +766,41 @@ end
 local function parse_subcommand_options(args: {string}, opts: {OptionDef}): {string:string}
   local result: {string:string} = {}
   
-  local i = 1
-  while i <= #args do
-    local a = args[i]
-    local matched = false
-    
-    for _, opt in ipairs(opts) do
-      local short_prefix = "-" .. opt.short
-      local long_flag = "--" .. opt.name
-      
-      if opt.has_arg == "required" then
-        -- Handle --name val and -s val
-        if (a == long_flag or a == short_prefix) and args[i + 1] then
-          result[opt.name] = args[i + 1]
-          i = i + 2
-          matched = true
-          break
-        -- Handle -sval (short flag with no space)
-        elseif a:sub(1, #short_prefix) == short_prefix and #a > #short_prefix then
-          result[opt.name] = a:sub(#short_prefix + 1)
-          i = i + 1
-          matched = true
-          break
-        end
-      elseif opt.has_arg == "none" then
-        -- Handle flags without arguments
-        if a == long_flag or a == short_prefix then
-          result[opt.name] = "true"
-          i = i + 1
-          matched = true
-          break
-        end
-      end
+  -- Build optstring for getopt
+  local optstring_parts: {string} = {}
+  local opt_map: {string:string} = {}  -- maps short letter to long name
+  
+  for _, opt in ipairs(opts) do
+    optstring_parts[#optstring_parts + 1] = opt.short
+    if opt.has_arg == "required" then
+      optstring_parts[#optstring_parts + 1] = ":"
     end
+    opt_map[opt.short] = opt.name
+  end
+  
+  local optstring = table.concat(optstring_parts)
+  -- Convert OptionDef to the format expected by getopt
+  local longopts: {getopt.LongOpt} = {}
+  for i, opt in ipairs(opts) do
+    longopts[i] = {
+      name = opt.name,
+      has_arg = opt.has_arg,
+      short = opt.short
+    }
+  end
+  local parser = getopt.new(args, optstring, longopts)
+  
+  while true do
+    local opt, optarg = parser:next()
+    if not opt then break end
     
-    if not matched then
-      i = i + 1
+    -- Map short option letters to long names
+    local name = opt_map[opt] or opt
+    
+    if optarg then
+      result[name] = optarg
+    else
+      result[name] = "true"
     end
   end
   
