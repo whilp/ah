@@ -17,6 +17,7 @@ options:
   --db PATH           use custom database path (default: .ah/<ulid>.db)
   -m, --model MODEL   set model (default: opus, or AH_MODEL env)
   -o, --output FILE   output file (used with embed)
+  --cd PATH           change working directory before other operations
   --steer MSG         send steering message to running session
   --followup MSG      queue followup message for after session completes
   --max-tokens N      stop when cumulative tokens exceed N
