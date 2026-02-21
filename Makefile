@@ -70,9 +70,9 @@ all_tested := $(patsubst %,$(o)/%.test.ok,$(ah_tests))
 
 export LUA_PATH := $(CURDIR)/o/lib/?.lua;$(CURDIR)/o/lib/?/init.lua;$(CURDIR)/lib/?.lua;$(CURDIR)/lib/?/init.lua;;
 
-$(o)/%.tl.test.ok: $(o)/%.lua $(ah_lua) $(cosmic)
+$(o)/%.tl.test.ok: $(o)/%.lua $(ah_lua) $(o)/bin/ah $(cosmic)
 	@mkdir -p $(@D)
-	@d=$$(mktemp -d); TEST_TMPDIR=$$d $(cosmic) $< >$$d/out 2>&1 \
+	@d=$$(mktemp -d); TEST_TMPDIR=$$d AH_BIN=$(CURDIR)/$(o)/bin/ah $(cosmic) $< >$$d/out 2>&1 \
 		&& echo "pass:" > $@ || echo "fail:" > $@; \
 	if [ -f $$d/out ]; then cat $$d/out >> $@; fi; rm -rf $$d
 
