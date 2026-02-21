@@ -57,7 +57,7 @@ make ah              # build self-contained executable
 **compilation**: `%.tl` → `o/%.lua` via `cosmic --compile`.
 
 **test runner**: each `test_*.tl` file is executed independently. results
-are collected into `o/test-summary.txt` via `lib/build/reporter.tl`.
+are collected into `o/test-summary.txt` via `cosmic --report`.
 
 **embedding**: the `ah` executable is built by:
 1. compiling all `.tl` to `.lua` under `o/`.

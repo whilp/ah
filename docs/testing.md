@@ -24,7 +24,7 @@ pass: description
 fail: description
 ```
 
-`lib/build/reporter.tl` collects results and produces a summary. the
+`cosmic --report` collects results and produces a summary. the
 make target exits non-zero if any test fails.
 
 ## writing tests
