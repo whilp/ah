@@ -242,6 +242,7 @@ options:
   --db PATH           use custom database path (default: .ah/<ulid>.db)
   -m, --model MODEL   set model (default: opus, or AH_MODEL env)
   -o, --output FILE   output file (used with embed)
+  --cd PATH           change working directory before other operations
   --steer MSG         send steering message to running session
   --followup MSG      queue followup message for after session completes
   --max-tokens N      stop when cumulative tokens exceed N
@@ -587,6 +588,7 @@ local record ParsedArgs
   skill: string
   must_produce: string
   tool_overrides: {string}
+  cd_path: string
   remaining: {string}
 end
 
@@ -619,6 +621,7 @@ local function parse_args(args: {string}): ParsedArgs, string
     {name = "skill", has_arg = "required"},
     {name = "must-produce", has_arg = "required"},
     {name = "tool", has_arg = "required", short = "t"},
+    {name = "cd", has_arg = "required"},
   }
 
   -- Use + prefix for POSIX mode: stop parsing options at first non-option arg.
@@ -666,6 +669,8 @@ local function parse_args(args: {string}): ParsedArgs, string
       result.must_produce = optarg
     elseif opt == "t" or opt == "tool" then
       table.insert(result.tool_overrides, optarg)
+    elseif opt == "cd" then
+      result.cd_path = optarg
     elseif opt == "?" then
       return nil, "unknown"
     end
@@ -810,8 +815,6 @@ local function main(args: {string}): integer, string
     sandbox.pledge(promises, promises, PLEDGE_PENALTY_RETURN_EPERM)
   end
 
-  local cwd = fs.getcwd()
-
   local parsed, err = parse_args(args)
   if not parsed then
     if err == "version" then
@@ -830,6 +833,17 @@ local function main(args: {string}): integer, string
     end
     return 1
   end
+
+  -- Change directory if --cd was specified
+  if parsed.cd_path then
+    local ok, chdir_err = pcall(fs.chdir, parsed.cd_path)
+    if not ok then
+      io.stderr:write("error: failed to change directory to " .. parsed.cd_path .. ": " .. tostring(chdir_err) .. "\n")
+      return 1
+    end
+  end
+
+  local cwd = fs.getcwd()
 
   local model = parsed.model
   local db_path = parsed.db_path

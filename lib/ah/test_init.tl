@@ -260,6 +260,15 @@ local function test_parse_args_work_with_issue()
 end
 test_parse_args_work_with_issue()
 
+local function test_parse_args_cd()
+  local parsed = init.parse_args({"--cd", "/path/to/project", "hello"})
+  assert(parsed, "should parse successfully")
+  assert(parsed.cd_path == "/path/to/project", "cd_path should be /path/to/project, got: " .. tostring(parsed.cd_path))
+  assert(parsed.remaining[1] == "hello", "prompt should be in remaining")
+  print("✓ parse_args: --cd flag")
+end
+test_parse_args_cd()
+
 -- Sandbox protect-dirs parsing
 
 local record InitSandbox
@@ -446,7 +455,7 @@ local function test_usage_text_contains_all_options()
 
   -- every long option defined in the parser must appear as --name in help
   local defined_options = {
-    "help", "new", "session", "name", "db", "model", "output",
+    "help", "new", "session", "name", "db", "model", "output", "cd",
     "steer", "followup", "max-tokens", "sandbox", "timeout",
     "allow-host", "unveil", "skill", "must-produce",
   }
