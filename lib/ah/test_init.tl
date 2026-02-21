@@ -265,7 +265,6 @@ local function test_parse_args_cd()
   assert(parsed, "should parse successfully")
   assert(parsed.cd_path == "/path/to/project", "cd_path should be /path/to/project, got: " .. tostring(parsed.cd_path))
   assert(parsed.remaining[1] == "hello", "prompt should be in remaining")
-  print("✓ parse_args: --cd flag")
 end
 test_parse_args_cd()
 
@@ -280,7 +279,6 @@ local function test_parse_protect_dirs_single()
   local dirs = init_sandbox.parse_protect_dirs("o/work/plan")
   assert(#dirs == 1, "should have 1 dir, got: " .. #dirs)
   assert(dirs[1] == "o/work/plan", "dir should match, got: " .. dirs[1])
-  print("✓ parse_protect_dirs handles single dir")
 end
 test_parse_protect_dirs_single()
 
@@ -289,21 +287,18 @@ local function test_parse_protect_dirs_multiple()
   assert(#dirs == 2, "should have 2 dirs, got: " .. #dirs)
   assert(dirs[1] == "o/work/plan", "first dir, got: " .. dirs[1])
   assert(dirs[2] == "o/work/do", "second dir, got: " .. dirs[2])
-  print("✓ parse_protect_dirs handles multiple dirs")
 end
 test_parse_protect_dirs_multiple()
 
 local function test_parse_protect_dirs_nil()
   local dirs = init_sandbox.parse_protect_dirs(nil)
   assert(#dirs == 0, "nil should return empty table, got: " .. #dirs)
-  print("✓ parse_protect_dirs returns empty for nil")
 end
 test_parse_protect_dirs_nil()
 
 local function test_parse_protect_dirs_empty()
   local dirs = init_sandbox.parse_protect_dirs("")
   assert(#dirs == 0, "empty string should return empty table, got: " .. #dirs)
-  print("✓ parse_protect_dirs returns empty for empty string")
 end
 test_parse_protect_dirs_empty()
 
@@ -314,7 +309,6 @@ local function test_parse_args_sandbox()
   assert(parsed, "should parse successfully")
   assert(parsed.sandbox == true, "sandbox should be true")
   assert(parsed.remaining[1] == "hello", "prompt should be in remaining")
-  print("✓ parse_args: --sandbox flag")
 end
 test_parse_args_sandbox()
 
@@ -323,7 +317,6 @@ local function test_parse_args_timeout()
   assert(parsed, "should parse successfully")
   assert(parsed.timeout == 300, "timeout should be 300, got: " .. tostring(parsed.timeout))
   assert(parsed.remaining[1] == "hello", "prompt should be in remaining")
-  print("✓ parse_args: --timeout flag")
 end
 test_parse_args_timeout()
 
@@ -333,7 +326,6 @@ local function test_parse_args_allow_host_single()
   assert(parsed.allow_hosts, "allow_hosts should be set")
   assert(#parsed.allow_hosts == 1, "should have 1 host, got: " .. #parsed.allow_hosts)
   assert(parsed.allow_hosts[1] == "api.example.com:443", "host mismatch, got: " .. parsed.allow_hosts[1])
-  print("✓ parse_args: --allow-host single")
 end
 test_parse_args_allow_host_single()
 
@@ -343,7 +335,6 @@ local function test_parse_args_allow_host_multiple()
   assert(#parsed.allow_hosts == 2, "should have 2 hosts, got: " .. #parsed.allow_hosts)
   assert(parsed.allow_hosts[1] == "api.example.com:443", "first host")
   assert(parsed.allow_hosts[2] == "hooks.slack.com:443", "second host")
-  print("✓ parse_args: --allow-host multiple")
 end
 test_parse_args_allow_host_multiple()
 
@@ -353,7 +344,6 @@ local function test_parse_args_unveil_single()
   assert(parsed.unveil_dirs, "unveil_dirs should be set")
   assert(#parsed.unveil_dirs == 1, "should have 1 unveil, got: " .. #parsed.unveil_dirs)
   assert(parsed.unveil_dirs[1] == "o/work/plan:r", "unveil mismatch, got: " .. parsed.unveil_dirs[1])
-  print("✓ parse_args: --unveil single")
 end
 test_parse_args_unveil_single()
 
@@ -363,7 +353,6 @@ local function test_parse_args_unveil_multiple()
   assert(#parsed.unveil_dirs == 2, "should have 2 unveils, got: " .. #parsed.unveil_dirs)
   assert(parsed.unveil_dirs[1] == "o/work/plan:r", "first unveil")
   assert(parsed.unveil_dirs[2] == "o/work/do:rw", "second unveil")
-  print("✓ parse_args: --unveil multiple")
 end
 test_parse_args_unveil_multiple()
 
@@ -385,7 +374,6 @@ local function test_parse_args_sandbox_combined()
   assert(parsed.model == "opus", "model should be opus")
   assert(parsed.db_path == "test.db", "db should be test.db")
   assert(parsed.remaining[1] == "do the thing", "prompt in remaining")
-  print("✓ parse_args: --sandbox combined with all flags")
 end
 test_parse_args_sandbox_combined()
 
@@ -397,7 +385,6 @@ local function test_parse_args_sandbox_with_work()
   assert(parsed.remaining[1] == "work", "work in remaining")
   assert(parsed.remaining[2] == "--repo", "--repo in remaining")
   assert(parsed.remaining[3] == "owner/repo", "repo value in remaining")
-  print("✓ parse_args: --sandbox with work subcommand")
 end
 test_parse_args_sandbox_with_work()
 
@@ -408,7 +395,6 @@ local function test_parse_args_no_sandbox_defaults()
   assert(not parsed.timeout, "timeout should be nil by default")
   assert(not parsed.allow_hosts or #parsed.allow_hosts == 0, "allow_hosts should be empty by default")
   assert(not parsed.unveil_dirs or #parsed.unveil_dirs == 0, "unveil_dirs should be empty by default")
-  print("✓ parse_args: sandbox flags absent by default")
 end
 test_parse_args_no_sandbox_defaults()
 
@@ -418,7 +404,6 @@ local function test_parse_unveil_entry()
   local path, perms = init.parse_unveil_entry("o/work/plan:r")
   assert(path == "o/work/plan", "path should be o/work/plan, got: " .. tostring(path))
   assert(perms == "r", "perms should be r, got: " .. tostring(perms))
-  print("✓ parse_unveil_entry: basic")
 end
 test_parse_unveil_entry()
 
@@ -426,7 +411,6 @@ local function test_parse_unveil_entry_rw()
   local path, perms = init.parse_unveil_entry("src:rwc")
   assert(path == "src", "path should be src")
   assert(perms == "rwc", "perms should be rwc, got: " .. tostring(perms))
-  print("✓ parse_unveil_entry: rwc perms")
 end
 test_parse_unveil_entry_rw()
 
@@ -434,7 +418,6 @@ local function test_parse_unveil_entry_absolute()
   local path, perms = init.parse_unveil_entry("/tmp:rwxc")
   assert(path == "/tmp", "path should be /tmp")
   assert(perms == "rwxc", "perms should be rwxc")
-  print("✓ parse_unveil_entry: absolute path")
 end
 test_parse_unveil_entry_absolute()
 
@@ -442,16 +425,24 @@ local function test_parse_unveil_entry_no_perms()
   local path, perms = init.parse_unveil_entry("o/work/plan")
   assert(path == "o/work/plan", "path should be o/work/plan")
   assert(perms == "r", "perms should default to r, got: " .. tostring(perms))
-  print("✓ parse_unveil_entry: defaults to r when no perms")
 end
 test_parse_unveil_entry_no_perms()
 
--- Help text completeness: every defined option must appear in usage_text()
+-- Help text completeness: run the built binary and check --help output
+
+local function get_help_text(): string
+  local ah_bin = os.getenv("AH_BIN")
+  assert(ah_bin, "AH_BIN not set — need built binary")
+  local f = io.popen(ah_bin .. " --help 2>&1")
+  assert(f, "failed to run ah --help")
+  local help = f:read("*a") as string
+  f:close()
+  return help
+end
 
 local function test_usage_text_contains_all_options()
-  local help = init.usage_text()
-  assert(type(help) == "string", "usage_text() should return a string")
-  assert(#help > 0, "usage_text() should not be empty")
+  local help = get_help_text()
+  assert(#help > 0, "ah --help should produce output")
 
   -- every long option defined in the parser must appear as --name in help
   local defined_options = {
@@ -463,19 +454,16 @@ local function test_usage_text_contains_all_options()
     assert(help:find("--" .. opt, 1, true),
       "help text missing option: --" .. opt)
   end
-  print("✓ usage_text contains all defined options")
 end
 test_usage_text_contains_all_options()
 
 local function test_usage_text_contains_short_options()
-  local help = init.usage_text()
-  -- short aliases must also appear
+  local help = get_help_text()
   local short_options = {"-h", "-n", "-S", "-m", "-o"}
   for _, opt in ipairs(short_options) do
     assert(help:find(opt, 1, true),
       "help text missing short option: " .. opt)
   end
-  print("✓ usage_text contains all short options")
 end
 test_usage_text_contains_short_options()
 
@@ -486,7 +474,6 @@ local function test_parse_args_tool()
   assert(parsed.tool_overrides[1] == "foo=/usr/bin/foo", "first override: " .. parsed.tool_overrides[1])
   assert(parsed.tool_overrides[2] == "bar=/tmp/bar", "second override: " .. parsed.tool_overrides[2])
   assert(parsed.remaining[1] == "hello", "remaining should be prompt")
-  print("✓ parse_args handles --tool/-t flag")
 end
 test_parse_args_tool()
 
@@ -496,7 +483,6 @@ local function test_parse_args_unveil_without_sandbox()
   local parsed, err = init.parse_args({"--unveil", "/tmp:r", "hello"})
   assert(not parsed, "--unveil without --sandbox should fail")
   assert(err == "error: --unveil requires --sandbox", "err should mention --unveil requires --sandbox, got: " .. tostring(err))
-  print("✓ parse_args: --unveil without --sandbox errors")
 end
 test_parse_args_unveil_without_sandbox()
 
@@ -504,7 +490,6 @@ local function test_parse_args_allow_host_without_sandbox()
   local parsed, err = init.parse_args({"--allow-host", "example.com:443", "hello"})
   assert(not parsed, "--allow-host without --sandbox should fail")
   assert(err == "error: --allow-host requires --sandbox", "err should mention --allow-host requires --sandbox, got: " .. tostring(err))
-  print("✓ parse_args: --allow-host without --sandbox errors")
 end
 test_parse_args_allow_host_without_sandbox()
 
@@ -513,7 +498,6 @@ local function test_parse_args_sandbox_with_unveil()
   assert(parsed, "--sandbox --unveil should succeed")
   assert(parsed.sandbox == true, "sandbox should be true")
   assert(#parsed.unveil_dirs == 1, "should have 1 unveil")
-  print("✓ parse_args: --sandbox --unveil succeeds")
 end
 test_parse_args_sandbox_with_unveil()
 
@@ -522,7 +506,6 @@ local function test_parse_args_sandbox_with_allow_host()
   assert(parsed, "--sandbox --allow-host should succeed")
   assert(parsed.sandbox == true, "sandbox should be true")
   assert(#parsed.allow_hosts == 1, "should have 1 allow-host")
-  print("✓ parse_args: --sandbox --allow-host succeeds")
 end
 test_parse_args_sandbox_with_allow_host()
 
@@ -536,42 +519,36 @@ local init_diff = require("ah.init") as InitDiff
 local function test_colorize_diff_line_plus()
   local result = init_diff.colorize_diff_line("+added line")
   assert(result == "\27[34m+added line\27[0m", "plus line should be blue, got: " .. result)
-  print("✓ colorize_diff_line: + lines blue")
 end
 test_colorize_diff_line_plus()
 
 local function test_colorize_diff_line_minus()
   local result = init_diff.colorize_diff_line("-removed line")
   assert(result == "\27[33m-removed line\27[0m", "minus line should be yellow, got: " .. result)
-  print("✓ colorize_diff_line: - lines yellow")
 end
 test_colorize_diff_line_minus()
 
 local function test_colorize_diff_line_hunk()
   local result = init_diff.colorize_diff_line("@@ -1,3 +1,4 @@")
   assert(result == "\27[36m@@ -1,3 +1,4 @@\27[0m", "hunk header should be cyan, got: " .. result)
-  print("✓ colorize_diff_line: @@ lines cyan")
 end
 test_colorize_diff_line_hunk()
 
 local function test_colorize_diff_line_header_plus()
   local result = init_diff.colorize_diff_line("+++ b/file.txt")
   assert(result == "\27[1m+++ b/file.txt\27[0m", "+++ header should be bold, got: " .. result)
-  print("✓ colorize_diff_line: +++ lines bold")
 end
 test_colorize_diff_line_header_plus()
 
 local function test_colorize_diff_line_header_minus()
   local result = init_diff.colorize_diff_line("--- a/file.txt")
   assert(result == "\27[1m--- a/file.txt\27[0m", "--- header should be bold, got: " .. result)
-  print("✓ colorize_diff_line: --- lines bold")
 end
 test_colorize_diff_line_header_minus()
 
 local function test_colorize_diff_line_plain()
   local result = init_diff.colorize_diff_line(" context line")
   assert(result == " context line", "context line should be unchanged, got: " .. result)
-  print("✓ colorize_diff_line: plain lines unchanged")
 end
 test_colorize_diff_line_plain()
 
@@ -604,7 +581,6 @@ local function test_colorize_tool_line_pass()
   local result, colored = init_tool.colorize_tool_line("PASS test_foo")
   assert(colored == true, "PASS should be colored")
   assert(result == "\27[1;34mPASS test_foo\27[0m", "PASS should be blue+bold, got: " .. result)
-  print("✓ colorize_tool_line: PASS lines blue+bold")
 end
 test_colorize_tool_line_pass()
 
@@ -613,7 +589,6 @@ local function test_colorize_tool_line_pass_prefix()
   local result, colored = init_tool.colorize_tool_line("PASSING all tests")
   assert(colored == true, "PASSING should be colored")
   assert(result:find("\27%[1;34m"), "PASSING should be blue+bold")
-  print("✓ colorize_tool_line: PASSING prefix matches")
 end
 test_colorize_tool_line_pass_prefix()
 
@@ -621,7 +596,6 @@ local function test_colorize_tool_line_fail()
   local result, colored = init_tool.colorize_tool_line("FAIL test_bar")
   assert(colored == true, "FAIL should be colored")
   assert(result == "\27[1;33mFAIL test_bar\27[0m", "FAIL should be yellow+bold, got: " .. result)
-  print("✓ colorize_tool_line: FAIL lines yellow+bold")
 end
 test_colorize_tool_line_fail()
 
@@ -630,7 +604,6 @@ local function test_colorize_tool_line_failure_prefix()
   local result, colored = init_tool.colorize_tool_line("FAILURE in module X")
   assert(colored == true, "FAILURE should be colored")
   assert(result:find("\27%[1;33m"), "FAILURE should be yellow+bold")
-  print("✓ colorize_tool_line: FAILURE prefix matches")
 end
 test_colorize_tool_line_failure_prefix()
 
@@ -638,7 +611,6 @@ local function test_colorize_tool_line_error_lower()
   local result, colored = init_tool.colorize_tool_line("error: something broke")
   assert(colored == true, "error: should be colored")
   assert(result == "\27[1;33merror: something broke\27[0m", "error: should be yellow+bold, got: " .. result)
-  print("✓ colorize_tool_line: error: lines yellow+bold")
 end
 test_colorize_tool_line_error_lower()
 
@@ -646,7 +618,6 @@ local function test_colorize_tool_line_error_upper()
   local result, colored = init_tool.colorize_tool_line("Error: compilation failed")
   assert(colored == true, "Error: should be colored")
   assert(result == "\27[1;33mError: compilation failed\27[0m", "Error: should be yellow+bold, got: " .. result)
-  print("✓ colorize_tool_line: Error: lines yellow+bold")
 end
 test_colorize_tool_line_error_upper()
 
@@ -654,7 +625,6 @@ local function test_colorize_tool_line_exit_code()
   local result, colored = init_tool.colorize_tool_line("exit code: 1")
   assert(colored == true, "exit code: should be colored")
   assert(result == "\27[1;33mexit code: 1\27[0m", "exit code: should be yellow+bold, got: " .. result)
-  print("✓ colorize_tool_line: exit code: lines yellow+bold")
 end
 test_colorize_tool_line_exit_code()
 
@@ -662,7 +632,6 @@ local function test_colorize_tool_line_no_match()
   local result, colored = init_tool.colorize_tool_line("just a normal line")
   assert(colored == false, "normal line should not be colored")
   assert(result == "just a normal line", "normal line should be unchanged, got: " .. result)
-  print("✓ colorize_tool_line: plain lines unchanged")
 end
 test_colorize_tool_line_no_match()
 
@@ -671,7 +640,6 @@ local function test_colorize_tool_line_lowercase_pass()
   local result, colored = init_tool.colorize_tool_line("passed all tests")
   assert(colored == false, "lowercase 'passed' should not be colored")
   assert(result == "passed all tests", "lowercase 'passed' should be unchanged")
-  print("✓ colorize_tool_line: lowercase 'passed' does not match")
 end
 test_colorize_tool_line_lowercase_pass()
 
@@ -679,7 +647,6 @@ local function test_colorize_tool_line_empty()
   local result, colored = init_tool.colorize_tool_line("")
   assert(colored == false, "empty line should not be colored")
   assert(result == "", "empty line should be unchanged")
-  print("✓ colorize_tool_line: empty line unchanged")
 end
 test_colorize_tool_line_empty()
 
@@ -688,7 +655,6 @@ local function test_parse_subcommand_options_long_flag()
   local opts: {OptionDef} = {{name = "output", short = "o", has_arg = "required"}}
   local result = init_tool.parse_subcommand_options({"--output", "o/bin/ah"}, opts)
   assert(result.output == "o/bin/ah", "expected 'o/bin/ah', got: " .. tostring(result.output))
-  print("✓ parse_subcommand_options: --output <value>")
 end
 test_parse_subcommand_options_long_flag()
 
@@ -696,7 +662,6 @@ local function test_parse_subcommand_options_short_flag()
   local opts: {OptionDef} = {{name = "output", short = "o", has_arg = "required"}}
   local result = init_tool.parse_subcommand_options({"-o", "o/bin/ah"}, opts)
   assert(result.output == "o/bin/ah", "expected 'o/bin/ah', got: " .. tostring(result.output))
-  print("✓ parse_subcommand_options: -o <value>")
 end
 test_parse_subcommand_options_short_flag()
 
@@ -704,7 +669,6 @@ local function test_parse_subcommand_options_short_no_space()
   local opts: {OptionDef} = {{name = "output", short = "o", has_arg = "required"}}
   local result = init_tool.parse_subcommand_options({"-oo/bin/ah"}, opts)
   assert(result.output == "o/bin/ah", "expected 'o/bin/ah', got: " .. tostring(result.output))
-  print("✓ parse_subcommand_options: -o<value> (no space)")
 end
 test_parse_subcommand_options_short_no_space()
 
@@ -712,7 +676,6 @@ local function test_parse_subcommand_options_none()
   local opts: {OptionDef} = {{name = "output", short = "o", has_arg = "required"}}
   local result = init_tool.parse_subcommand_options({"somefile"}, opts)
   assert(result.output == nil, "expected nil, got: " .. tostring(result.output))
-  print("✓ parse_subcommand_options: no flag returns nil")
 end
 test_parse_subcommand_options_none()
 
@@ -720,7 +683,6 @@ local function test_parse_subcommand_options_empty()
   local opts: {OptionDef} = {{name = "output", short = "o", has_arg = "required"}}
   local result = init_tool.parse_subcommand_options({}, opts)
   assert(result.output == nil, "expected nil for empty args, got: " .. tostring(result.output))
-  print("✓ parse_subcommand_options: empty args returns nil")
 end
 test_parse_subcommand_options_empty()
 
@@ -728,7 +690,6 @@ local function test_parse_subcommand_options_last_wins()
   local opts: {OptionDef} = {{name = "output", short = "o", has_arg = "required"}}
   local result = init_tool.parse_subcommand_options({"--output", "first", "--output", "second"}, opts)
   assert(result.output == "second", "expected 'second', got: " .. tostring(result.output))
-  print("✓ parse_subcommand_options: last --output wins")
 end
 test_parse_subcommand_options_last_wins()
 
@@ -740,7 +701,6 @@ local function test_parse_subcommand_options_multiple()
   local result = init_tool.parse_subcommand_options({"-v", "--output", "out.bin"}, opts)
   assert(result.verbose == "true", "expected verbose='true', got: " .. tostring(result.verbose))
   assert(result.output == "out.bin", "expected output='out.bin', got: " .. tostring(result.output))
-  print("✓ parse_subcommand_options: multiple options parsed")
 end
 test_parse_subcommand_options_multiple()
 
@@ -748,7 +708,6 @@ local function test_parse_subcommand_options_flag_no_arg()
   local opts: {OptionDef} = {{name = "verbose", short = "v", has_arg = "none"}}
   local result = init_tool.parse_subcommand_options({"-v", "otherarg"}, opts)
   assert(result.verbose == "true", "expected verbose='true', got: " .. tostring(result.verbose))
-  print("✓ parse_subcommand_options: flag with has_arg='none'")
 end
 test_parse_subcommand_options_flag_no_arg()
 
@@ -760,7 +719,6 @@ local function test_parse_args_embed_remaining_contains_output()
   assert(parsed.remaining[3] == "--output", "remaining[3] should be '--output'")
   assert(parsed.remaining[4] == "o/bin/ah", "remaining[4] should be 'o/bin/ah'")
   assert(parsed.output_path == nil, "top-level output_path should be nil")
-  print("✓ parse_args: embed --output args land in remaining, not parsed.output_path")
 end
 test_parse_args_embed_remaining_contains_output()
 
