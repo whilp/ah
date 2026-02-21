@@ -21,6 +21,7 @@ local sandbox = require("cosmic.sandbox")
 local util = require("ah.util")
 local envd = require("cosmic.envd")
 local render = require("ah.render")
+local compact = require("ah.compact")
 
 -- Session record for listing
 local record Session
@@ -378,6 +379,7 @@ local function make_cli_handler(skill_name: string): events.EventCallback
   local RESET = is_tty and "\27[0m" or ""
   local has_text = false
   local text_buffer: {string} = {}
+  local captured_model: string = nil
 
   -- Flush buffered agent response text to stdout
   local function flush_text()
@@ -396,6 +398,7 @@ local function make_cli_handler(skill_name: string): events.EventCallback
     local t = event.event_type
 
     if t == "agent_start" then
+      captured_model = event.model
       if is_ci and skill_name then
         io.stdout:write("::group::" .. skill_name .. "\n")
         io.stdout:flush()
@@ -426,7 +429,10 @@ local function make_cli_handler(skill_name: string): events.EventCallback
         if cache_read > 0 then
           in_str = in_str .. " (" .. format_tokens(cache_read) .. " cached)"
         end
-        io.stderr:write(string.format("%s%s in / %s out (%s total)%s\n", DIM, in_str, format_tokens(total_out), format_tokens(total_in + total_out), RESET))
+        local total = total_in + total_out
+        local budget = compact.get_context_limit(captured_model)
+        local pct = math.floor(total / budget * 100)
+        io.stderr:write(string.format("%s%s in / %s out (%s/%s total, %d%%)%s\n", DIM, in_str, format_tokens(total_out), format_tokens(total), format_tokens(budget), pct, RESET))
       end
       if is_ci and skill_name then
         io.stdout:write("::endgroup::\n")
@@ -435,7 +441,9 @@ local function make_cli_handler(skill_name: string): events.EventCallback
 
     elseif t == "budget_exceeded" then
       local total = (event.total_input_tokens or 0) + (event.total_output_tokens or 0)
-      io.stderr:write(string.format("\ntoken budget exceeded (%d/%d tokens)\n", total, event.max_tokens or 0))
+      local budget = event.max_tokens or compact.get_context_limit(captured_model)
+      local pct = math.floor(total / budget * 100)
+      io.stderr:write(string.format("\ntoken budget exceeded (%s/%s, %d%%)\n", format_tokens(total), format_tokens(budget), pct))
 
     elseif t == "error" then
       local msg = event.error or "unknown"
