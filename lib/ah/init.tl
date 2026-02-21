@@ -1337,4 +1337,5 @@ return {
   usage_text = usage_text,
   colorize_diff_line = colorize_diff_line,
   colorize_tool_line = colorize_tool_line,
+  select_model_for_skill = select_model_for_skill,
 }
