@@ -1560,4 +1560,107 @@ local function test_add_tool_override_teal_syntax_error()
 end
 test_add_tool_override_teal_syntax_error()
 
+-- grep tool tests
+local function test_grep_tool_validation()
+  -- grep tool should exist in definitions
+  local defs = tools.get_tool_definitions()
+  local grep_def: {string:any} = nil
+  for _, d in ipairs(defs) do
+    local def = d as {string:any}
+    if def.name == "grep" then
+      grep_def = def
+      break
+    end
+  end
+  
+  assert(grep_def, "grep tool should be in definitions")
+  assert(grep_def.description, "grep should have description")
+  assert(grep_def.system_prompt, "grep should have system_prompt")
+  assert(grep_def.input_schema, "grep should have input_schema")
+  
+  local schema = grep_def.input_schema as {string:any}
+  assert(schema.type == "object", "grep schema should be object")
+  
+  local props = schema.properties as {string:any}
+  assert(props.pattern, "grep should have pattern property")
+  assert(props.path, "grep should have path property")
+  
+  local required = schema.required as {string}
+  assert(required[1] == "pattern", "pattern should be required")
+  
+  print("✓ grep tool record structure is valid")
+end
+test_grep_tool_validation()
+
+local function test_grep_empty_pattern()
+  local result, is_error = tools.execute_tool("grep", {pattern = ""})
+  assert(result:match("error"), "empty pattern should error: " .. result)
+  print("✓ grep rejects empty pattern")
+end
+test_grep_empty_pattern()
+
+local function test_grep_missing_pattern()
+  local result, is_error = tools.execute_tool("grep", {})
+  -- Should fail because pattern is required
+  assert(result:match("error"), "missing pattern should error: " .. result)
+  print("✓ grep rejects missing pattern")
+end
+test_grep_missing_pattern()
+
+local function test_grep_path_traversal()
+  local result, is_error = tools.execute_tool("grep", {pattern = "test", path = "../etc"})
+  assert(result:match("error"), "path with .. should be rejected: " .. result)
+  assert(result:match("%.%."), "error message should mention ..: " .. result)
+  print("✓ grep rejects path traversal")
+end
+test_grep_path_traversal()
+
+local function test_grep_basic_search()
+  -- Create a test file and search for a pattern
+  local test_dir = fs.join(TEST_TMPDIR, "grep_test")
+  fs.makedirs(test_dir)
+  
+  local test_file = fs.join(test_dir, "test.tl")
+  cio.barf(test_file, "local function test_func(): string\n  return \"hello\"\nend\n")
+  
+  local result, is_error = tools.execute_tool("grep", {pattern = "test_func", path = test_dir})
+  assert(not is_error, "grep should succeed: " .. tostring(result))
+  assert(result:match("test_func"), "should find the pattern: " .. result)
+  assert(result:match("test%.tl"), "should show file name: " .. result)
+  assert(result:match(":1:"), "should show line number: " .. result)
+  print("✓ grep finds pattern in file")
+end
+test_grep_basic_search()
+
+local function test_grep_no_matches()
+  local test_dir = fs.join(TEST_TMPDIR, "grep_empty")
+  fs.makedirs(test_dir)
+  
+  local test_file = fs.join(test_dir, "empty.tl")
+  cio.barf(test_file, "-- nothing here\n")
+  
+  local result, is_error = tools.execute_tool("grep", {pattern = "nonexistent_pattern", path = test_dir})
+  assert(result:match("no matches found"), "should report no matches: " .. result)
+  print("✓ grep handles no matches")
+end
+test_grep_no_matches()
+
+local function test_grep_default_path()
+  -- When no path is provided, should search current directory
+  local orig_dir = fs.getcwd()
+  local test_dir = fs.join(TEST_TMPDIR, "grep_default")
+  fs.makedirs(test_dir)
+  fs.chdir(test_dir)
+  
+  cio.barf("sample.md", "# Sample\ngrep should find this\n")
+  
+  local result, is_error = tools.execute_tool("grep", {pattern = "grep should"})
+  assert(not is_error, "grep should succeed: " .. tostring(result))
+  assert(result:match("grep should find this"), "should find pattern: " .. result)
+  
+  fs.chdir(orig_dir)
+  print("✓ grep defaults to current directory")
+end
+test_grep_default_path()
+
 print("\nAll tools tests passed!")
