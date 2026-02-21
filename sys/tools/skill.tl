@@ -13,7 +13,7 @@ return {
   input_schema = {
     type = "object",
     properties = {
-      name = {type = "string", description = "Skill name to load (e.g. 'plan', 'do', 'check')"},
+      name = {type = "string", description = "Skill name to load (e.g. 'init', 'write-skill')"},
     },
     required = {"name"},
   },
