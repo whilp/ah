@@ -746,6 +746,67 @@ local record StderrHandle
   read: function(StderrHandle): string
 end
 
+-- OptionArgType indicates whether an option requires an argument
+local enum OptionArgType
+  "required"
+  "none"
+end
+
+-- OptionDef describes a command-line option
+local record OptionDef
+  name: string           -- long name (e.g. "output")
+  short: string          -- short name (e.g. "o")
+  has_arg: OptionArgType
+end
+
+-- parse_subcommand_options scans args for options defined in opts.
+-- Returns a table mapping option names to their values (nil if not present).
+-- Supports -s val, -sval, --name val forms. Last occurrence wins.
+-- This allows parsing options that appear after a subcommand.
+local function parse_subcommand_options(args: {string}, opts: {OptionDef}): {string:string}
+  local result: {string:string} = {}
+  
+  -- Build optstring for getopt
+  local optstring_parts: {string} = {}
+  local opt_map: {string:string} = {}  -- maps short letter to long name
+  
+  for _, opt in ipairs(opts) do
+    optstring_parts[#optstring_parts + 1] = opt.short
+    if opt.has_arg == "required" then
+      optstring_parts[#optstring_parts + 1] = ":"
+    end
+    opt_map[opt.short] = opt.name
+  end
+  
+  local optstring = table.concat(optstring_parts)
+  -- Convert OptionDef to the format expected by getopt
+  local longopts: {getopt.LongOpt} = {}
+  for i, opt in ipairs(opts) do
+    longopts[i] = {
+      name = opt.name,
+      has_arg = opt.has_arg,
+      short = opt.short
+    }
+  end
+  local parser = getopt.new(args, optstring, longopts)
+  
+  while true do
+    local opt, optarg = parser:next()
+    if not opt then break end
+    
+    -- Map short option letters to long names
+    local name = opt_map[opt] or opt
+    
+    if optarg then
+      result[name] = optarg
+    else
+      result[name] = "true"
+    end
+  end
+  
+  return result
+end
+
 local function main(args: {string}): integer, string
   -- Load embedded env.d/ variables before anything else.
   -- This allows embedding credentials (API keys, OAuth tokens) into the
@@ -966,11 +1027,25 @@ local function main(args: {string}): integer, string
       io.stderr:write("usage: ah embed <dir> [-o <file>]\n")
       return 1
     end
+    -- Scan remaining args (after subcommand and src_dir) for -o/--output.
+    -- This allows `ah embed <dir> --output <path>` in addition to
+    -- the top-level `ah -o <path> embed <dir>` form.
+    local sub_args: {string} = {}
+    for si = 3, #remaining do
+      sub_args[#sub_args + 1] = remaining[si]
+    end
+    local embed_opts: {OptionDef} = {{
+      name = "output",
+      short = "o",
+      has_arg = "required"
+    }}
+    local opts = parse_subcommand_options(sub_args, embed_opts)
+    local effective_output = opts.output or output_path
     -- Create temp structure with embed/ prefix
     local tmpdir = fs.mkdtemp("/tmp/ah-embed-XXXXXX")
     local embed_link = fs.join(tmpdir, "embed")
     fs.symlink(fs.realpath(src_dir), embed_link)
-    local result = embed.run({tmpdir}, output_path)
+    local result = embed.run({tmpdir}, effective_output)
     fs.rmrf(tmpdir)
     if result.ok then
       io.write(result.message .. "\n")
@@ -1300,6 +1375,7 @@ end
 return {
   main = main,
   parse_args = parse_args,
+  parse_subcommand_options = parse_subcommand_options,
   load_system_prompt = load_system_prompt,
   load_claude_md = load_claude_md,
   list_sessions = list_sessions,

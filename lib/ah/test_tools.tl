@@ -7,11 +7,13 @@ local tools = require("ah.tools")
 local TEST_TMPDIR = os.getenv("TEST_TMPDIR") or "/tmp"
 
 local function test_read_tool()
-  local result, is_error, details = tools.execute_tool("read", {path = "/etc/hostname"})
+  local test_file = fs.join(TEST_TMPDIR, "test_read_tool.txt")
+  cio.barf(test_file, "test-hostname\n")
+  local result, is_error, details = tools.execute_tool("read", {path = test_file})
   assert(not is_error, "read should succeed: " .. result)
   assert(result:match("1\t"), "should have line numbers")
   assert(details, "read should return details")
-  assert(details.path == "/etc/hostname", "details should have path")
+  assert(details.path == test_file, "details should have path")
   assert(details.line_count and details.line_count > 0, "details should have line_count")
   print("✓ read tool works")
 end
