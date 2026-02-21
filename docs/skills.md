@@ -89,10 +89,5 @@ metadata header showing source path, base directory, and line count.
 
 | skill | purpose |
 |-------|---------|
-| plan | research codebase, write structured work plan |
-| do | execute work plan, make changes, run validation |
-| check | review changes against plan, render verdict |
-| fix | address check feedback, re-validate, commit |
-| analyze-session | analyze session.db for agent friction |
 | init | generate agent-friendly documentation |
 | write-skill | write a new ah skill with correct format and conventions |
