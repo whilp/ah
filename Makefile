@@ -37,7 +37,6 @@ $(cosmic_debug): deps/cosmic.mk
 	@echo "$(cosmic_debug_sha)  $@" | sha256sum -c - >/dev/null
 	@chmod +x $@
 
-reporter := $(cosmic) lib/build/reporter.tl
 linter := $(cosmic) lib/build/lint.tl
 
 # ah module
@@ -72,9 +71,7 @@ export LUA_PATH := $(CURDIR)/o/lib/?.lua;$(CURDIR)/o/lib/?/init.lua;$(CURDIR)/li
 
 $(o)/%.tl.test.ok: $(o)/%.lua $(ah_lua) $(o)/bin/ah $(cosmic)
 	@mkdir -p $(@D)
-	@d=$$(mktemp -d); TEST_TMPDIR=$$d AH_BIN=$(CURDIR)/$(o)/bin/ah $(cosmic) $< >$$d/out 2>&1 \
-		&& echo "pass:" > $@ || echo "fail:" > $@; \
-	if [ -f $$d/out ]; then cat $$d/out >> $@; fi; rm -rf $$d
+	@TEST_TMPDIR=$$(mktemp -d) AH_BIN=$(CURDIR)/$(o)/bin/ah $(cosmic) --test $@ $(cosmic) $<
 
 # targets
 .PHONY: help
@@ -97,7 +94,7 @@ help:
 test: $(o)/test-summary.txt
 
 $(o)/test-summary.txt: $(all_tested) $(cosmic)
-	@$(reporter) --dir $(o) $(all_tested) | tee $@
+	@$(cosmic) --report $(all_tested) | tee $@
 
 .PHONY: build
 ## Build all files
@@ -168,7 +165,7 @@ check-types: $(o)/teal-summary.txt
 all_teals := $(patsubst %,$(o)/%.teal.ok,$(ah_srcs))
 
 $(o)/teal-summary.txt: $(all_teals) $(cosmic)
-	@$(reporter) --dir $(o) $(all_teals) | tee $@
+	@$(cosmic) --report $(all_teals) | tee $@
 
 $(o)/%.tl.teal.ok: %.tl $(cosmic)
 	@mkdir -p $(@D)
@@ -191,7 +188,7 @@ all_linted := $(patsubst %,$(o)/%.lint.ok,$(lint_files))
 lint: $(o)/lint-summary.txt
 
 $(o)/lint-summary.txt: $(all_linted) $(cosmic)
-	@$(reporter) --dir $(o) $(all_linted) | tee $@
+	@$(cosmic) --report $(all_linted) | tee $@
 
 $(o)/%.lint.ok: % lib/build/lint.tl $(cosmic)
 	@mkdir -p $(@D)
