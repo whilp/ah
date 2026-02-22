@@ -1367,6 +1367,171 @@ return {
 end
 test_tl_skill_tool_requires_tl_module()
 
+-- Tests for looks_like_tool AST guard (issue #408)
+
+local function test_looks_like_tool_valid_lua()
+  local source = [[
+return {
+  name = "foo",
+  description = "A test tool",
+  input_schema = {type = "object", properties = {}},
+  execute = function() return "ok", false end,
+}
+]]
+  assert(tools.looks_like_tool(source, true), "valid lua tool should pass")
+  print("✓ looks_like_tool accepts valid lua tool")
+end
+test_looks_like_tool_valid_lua()
+
+local function test_looks_like_tool_valid_teal()
+  local source = [[
+return {
+  name = "greet",
+  description = "test",
+  input_schema = {type = "object", properties = {}},
+  execute = function(input: {string:any}): string, boolean
+    return "ok", false
+  end,
+}
+]]
+  assert(tools.looks_like_tool(source, false), "valid teal tool should pass")
+  print("✓ looks_like_tool accepts valid teal tool")
+end
+test_looks_like_tool_valid_teal()
+
+local function test_looks_like_tool_os_exit()
+  local source = "os.exit(0)"
+  assert(not tools.looks_like_tool(source, true), "os.exit() script should be rejected")
+  print("✓ looks_like_tool rejects os.exit() script")
+end
+test_looks_like_tool_os_exit()
+
+local function test_looks_like_tool_no_return()
+  local source = "print('hello')"
+  assert(not tools.looks_like_tool(source, true), "script without return should be rejected")
+  print("✓ looks_like_tool rejects script without return")
+end
+test_looks_like_tool_no_return()
+
+local function test_looks_like_tool_empty()
+  assert(not tools.looks_like_tool("", true), "empty source should be rejected")
+  print("✓ looks_like_tool rejects empty source")
+end
+test_looks_like_tool_empty()
+
+local function test_looks_like_tool_syntax_error()
+  assert(not tools.looks_like_tool("invalid !!!", true), "syntax error should be rejected")
+  print("✓ looks_like_tool rejects syntax errors")
+end
+test_looks_like_tool_syntax_error()
+
+local function test_looks_like_tool_missing_name()
+  local source = [[
+return {
+  description = "no name",
+  execute = function() end,
+}
+]]
+  assert(not tools.looks_like_tool(source, true), "table missing name should be rejected")
+  print("✓ looks_like_tool rejects table missing name key")
+end
+test_looks_like_tool_missing_name()
+
+local function test_looks_like_tool_missing_execute()
+  local source = [[
+return {
+  name = "foo",
+  description = "no execute",
+}
+]]
+  assert(not tools.looks_like_tool(source, true), "table missing execute should be rejected")
+  print("✓ looks_like_tool rejects table missing execute key")
+end
+test_looks_like_tool_missing_execute()
+
+local function test_looks_like_tool_variable_return()
+  -- Returns a variable — can't statically verify, should pass optimistically
+  local source = "local t = {} ; t.name = 'foo' ; return t"
+  assert(tools.looks_like_tool(source, true), "variable return should pass optimistically")
+  print("✓ looks_like_tool accepts variable return optimistically")
+end
+test_looks_like_tool_variable_return()
+
+local function test_looks_like_tool_function_call_return()
+  -- Returns a function call — can't statically verify, should pass optimistically
+  local source = "return require('foo').make_tool()"
+  assert(tools.looks_like_tool(source, true), "function call return should pass optimistically")
+  print("✓ looks_like_tool accepts function call return optimistically")
+end
+test_looks_like_tool_function_call_return()
+
+local function test_looks_like_tool_return_nil()
+  local source = "return nil"
+  -- nil return is a variable-like expression, passes optimistically
+  -- is_valid_tool will catch it at runtime
+  assert(tools.looks_like_tool(source, true), "return nil should pass optimistically")
+  print("✓ looks_like_tool accepts return nil optimistically")
+end
+test_looks_like_tool_return_nil()
+
+-- Integration test: os.exit() in tools dir is skipped without killing process
+local function test_os_exit_in_tools_dir_skipped()
+  local tool_dir = fs.join(TEST_TMPDIR, "os_exit_tools")
+  fs.makedirs(tool_dir)
+
+  -- This would kill the process if evaluated
+  cio.barf(fs.join(tool_dir, "killer.lua"), "os.exit(1)")
+
+  -- A valid tool alongside it
+  cio.barf(fs.join(tool_dir, "safe.lua"), [[
+return {
+  name = "safe",
+  description = "Safe tool",
+  input_schema = {type = "object", properties = {}, required = {}},
+  execute = function() return "safe", false end,
+}
+]])
+
+  local loaded = tools.load_custom_tools_from_dir(tool_dir)
+  assert(#loaded == 1, "should load only the safe tool, got: " .. tostring(#loaded))
+  assert(loaded[1].name == "safe", "should load safe tool")
+  print("✓ os.exit() script in tools dir is skipped without killing process")
+end
+test_os_exit_in_tools_dir_skipped()
+
+-- Integration test: os.exit() in teal file is skipped
+local function test_os_exit_teal_skipped()
+  local tool_dir = fs.join(TEST_TMPDIR, "os_exit_teal")
+  fs.makedirs(tool_dir)
+
+  cio.barf(fs.join(tool_dir, "killer.tl"), "os.exit(1)")
+
+  local loaded = tools.load_custom_tools_from_dir(tool_dir)
+  assert(#loaded == 0, "os.exit teal file should be skipped")
+  print("✓ os.exit() in .tl file is skipped without killing process")
+end
+test_os_exit_teal_skipped()
+
+-- Integration test: add_tool_override guards against os.exit()
+local function test_override_os_exit_guarded()
+  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
+  local defs_before = #tools.get_tool_definitions()
+
+  local tool_dir = fs.join(TEST_TMPDIR, "override_os_exit")
+  fs.makedirs(tool_dir)
+  local bad_path = fs.join(tool_dir, "bad.lua")
+  cio.barf(bad_path, "os.exit(1)")
+
+  tools.add_tool_override("bad", bad_path)
+
+  local defs_after = #tools.get_tool_definitions()
+  assert(defs_before == defs_after, "os.exit override should not be added")
+
+  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
+  print("✓ add_tool_override guards against os.exit() script")
+end
+test_override_os_exit_guarded()
+
 -- Tests for graceful handling of tools that fail to load (issue #321)
 
 local function test_teal_syntax_error_skipped()
