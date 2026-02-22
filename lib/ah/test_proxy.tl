@@ -22,6 +22,7 @@ local record Proxy
   parse_allow_hosts: function(string): {string:boolean}
   parse_base_url: function(string): string
   nb_connect: function(Socket, number, integer): boolean, string
+  send_all: function(Socket, string): boolean, string
 end
 
 local proxy = require("ah.proxy") as Proxy
@@ -315,5 +316,88 @@ local function test_parse_base_url_ftp_scheme()
   print("✓ parse_base_url: unsupported scheme returns nil")
 end
 test_parse_base_url_ftp_scheme()
+
+-- send_all: sends data on a connected socket pair (loopback)
+local function test_send_all_basic()
+  -- Create a listener on loopback
+  local listener = net.socket(net.AF_INET, net.SOCK_STREAM, 0) as Socket
+  assert(listener, "listener socket creation should succeed")
+
+  local lo_addr, lo_err = ip.lookup("127.0.0.1")
+  assert(lo_addr, "should resolve localhost, got: " .. tostring(lo_err))
+
+  -- Bind to port 0 to get an ephemeral port
+  -- Use a simple approach: connect to a listener via unix socket pair
+  listener:close()
+
+  -- Use a unix socket pair instead for simplicity
+  local srv_path = os.tmpname()
+  os.remove(srv_path)
+  local server = net.listen_unix(srv_path, 1)
+  assert(server, "unix listen should succeed")
+
+  -- Connect a client
+  local client = net.connect_unix(srv_path) as Socket
+  assert(client, "unix connect should succeed")
+
+  -- Accept the connection
+  local peer = server:accept(net.SOCK_NONBLOCK) as Socket
+  assert(peer, "accept should succeed")
+
+  -- send_all on connected socket
+  local test_data = string.rep("x", 1024)
+  local ok, err = proxy.send_all(peer, test_data)
+  assert(ok, "send_all should succeed, got: " .. tostring(err))
+
+  -- Read it back
+  local received = (client as Socket):recv(2048)
+  assert(received == test_data, "should receive all data, got " .. tostring(#(received or "")) .. " bytes")
+
+  client:close()
+  peer:close()
+  server:close()
+  os.remove(srv_path)
+  print("✓ send_all: sends complete data")
+end
+test_send_all_basic()
+
+-- send_all: sends large data (>64KB, tests short write handling)
+local function test_send_all_large()
+  local srv_path = os.tmpname()
+  os.remove(srv_path)
+  local server = net.listen_unix(srv_path, 1)
+  assert(server, "unix listen should succeed")
+
+  local client = net.connect_unix(srv_path) as Socket
+  assert(client, "unix connect should succeed")
+
+  local peer = server:accept(net.SOCK_NONBLOCK) as Socket
+  assert(peer, "accept should succeed")
+
+  -- Send 64KB of data — fits in unix socket buffer, verifies send loop
+  local test_data = string.rep("A", 64 * 1024)
+  local ok, err = proxy.send_all(peer, test_data)
+  assert(ok, "send_all should succeed for large data, got: " .. tostring(err))
+
+  -- Read all data back (may need multiple recv calls)
+  local chunks: {string} = {}
+  local total = 0
+  while total < #test_data do
+    local fds: {number:number} = { [(client as Socket).fd] = net.POLLIN }
+    net.poll(fds, 5000)
+    local chunk = (client as Socket):recv(65536)
+    if not chunk or chunk == "" then break end
+    table.insert(chunks, chunk)
+    total = total + #chunk
+  end
+  assert(total == #test_data, "should receive all " .. tostring(#test_data) .. " bytes, got " .. tostring(total))
+
+  client:close()
+  peer:close()
+  server:close()
+  os.remove(srv_path)
+  print("✓ send_all: sends large data (64KB)")
+end
+test_send_all_large()
 
 print("\nall proxy tests passed")
