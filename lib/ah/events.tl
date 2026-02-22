@@ -71,6 +71,10 @@ local record EventData
   total_output_tokens: integer
   total_cache_read_tokens: integer
   max_tokens: integer
+
+  -- payload size tracking
+  payload_bytes: integer
+  threshold: integer
 end
 
 local type EventCallback = function(event: EventData)
@@ -107,8 +111,17 @@ local type EventCallback = function(event: EventData)
     return e
   end
 
-  local function api_call_start(): EventData
-    return make_event("api_call_start")
+  local function api_call_start(payload_bytes: integer): EventData
+    local e = make_event("api_call_start")
+    e.payload_bytes = payload_bytes
+    return e
+  end
+
+  local function payload_warn(payload_bytes: integer, threshold: integer): EventData
+    local e = make_event("payload_warn")
+    e.payload_bytes = payload_bytes
+    e.threshold = threshold
+    return e
   end
 
   local function api_call_end(message_id: string, input_tokens: integer, output_tokens: integer, api_latency_ms: integer, model: string, cache_creation_input_tokens: integer, cache_read_input_tokens: integer): EventData
@@ -252,6 +265,7 @@ local type EventCallback = function(event: EventData)
     compaction_triggered = compaction_triggered,
     compaction_complete = compaction_complete,
     budget_exceeded = budget_exceeded,
+    payload_warn = payload_warn,
 
     -- Serialization
     to_json = to_json,

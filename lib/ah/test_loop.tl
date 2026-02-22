@@ -370,3 +370,43 @@ local function test_wrap_command_comment_no_false_positive()
   assert(not result:find("\\\n"), "should not break inside tokens: " .. result)
 end
 test_wrap_command_comment_no_false_positive()
+
+-- Tests for measure_payload_bytes
+local function test_measure_payload_bytes_empty()
+  local result = loop.measure_payload_bytes({})
+  assert(type(result) == "number", "should return a number")
+  assert(result > 0, "empty array encodes to non-empty JSON: got " .. result)
+  -- [] encodes to 2 bytes
+  assert(result <= 10, "empty array should be small: got " .. result)
+end
+test_measure_payload_bytes_empty()
+
+local function test_measure_payload_bytes_text()
+  local msgs = {
+    {role = "user", content = {{type = "text", text = "hello world"}}},
+  }
+  local result = loop.measure_payload_bytes(msgs)
+  assert(result > 0, "text message should have positive byte count: got " .. result)
+  assert(result > 20, "text message with content should be > 20 bytes: got " .. result)
+end
+test_measure_payload_bytes_text()
+
+local function test_measure_payload_bytes_large()
+  local big_text = string.rep("x", 100000)
+  local msgs = {
+    {role = "user", content = {{type = "text", text = big_text}}},
+  }
+  local result = loop.measure_payload_bytes(msgs)
+  assert(result > 100000, "large content should produce > 100000 byte payload: got " .. result)
+end
+test_measure_payload_bytes_large()
+
+local function test_payload_warn_threshold_constant()
+  local t = loop.PAYLOAD_WARN_BYTES
+  assert(type(t) == "number", "PAYLOAD_WARN_BYTES should be a number")
+  assert(t > 0, "PAYLOAD_WARN_BYTES should be positive: got " .. t)
+  assert(t >= 100000, "PAYLOAD_WARN_BYTES should be at least 100KB: got " .. t)
+end
+test_payload_warn_threshold_constant()
+
+print("all payload tests passed")
