@@ -15,9 +15,9 @@ end
 
 -- limits ---
 
-local DEFAULT_FILE_LINES <const> = 500
+local DEFAULT_FILE_LINES < const > = 500
 
-local FILE_LINES: {string:integer} = {
+local FILE_LINES: {string: integer} = {
   ["lib/ah/db.tl"] = 549,
   ["lib/ah/init.tl"] = 1389,
   ["lib/ah/loop.tl"] = 952,
@@ -41,18 +41,18 @@ local function count_lines(path: string): integer
 end
 
 local function check_file_length(
-  file: string, n: integer, limit: integer
-): {Diagnostic}
+    file: string, n: integer, limit: integer
+  ): {Diagnostic}
   if n <= limit then return {} end
   return {{
-    file = file,
-    line = n,
-    col = 0,
-    rule = "file-length",
-    message = string.format(
-      "%d lines (limit: %d)", n, limit
-    ),
-  }}
+      file = file,
+      line = n,
+      col = 0,
+      rule = "file-length",
+      message = string.format(
+        "%d lines (limit: %d)", n, limit
+      ),
+    }}
 end
 
 -- runner ---
@@ -87,8 +87,8 @@ local function main(...: string): integer, string
     print("")
     for _, d in ipairs(all_diags) do
       print(string.format(
-        "%s:%d:%d: %s: %s", d.file, d.line, d.col, d.rule, d.message
-      ))
+          "%s:%d:%d: %s: %s", d.file, d.line, d.col, d.rule, d.message
+        ))
     end
   end
 

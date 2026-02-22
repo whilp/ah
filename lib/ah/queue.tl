@@ -28,16 +28,16 @@ create index if not exists idx_queue_consumed on queue_messages(consumed_at);
 local STALE_THRESHOLD = 30
 
 local record Statement
-  bind: function(Statement, any...)
+  bind: function(Statement, any ...)
   exec: function(Statement)
   close: function(Statement)
 end
 
 local record Database
-  exec: function(Database, string, any...): boolean, string
+  exec: function(Database, string, any ...): boolean, string
   exec_list: function(Database, string, {any}, integer): boolean, string
   prepare: function(Database, string): Statement, string
-  query: function(Database, string, any...): function(): {string:any}
+  query: function(Database, string, any ...): function(): {string: any}
   close: function(Database)
 end
 
@@ -61,7 +61,7 @@ local record LockInfo
 end
 
 local function open(db_path: string): QueueDB, string
-  local db, err = sqlite.open(db_path) as (Database, string)
+  local db, err = sqlite.open(db_path) as(Database, string)
   if not db then
     return nil, "failed to open queue database: " .. db_path .. ": " .. (err or "")
   end
@@ -127,7 +127,7 @@ local function is_locked(self: QueueDB): boolean, integer
   -- Check if owner process is still alive
   local my_pid = proc.getpid()
   if info.owner_pid == my_pid then
-    return false, nil  -- We own it
+    return false, nil -- We own it
   end
 
   -- Try to check if the process exists via kill(pid, 0)
@@ -257,11 +257,11 @@ local function drain_steering(self: QueueDB): {QueueMessage}
     order by rowid asc
   ]]) do
     table.insert(messages, {
-      id = row.id as string,
-      message_type = row.message_type as string,
-      content = row.content as string,
-      created_at = row.created_at as integer,
-    })
+        id = row.id as string,
+        message_type = row.message_type as string,
+        content = row.content as string,
+        created_at = row.created_at as integer,
+      })
   end
 
   -- Mark them as consumed
@@ -286,11 +286,11 @@ local function drain_followup(self: QueueDB): {QueueMessage}
     order by rowid asc
   ]]) do
     table.insert(messages, {
-      id = row.id as string,
-      message_type = row.message_type as string,
-      content = row.content as string,
-      created_at = row.created_at as integer,
-    })
+        id = row.id as string,
+        message_type = row.message_type as string,
+        content = row.content as string,
+        created_at = row.created_at as integer,
+      })
   end
 
   -- Mark them as consumed

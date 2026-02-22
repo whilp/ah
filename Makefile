@@ -85,8 +85,9 @@ help:
 	@echo "  ah-debug            Build ah executable archive with debug symbols"
 	@echo "  release             Create GitHub prerelease (RELEASE=1 for full)"
 	@echo "  check-types         Run teal type checker on all files"
+	@echo "  check-format        Run format checker on all .tl files"
 	@echo "  lint                Run linter on all tracked files"
-	@echo "  ci                  Run tests, type checks, and linter"
+	@echo "  ci                  Run tests, type checks, format checks, and linter"
 	@echo "  clean               Remove all build artifacts"
 
 .PHONY: test
@@ -171,6 +172,21 @@ $(o)/%.tl.teal.ok: %.tl $(cosmic)
 	@mkdir -p $(@D)
 	@TL_PATH='$(TL_PATH)' $(cosmic) --test $@ $(cosmic) --check-types "$<"
 
+# format checking
+all_fmt_srcs := $(shell git ls-files '*.tl' 2>/dev/null)
+all_fmt_checks := $(patsubst %,$(o)/%.fmt.ok,$(all_fmt_srcs))
+
+.PHONY: check-format
+## Run format checker on all .tl files
+check-format: $(o)/fmt-summary.txt
+
+$(o)/fmt-summary.txt: $(all_fmt_checks) $(cosmic)
+	@$(cosmic) --report $(all_fmt_checks) | tee $@
+
+$(o)/%.tl.fmt.ok: %.tl $(cosmic)
+	@mkdir -p $(@D)
+	@$(cosmic) --test $@ $(cosmic) --check-format "$<"
+
 # lint
 lint_files := $(shell git ls-files 2>/dev/null)
 all_linted := $(patsubst %,$(o)/%.lint.ok,$(lint_files))
@@ -187,8 +203,8 @@ $(o)/%.lint.ok: % lib/build/lint.tl $(cosmic)
 	@$(cosmic) --test $@ $(linter) "$<"
 
 .PHONY: ci
-## Run tests, type checks, and linter
-ci: test check-types lint
+## Run tests, type checks, format checks, and linter
+ci: test check-types check-format lint
 
 .PHONY: check
 check: ci

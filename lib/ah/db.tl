@@ -53,17 +53,17 @@ create index if not exists idx_events_type on events(event_type);
 
 -- Type definitions
 local record Statement
-  bind: function(Statement, any...)
+  bind: function(Statement, any ...)
   exec: function(Statement)
   close: function(Statement)
 end
 
 local record Database
-  exec: function(Database, string, any...): boolean, string
+  exec: function(Database, string, any ...): boolean, string
   exec_list: function(Database, string, {any}, integer): boolean, string
   prepare: function(Database, string): Statement, string
-  query: function(Database, string, any...): function(): {string:any}
-  transaction: function<T>(Database, function(): T): T
+  query: function(Database, string, any ...): function(): {string: any}
+  transaction: function < T > (Database, function(): T): T
   close: function(Database)
 end
 
@@ -147,7 +147,7 @@ local function open(db_path?: string): DB, string
     fs.makedirs(parent)
   end
 
-  local db, err = sqlite.open(db_path) as (Database, string)
+  local db, err = sqlite.open(db_path) as(Database, string)
   if not db then
     return nil, "failed to open database: " .. db_path .. ": " .. (err or "")
   end
@@ -513,7 +513,6 @@ local function get_first_user_prompt(self: DB): string
   end
   return ""
 end
-
 
 return {
   open = open,

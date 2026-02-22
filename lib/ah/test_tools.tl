@@ -41,10 +41,10 @@ local function test_edit_tool()
   local test_file = os.getenv("TEST_TMPDIR") .. "/test_edit.txt"
   tools.execute_tool("write", {path = test_file, content = "hello world"})
   local result, is_error, details = tools.execute_tool("edit", {
-    path = test_file,
-    old_string = "hello",
-    new_string = "goodbye"
-  })
+      path = test_file,
+      old_string = "hello",
+      new_string = "goodbye"
+    })
   assert(not is_error, "edit should succeed: " .. result)
   assert(details, "edit should return details")
   assert(details.path == test_file, "details should have path")
@@ -60,10 +60,10 @@ local function test_edit_tool_percent_in_replacement()
   local test_file = os.getenv("TEST_TMPDIR") .. "/test_edit_percent.txt"
   tools.execute_tool("write", {path = test_file, content = "value = 100"})
   local result, is_error = tools.execute_tool("edit", {
-    path = test_file,
-    old_string = "100",
-    new_string = "50%"
-  })
+      path = test_file,
+      old_string = "100",
+      new_string = "50%"
+    })
   assert(not is_error, "edit with % should succeed: " .. (result or "nil"))
 
   local content, _ = tools.execute_tool("read", {path = test_file})
@@ -98,13 +98,13 @@ local function test_tool_definitions()
   assert(#defs >= 4, "should have at least 4 tools: " .. tostring(#defs))
 
   -- Build name map for lookup
-  local by_name: {string:{string:any}} = {}
+  local by_name: {string: {string: any}} = {}
   for _, d in ipairs(defs) do
-    local def = d as {string:any}
+    local def = d as {string: any}
     assert(def.name, "tool should have name")
     assert(def.description, "tool should have description")
     assert(def.input_schema, "tool should have input_schema")
-    local schema = def.input_schema as {string:any}
+    local schema = def.input_schema as {string: any}
     assert(schema.type == "object", "schema type should be object")
     assert(schema.properties, "schema should have properties")
     by_name[def.name as string] = def
@@ -118,8 +118,8 @@ local function test_tool_definitions()
 
   -- Check read tool specifically
   local read_def = by_name["read"]
-  local read_schema = read_def.input_schema as {string:any}
-  local read_props = read_schema.properties as {string:any}
+  local read_schema = read_def.input_schema as {string: any}
+  local read_props = read_schema.properties as {string: any}
   local read_required = read_schema.required as {string}
   assert(read_props.path, "read should have path property")
   assert(read_required[1] == "path", "path should be required")
@@ -147,7 +147,7 @@ local function test_is_valid_tool()
     name = "test",
     description = "A test tool",
     input_schema = {type = "object", properties = {}, required = {}},
-    execute = function(_: {string:any}): string, boolean return "ok", false end,
+    execute = function(_: {string: any}): string, boolean return "ok", false end,
   }
   assert(tools.is_valid_tool(valid), "valid tool should pass validation")
   print("✓ is_valid_tool works")
@@ -262,7 +262,6 @@ local function test_project_tools_no_dir()
   print("✓ init_custom_tools handles missing tools/ directory")
 end
 test_project_tools_no_dir()
-
 
 local function test_dot_ah_tools_wins()
   -- .ah/tools should take precedence over tools/
@@ -448,7 +447,7 @@ local function test_no_project_cli_tools_in_bin()
   -- mytool should NOT be available (cwd/bin/ is not scanned)
   local found = false
   for _, d in ipairs(tools.get_tool_definitions()) do
-    if (d as {string:any}).name == "mytool" then found = true end
+    if (d as {string: any}).name == "mytool" then found = true end
   end
   assert(not found, "cwd/bin/ tools should not be loaded")
 
@@ -649,16 +648,16 @@ local function test_read_image_png()
   local result, is_error = tools.execute_tool("read", {path = png_path})
   assert(not is_error, "should read image successfully")
 
-  local parsed = json.decode(result) as {string:any}
+  local parsed = json.decode(result) as {string: any}
   assert(parsed, "result should be valid JSON")
   assert(parsed.__image__ == true, "should have __image__ marker")
   assert(parsed.content, "should have content array")
 
-  local content = (parsed.content as {any})[1] as {string:any}
+  local content = (parsed.content as {any})[1] as {string: any}
   assert(content.type == "image", "content type should be image")
   assert(content.source, "should have source")
 
-  local source = content.source as {string:any}
+  local source = content.source as {string: any}
   assert(source.type == "base64", "source type should be base64")
   assert(source.media_type == "image/png", "media type should be image/png")
   assert(source.data and #(source.data as string) > 0, "should have base64 data")
@@ -674,11 +673,11 @@ local function test_read_image_jpg()
   local result, is_error = tools.execute_tool("read", {path = jpg_path})
   assert(not is_error, "should read jpg successfully")
 
-  local parsed = json.decode(result) as {string:any}
+  local parsed = json.decode(result) as {string: any}
   assert(parsed.__image__ == true, "should have __image__ marker")
 
-  local content = (parsed.content as {any})[1] as {string:any}
-  local source = content.source as {string:any}
+  local content = (parsed.content as {any})[1] as {string: any}
+  local source = content.source as {string: any}
   assert(source.media_type == "image/jpeg", "media type should be image/jpeg")
   print("✓ read tool handles JPEG images")
 end
@@ -691,9 +690,9 @@ local function test_read_image_webp()
   local result, is_error = tools.execute_tool("read", {path = webp_path})
   assert(not is_error, "should read webp successfully")
 
-  local parsed = json.decode(result) as {string:any}
-  local content = (parsed.content as {any})[1] as {string:any}
-  local source = content.source as {string:any}
+  local parsed = json.decode(result) as {string: any}
+  local content = (parsed.content as {any})[1] as {string: any}
+  local source = content.source as {string: any}
   assert(source.media_type == "image/webp", "media type should be image/webp")
   print("✓ read tool handles WebP images")
 end
@@ -706,9 +705,9 @@ local function test_read_image_gif()
   local result, is_error = tools.execute_tool("read", {path = gif_path})
   assert(not is_error, "should read gif successfully")
 
-  local parsed = json.decode(result) as {string:any}
-  local content = (parsed.content as {any})[1] as {string:any}
-  local source = content.source as {string:any}
+  local parsed = json.decode(result) as {string: any}
+  local content = (parsed.content as {any})[1] as {string: any}
+  local source = content.source as {string: any}
   assert(source.media_type == "image/gif", "media type should be image/gif")
   print("✓ read tool handles GIF images")
 end
@@ -758,7 +757,7 @@ test_read_binary_by_control_chars()
 
 -- Input validation tests
 local function test_validate_input_valid()
-  local schema: {string:any} = {
+  local schema: {string: any} = {
     type = "object",
     properties = {
       path = {type = "string"},
@@ -773,7 +772,7 @@ end
 test_validate_input_valid()
 
 local function test_validate_input_missing_required()
-  local schema: {string:any} = {
+  local schema: {string: any} = {
     type = "object",
     properties = {
       path = {type = "string"},
@@ -789,7 +788,7 @@ end
 test_validate_input_missing_required()
 
 local function test_validate_input_wrong_type()
-  local schema: {string:any} = {
+  local schema: {string: any} = {
     type = "object",
     properties = {
       path = {type = "string"},
@@ -805,7 +804,7 @@ end
 test_validate_input_wrong_type()
 
 local function test_validate_input_multiple_errors()
-  local schema: {string:any} = {
+  local schema: {string: any} = {
     type = "object",
     properties = {
       path = {type = "string"},
@@ -822,7 +821,7 @@ end
 test_validate_input_multiple_errors()
 
 local function test_validate_input_optional_missing()
-  local schema: {string:any} = {
+  local schema: {string: any} = {
     type = "object",
     properties = {
       path = {type = "string"},
@@ -837,7 +836,7 @@ end
 test_validate_input_optional_missing()
 
 local function test_validate_input_no_required()
-  local schema: {string:any} = {
+  local schema: {string: any} = {
     type = "object",
     properties = {
       args = {type = "string"},
@@ -850,7 +849,7 @@ end
 test_validate_input_no_required()
 
 local function test_validate_input_boolean_type()
-  local schema: {string:any} = {
+  local schema: {string: any} = {
     type = "object",
     properties = {
       flag = {type = "boolean"},
@@ -904,10 +903,10 @@ local function test_edit_details_multiline()
   cio.barf(test_file, "line1\nline2\nline3\n")
 
   local result, is_error, details = tools.execute_tool("edit", {
-    path = test_file,
-    old_string = "line2",
-    new_string = "replaced_a\nreplaced_b\nreplaced_c"
-  })
+      path = test_file,
+      old_string = "line2",
+      new_string = "replaced_a\nreplaced_b\nreplaced_c"
+    })
   assert(not is_error, "edit should succeed")
   assert(details, "should return details")
   assert(details.old_lines == 1, "old_lines should be 1")
@@ -1020,10 +1019,10 @@ local function test_string_integer_coercion()
   cio.barf(test_file, "line1\nline2\nline3\nline4\nline5\n")
 
   local result, is_error = tools.execute_tool("read", {
-    path = test_file,
-    limit = "2",  -- string instead of integer
-    offset = "2"  -- string instead of integer
-  })
+      path = test_file,
+      limit = "2", -- string instead of integer
+      offset = "2" -- string instead of integer
+    })
   assert(not is_error, "read with string integers should succeed: " .. result)
   assert(result:match("2\tline2"), "should start at offset 2: " .. result)
   assert(not result:match("4\tline4"), "should respect limit of 2: " .. result)
@@ -1034,9 +1033,9 @@ test_string_integer_coercion()
 local function test_bash_timeout_string_coercion()
   -- Bash tool with string timeout
   local result, is_error = tools.execute_tool("bash", {
-    command = "echo hello",
-    timeout = "5000"  -- string instead of integer
-  })
+      command = "echo hello",
+      timeout = "5000" -- string instead of integer
+    })
   assert(not is_error, "bash with string timeout should succeed: " .. result)
   assert(result:match("hello"), "should execute command")
   print("✓ bash tool coerces string timeout to integer")
@@ -1097,7 +1096,7 @@ local function test_remove_tool()
   local defs_before = tools.get_tool_definitions()
   local has_bash = false
   for _, d in ipairs(defs_before) do
-    if (d as {string:any}).name == "bash" then has_bash = true end
+    if (d as {string: any}).name == "bash" then has_bash = true end
   end
   assert(has_bash, "should have bash before removal")
 
@@ -1108,7 +1107,7 @@ local function test_remove_tool()
   -- bash should be gone
   local defs_after = tools.get_tool_definitions()
   for _, d in ipairs(defs_after) do
-    assert((d as {string:any}).name ~= "bash", "bash should not appear after removal")
+    assert((d as {string: any}).name ~= "bash", "bash should not appear after removal")
   end
 
   -- execute_tool should fail
@@ -1167,8 +1166,8 @@ return {
   local defs = tools.get_tool_definitions()
   local found = false
   for _, d in ipairs(defs) do
-    if (d as {string:any}).name == "mytool" then found = true end
-    assert((d as {string:any}).name ~= "internal-name", "internal name should be overridden by --tool name")
+    if (d as {string: any}).name == "mytool" then found = true end
+    assert((d as {string: any}).name ~= "internal-name", "internal name should be overridden by --tool name")
   end
   assert(found, "tool should appear as 'mytool'")
 

@@ -105,7 +105,7 @@ local function main(...: string): integer, string
           file = file,
           checker = checker,
         }
-        local status_list = (results as {string:{CheckResult}})[result.status]
+        local status_list = (results as {string: {CheckResult}})[result.status]
         if status_list then
           table.insert(status_list, result)
         end
@@ -117,7 +117,7 @@ local function main(...: string): integer, string
   local lines: {string} = {}
   for _, result in ipairs(all_results) do
     local status = string.upper(result.status)
-    local icon = (icons as {string:string})[result.status] or " "
+    local icon = (icons as {string: string})[result.status] or " "
     local checker = result.checker or ""
     local line = string.format("%s %-6s %-8s %s", icon, status, checker, result.name)
     if result.status ~= "pass" and result.message then
@@ -129,9 +129,9 @@ local function main(...: string): integer, string
   local total = #results.pass + #results.fail + #results.skip + #results.ignore
   table.insert(lines, "")
   table.insert(lines, string.format(
-    "test: %d checks: %d passed, %d failed, %d skipped, %d ignored",
-    total, #results.pass, #results.fail, #results.skip, #results.ignore
-  ))
+      "test: %d checks: %d passed, %d failed, %d skipped, %d ignored",
+      total, #results.pass, #results.fail, #results.skip, #results.ignore
+    ))
 
   if #results.fail > 0 then
     table.insert(lines, "")

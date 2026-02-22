@@ -1,10 +1,10 @@
 local rand = require("cosmic.rand")
 
-local ENCODING <const> = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
-local ENCODING_LEN <const> = 32
-local TIME_LEN <const> = 10
-local RANDOM_LEN <const> = 16
-local TOTAL_LEN <const> = TIME_LEN + RANDOM_LEN
+local ENCODING < const > = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
+local ENCODING_LEN < const > = 32
+local TIME_LEN < const > = 10
+local RANDOM_LEN < const > = 16
+local TOTAL_LEN < const > = TIME_LEN + RANDOM_LEN
 
 local record DecodedUlid
   timestamp: number

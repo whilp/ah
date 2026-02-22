@@ -26,20 +26,20 @@ local record M
   parse_connect: function(string): string, string
   resolvehost: function(string): ip.Addr, string
   is_allowed: function(string): boolean
-  parse_allow_hosts: function(string): {string:boolean}
+  parse_allow_hosts: function(string): {string: boolean}
   parse_base_url: function(string): string
   nb_connect: function(Socket, number, integer): boolean, string
   send_all: function(Socket, string): boolean, string
 end
 
-local ALLOWLIST: {string:boolean} = {
+local ALLOWLIST: {string: boolean} = {
   ["api.anthropic.com:443"] = true,
 }
 
 -- Parse AH_ALLOW_HOSTS env var: comma-separated host:port entries.
 -- Returns a table of host:port -> true. Trims whitespace.
-local function parse_allow_hosts(value: string): {string:boolean}
-  local hosts: {string:boolean} = {}
+local function parse_allow_hosts(value: string): {string: boolean}
+  local hosts: {string: boolean} = {}
   if not value or value == "" then return hosts end
   for entry in value:gmatch("[^,]+") do
     local trimmed = entry:match("^%s*(.-)%s*$")
@@ -88,7 +88,7 @@ if base_url_env then
 end
 
 -- DNS: resolve via cosmic.ip.lookup, cache results for the process lifetime.
-local DNS_CACHE: {string:ip.Addr} = {}
+local DNS_CACHE: {string: ip.Addr} = {}
 
 local function resolvehost(host: string): ip.Addr, string
   if DNS_CACHE[host] then
@@ -125,7 +125,7 @@ local function nb_connect(sock: Socket, addr: number, port: integer): boolean, s
   end
 
   -- Non-blocking connect returns false with EINPROGRESS; poll for writability.
-  local fds: {number:number} = { [sock.fd] = net.POLLOUT }
+  local fds: {number: number} = {[sock.fd] = net.POLLOUT}
   local revents, poll_err = net.poll(fds, CONNECT_TIMEOUT_MS)
   if not revents then
     return false, "poll failed: " .. (poll_err or "unknown")
@@ -165,7 +165,7 @@ local function send_all(sock: Socket, data: string): boolean, string
     end
     sent = sent + (n as integer)
     if sent < #data then
-      local fds: {number:number} = { [sock.fd] = net.POLLOUT }
+      local fds: {number: number} = {[sock.fd] = net.POLLOUT}
       local revents, poll_err = net.poll(fds, SEND_TIMEOUT_MS)
       if not revents then
         return false, "poll failed: " .. (poll_err or "unknown")
@@ -187,7 +187,7 @@ local function relay(client: Socket, upstream: Socket)
   local bytes_relayed: integer = 0
 
   while true do
-    local fds: {number:number} = {
+    local fds: {number: number} = {
       [client.fd] = net.POLLIN,
       [upstream.fd] = net.POLLIN,
     }

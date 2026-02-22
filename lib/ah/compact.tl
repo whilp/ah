@@ -8,7 +8,7 @@
 local api = require("ah.api")
 
 -- Model context window limits (tokens)
-local MODEL_CONTEXT_LIMITS: {string:integer} = {
+local MODEL_CONTEXT_LIMITS: {string: integer} = {
   ["claude-sonnet-4-6"] = 200000,
   ["claude-sonnet-4-6-1m"] = 1000000,
   ["claude-opus-4-5-20251101"] = 200000,
@@ -62,9 +62,9 @@ end
 local function compact(api_messages: {any}, model: string, is_interrupted: function(): boolean): CompactResult, string
   -- Call API with existing messages and compaction system prompt (no tools)
   local response, err = api.stream(api_messages, {
-    system = COMPACTION_SYSTEM_PROMPT,
-    model = model,
-  } as {string:any}, nil, is_interrupted)
+      system = COMPACTION_SYSTEM_PROMPT,
+      model = model,
+    } as {string: any}, nil, is_interrupted)
 
   if err then
     return nil, "compaction failed: " .. err
@@ -74,7 +74,7 @@ local function compact(api_messages: {any}, model: string, is_interrupted: funct
     return nil, "compaction failed: no response"
   end
 
-  local resp = response as {string:any}
+  local resp = response as {string: any}
 
   -- If interrupted mid-compaction, bail out
   if resp.stop_reason == "interrupted" then
@@ -86,7 +86,7 @@ local function compact(api_messages: {any}, model: string, is_interrupted: funct
   local resp_content = resp.content as {any}
   if resp_content then
     for _, block in ipairs(resp_content) do
-      local b = block as {string:any}
+      local b = block as {string: any}
       if b.type == "text" and b.text then
         table.insert(summary_parts, b.text as string)
       end
@@ -98,7 +98,7 @@ local function compact(api_messages: {any}, model: string, is_interrupted: funct
     return nil, "compaction failed: empty summary"
   end
 
-  local usage = (resp.usage or {}) as {string:any}
+  local usage = (resp.usage or {}) as {string: any}
 
   return {
     summary = summary,

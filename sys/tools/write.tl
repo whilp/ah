@@ -14,7 +14,7 @@ return {
     },
     required = {"path", "content"},
   },
-  execute = function(input: {string:any}): string, boolean, any
+  execute = function(input: {string: any}): string, boolean, any
     local file_path = input.path as string
     local content = input.content as string
 
@@ -42,6 +42,6 @@ return {
     for _ in content:gmatch("\n") do line_count = line_count + 1 end
 
     return string.format("%d lines", line_count), false,
-      {path = file_path, bytes = #content, line_count = line_count}
+    {path = file_path, bytes = #content, line_count = line_count}
   end,
 }

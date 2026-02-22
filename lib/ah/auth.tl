@@ -7,12 +7,12 @@ local record Credentials
   is_bearer: boolean
 end
 
-local function parse_env_file(path: string): {string:string}
+local function parse_env_file(path: string): {string: string}
   local content = io.slurp(path)
   if not content then
     return nil
   end
-  local env: {string:string} = {}
+  local env: {string: string} = {}
   for line in content:gmatch("[^\n]+") do
     if not line:match("^%s*#") and not line:match("^%s*$") then
       local key, value = line:match("^([%w_]+)=(.*)$")
@@ -63,7 +63,7 @@ local function load_credentials(): Credentials, string
   return nil, "no credentials found (set ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN, or CLAUDE_CODE_OAUTH_TOKEN)"
 end
 
-local function get_auth_headers(creds: Credentials): {string:string}
+local function get_auth_headers(creds: Credentials): {string: string}
   if creds.is_oauth then
     -- OAuth-specific headers for Claude Max (mimics Claude Code)
     return {

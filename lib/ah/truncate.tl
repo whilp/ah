@@ -12,7 +12,7 @@ local record TruncateResult
 end
 
 -- Default per-tool character limits
-local DEFAULT_CHAR_LIMITS: {string:integer} = {
+local DEFAULT_CHAR_LIMITS: {string: integer} = {
   bash = 30000,
   read = 50000,
   write = 10000,
@@ -20,7 +20,7 @@ local DEFAULT_CHAR_LIMITS: {string:integer} = {
 }
 
 -- Default per-tool line limits (applied after character truncation)
-local DEFAULT_LINE_LIMITS: {string:integer} = {
+local DEFAULT_LINE_LIMITS: {string: integer} = {
   bash = 256,
 }
 
@@ -50,8 +50,8 @@ local function truncate_chars(output: string, max_chars: integer): string, boole
   local tail = output:sub(-half)
 
   return head
-    .. "\n\n[output truncated: " .. tostring(removed) .. " bytes removed from middle]\n\n"
-    .. tail, true
+  .. "\n\n[output truncated: " .. tostring(removed) .. " bytes removed from middle]\n\n"
+  .. tail, true
 end
 
 -- Truncate by line count using head/tail split: keep first and last lines.
@@ -84,8 +84,8 @@ local function truncate_lines(output: string, max_lines: integer): string, boole
   end
 
   return table.concat(head_lines, "\n")
-    .. "\n[..." .. tostring(omitted) .. " lines omitted...]\n"
-    .. table.concat(tail_lines, "\n"), true
+  .. "\n[..." .. tostring(omitted) .. " lines omitted...]\n"
+  .. table.concat(tail_lines, "\n"), true
 end
 
 -- Truncate tool output: character-based first, then line-based.

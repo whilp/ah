@@ -94,28 +94,28 @@ local function substitute_args(content: string, args: {string}): string
 
   -- 2. Replace ${@:N:L} (slice from N with length L)
   result = result:gsub("%${@:(%d+):(%d+)}", function(start_str: string, len_str: string): string
-    local start = tonumber(start_str) as integer
-    local slice_len = tonumber(len_str) as integer
-    local parts: {string} = {}
-    for i = start, math.min(start + slice_len - 1, #args) do
-      if args[i] then
-        table.insert(parts, args[i])
+      local start = tonumber(start_str) as integer
+      local slice_len = tonumber(len_str) as integer
+      local parts: {string} = {}
+      for i = start, math.min(start + slice_len - 1, #args) do
+        if args[i] then
+          table.insert(parts, args[i])
+        end
       end
-    end
-    return table.concat(parts, " ")
-  end)
+      return table.concat(parts, " ")
+    end)
 
   -- 3. Replace ${@:N} (slice from N to end)
   result = result:gsub("%${@:(%d+)}", function(start_str: string): string
-    local start = tonumber(start_str) as integer
-    local parts: {string} = {}
-    for i = start, #args do
-      if args[i] then
-        table.insert(parts, args[i])
+      local start = tonumber(start_str) as integer
+      local parts: {string} = {}
+      for i = start, #args do
+        if args[i] then
+          table.insert(parts, args[i])
+        end
       end
-    end
-    return table.concat(parts, " ")
-  end)
+      return table.concat(parts, " ")
+    end)
 
   -- 4. Replace $@ and $ARGUMENTS with all args joined
   local all_args = table.concat(args, " ")
@@ -142,9 +142,9 @@ local function load_commands_from_dir(dir: string): {Command}
       if content then
         local cmd_name = name:gsub("%.md$", "")
         table.insert(commands, {
-          name = cmd_name,
-          content = content
-        })
+            name = cmd_name,
+            content = content
+          })
       end
     end
   end
@@ -155,8 +155,8 @@ end
 
 -- Load all commands from system and user directories
 -- User commands override system commands by name
-local function load_commands(): {string:Command}
-  local commands: {string:Command} = {}
+local function load_commands(): {string: Command}
+  local commands: {string: Command} = {}
 
   -- Load system commands first
   local sys_commands = load_commands_from_dir("/zip/embed/sys/commands")
@@ -175,7 +175,7 @@ end
 
 -- Expand a command if the prompt starts with /
 -- Returns: expanded content, was_command flag
-local function expand_command(prompt: string, commands: {string:Command}): string, boolean
+local function expand_command(prompt: string, commands: {string: Command}): string, boolean
   -- Check if prompt starts with /
   if not prompt:match("^/") then
     return prompt, false

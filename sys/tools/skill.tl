@@ -4,7 +4,7 @@ local tools = require("ah.tools")
 local cio = require("cosmic.io")
 
 -- Cache loaded skills (populated on first call)
-local loaded_skills: {string:skills.Skill} = nil
+local loaded_skills: {string: skills.Skill} = nil
 
 return {
   name = "skill",
@@ -17,7 +17,7 @@ return {
     },
     required = {"name"},
   },
-  execute = function(input: {string:any}): string, boolean, any
+  execute = function(input: {string: any}): string, boolean, any
     local name = input.name as string
     if not name or name == "" then
       return "error: name is required", true

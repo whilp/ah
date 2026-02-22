@@ -21,10 +21,10 @@ end
 local record Tool
   name: string
   description: string
-  input_schema: {string:any}
+  input_schema: {string: any}
   system_prompt: string
   running_processes: {integer: any}
-  execute: function(input: {string:any}): string, boolean, ToolDetails
+  execute: function(input: {string: any}): string, boolean, ToolDetails
 end
 
 -- All tools loaded at runtime (system + embed + project)
@@ -33,7 +33,7 @@ local tools: {Tool} = {}
 -- Validate that a loaded module is a valid tool
 local function is_valid_tool(t: any): boolean
   if type(t) ~= "table" then return false end
-  local tool = t as {string:any}
+  local tool = t as {string: any}
   if type(tool.name) ~= "string" then return false end
   if type(tool.description) ~= "string" then return false end
   if type(tool.input_schema) ~= "table" then return false end
@@ -65,7 +65,7 @@ local function load_tool_file(tool_path: string): any, string
     if not content then
       return nil, "failed to read file"
     end
-    local tl = require("tl") as {string:any}
+    local tl = require("tl") as {string: any}
     if not tl_searcher_installed then
       local tl_loader = tl.loader as function()
       tl_loader()
@@ -87,7 +87,7 @@ local function load_custom_tools_from_dir(dir: string): {Tool}
   if not dh then return loaded end
 
   -- Collect candidate files, .tl overrides .lua by basename
-  local candidates: {string:string} = {}  -- basename -> path
+  local candidates: {string: string} = {} -- basename -> path
   while true do
     local name = dh:read()
     if not name then break end
@@ -143,8 +143,8 @@ end
 
 -- Parse simple yaml frontmatter from markdown content.
 -- Returns frontmatter fields and body (content after frontmatter).
-local function parse_frontmatter(content: string): {string:string}, string
-  local fields: {string:string} = {}
+local function parse_frontmatter(content: string): {string: string}, string
+  local fields: {string: string} = {}
 
   if not content:match("^%-%-%-\n") then
     return fields, content
@@ -241,7 +241,7 @@ local function load_cli_tools_from_dir(dir: string): {Tool}
           args = {type = "string", description = "Command-line arguments"},
         },
       },
-      execute = function(input: {string:any}): string, boolean, ToolDetails
+      execute = function(input: {string: any}): string, boolean, ToolDetails
         local args_str = (input.args as string) or ""
 
         -- Invoke via bash -c so args get proper shell expansion
@@ -273,7 +273,7 @@ local function load_cli_tools_from_dir(dir: string): {Tool}
         end
 
         return result, exit_code ~= 0,
-          {command = tool_name .. " " .. args_str, exit_code = exit_code} as ToolDetails
+        {command = tool_name .. " " .. args_str, exit_code = exit_code} as ToolDetails
       end,
     }
 
@@ -286,7 +286,7 @@ local function load_cli_tools_from_dir(dir: string): {Tool}
 end
 
 -- Merge tools into a name-indexed map (later calls override earlier)
-local function merge_tools(by_name: {string:Tool}, new_tools: {Tool})
+local function merge_tools(by_name: {string: Tool}, new_tools: {Tool})
   for _, tool in ipairs(new_tools) do
     by_name[tool.name] = tool
   end
@@ -300,7 +300,7 @@ end
 local function init_custom_tools(cwd?: string)
   cwd = cwd or fs.getcwd()
 
-  local by_name: {string:Tool} = {}
+  local by_name: {string: Tool} = {}
 
   -- System tier: try embedded path first, fall back to compiled source for dev/test
   local sys_tools = load_custom_tools_from_dir("/zip/embed/sys/tools")
@@ -348,7 +348,7 @@ local function load_skill_tools(base_dir: string)
   add_to_package_path((fs.getcwd()))
 
   -- Build name index of current tools
-  local by_name: {string:Tool} = {}
+  local by_name: {string: Tool} = {}
   for _, tool in ipairs(tools) do
     by_name[tool.name] = tool
   end
@@ -437,7 +437,7 @@ local function add_tool_override(name: string, cmd: string)
         args = {type = "string", description = "Command-line arguments"},
       },
     },
-    execute = function(input: {string:any}): string, boolean, ToolDetails
+    execute = function(input: {string: any}): string, boolean, ToolDetails
       local args_str = (input.args as string) or ""
       -- Invoke via bash -c so args get proper shell expansion
       local shell_cmd = tool_cmd
@@ -468,7 +468,7 @@ local function add_tool_override(name: string, cmd: string)
       end
 
       return result, exit_code ~= 0,
-        {command = name .. " " .. args_str, exit_code = exit_code} as ToolDetails
+      {command = name .. " " .. args_str, exit_code = exit_code} as ToolDetails
     end,
   }
 
@@ -506,14 +506,14 @@ local function get_tool(name: string): Tool
   return nil
 end
 
-local function get_tool_definitions(): {{string:any}}
-  local defs: {{string:any}} = {}
+local function get_tool_definitions(): {{string: any}}
+  local defs: {{string: any}} = {}
   for _, tool in ipairs(tools) do
     table.insert(defs, {
-      name = tool.name,
-      description = tool.description,
-      input_schema = tool.input_schema,
-    })
+        name = tool.name,
+        description = tool.description,
+        input_schema = tool.input_schema,
+      })
   end
   return defs
 end
@@ -528,8 +528,8 @@ local function format_tools_for_prompt(): string
   local sorted: {Tool} = {}
   for _, t in ipairs(all) do table.insert(sorted, t) end
   table.sort(sorted, function(a: Tool, b: Tool): boolean
-    return a.name < b.name
-  end)
+      return a.name < b.name
+    end)
 
   local names: {string} = {}
   for _, tool in ipairs(sorted) do
@@ -558,7 +558,7 @@ end
 
 -- Validate tool input against its JSON schema.
 -- Returns nil on success, or an error string describing all validation failures.
-local function validate_input(schema: {string:any}, input: {string:any}): string
+local function validate_input(schema: {string: any}, input: {string: any}): string
   local errors: {string} = {}
 
   -- Check required properties
@@ -572,7 +572,7 @@ local function validate_input(schema: {string:any}, input: {string:any}): string
   end
 
   -- Check property types
-  local properties = schema.properties as {string:{string:any}}
+  local properties = schema.properties as {string: {string: any}}
   if properties then
     for prop, prop_schema in pairs(properties) do
       local value = input[prop]
@@ -679,8 +679,8 @@ end
 
 -- Coerce string values to integers where schema expects integer
 -- Claude models sometimes serialize integers as strings in JSON tool calls
-local function coerce_integer_params(schema: {string:any}, input: {string:any})
-  local properties = schema.properties as {string:{string:any}}
+local function coerce_integer_params(schema: {string: any}, input: {string: any})
+  local properties = schema.properties as {string: {string: any}}
   if not properties then return end
 
   for prop, prop_schema in pairs(properties) do
@@ -697,7 +697,7 @@ local function coerce_integer_params(schema: {string:any}, input: {string:any})
   end
 end
 
-local function execute_tool(name: string, input: {string:any}): string, boolean, ToolDetails
+local function execute_tool(name: string, input: {string: any}): string, boolean, ToolDetails
   local tool = get_tool(name)
   if not tool then
     return "error: unknown tool: " .. name, true, nil
