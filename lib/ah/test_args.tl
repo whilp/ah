@@ -223,8 +223,8 @@ local function test_usage_text_contains_all_options()
   assert(#help > 0, "ah --help should produce output")
   local defined_options = {
     "help", "new", "session", "name", "db", "model", "output", "cd",
-    "steer", "followup", "max-tokens", "sandbox", "timeout",
-    "allow-host", "unveil", "skill", "must-produce",
+    "steer", "followup", "max-tokens", "max-session-tokens", "max-turn-tokens",
+    "sandbox", "timeout", "allow-host", "unveil", "skill", "must-produce",
   }
   for _, opt in ipairs(defined_options) do
     assert(help:find("--" .. opt, 1, true), "help text missing option: --" .. opt)
@@ -360,5 +360,36 @@ local function test_backward_compat_init_parse_args()
   assert(parsed.model == "opus", "should parse model through init")
 end
 test_backward_compat_init_parse_args()
+
+-- Max token flag tests
+
+local function test_parse_args_max_session_tokens()
+  local parsed = args_mod.parse_args({"--max-session-tokens", "5000", "hello"})
+  assert(parsed, "should parse successfully")
+  assert(parsed.max_session_tokens == 5000, "max_session_tokens should be 5000, got: " .. tostring(parsed.max_session_tokens))
+end
+test_parse_args_max_session_tokens()
+
+local function test_parse_args_max_tokens_alias()
+  local parsed = args_mod.parse_args({"--max-tokens", "5000", "hello"})
+  assert(parsed, "should parse successfully")
+  assert(parsed.max_session_tokens == 5000, "max-tokens alias should set max_session_tokens, got: " .. tostring(parsed.max_session_tokens))
+end
+test_parse_args_max_tokens_alias()
+
+local function test_parse_args_max_turn_tokens()
+  local parsed = args_mod.parse_args({"--max-turn-tokens", "2000", "hello"})
+  assert(parsed, "should parse successfully")
+  assert(parsed.max_turn_tokens == 2000, "max_turn_tokens should be 2000, got: " .. tostring(parsed.max_turn_tokens))
+end
+test_parse_args_max_turn_tokens()
+
+local function test_parse_args_both_max_token_flags()
+  local parsed = args_mod.parse_args({"--max-session-tokens", "10000", "--max-turn-tokens", "2000", "hello"})
+  assert(parsed, "should parse successfully")
+  assert(parsed.max_session_tokens == 10000, "max_session_tokens should be 10000, got: " .. tostring(parsed.max_session_tokens))
+  assert(parsed.max_turn_tokens == 2000, "max_turn_tokens should be 2000, got: " .. tostring(parsed.max_turn_tokens))
+end
+test_parse_args_both_max_token_flags()
 
 print("all args tests passed")

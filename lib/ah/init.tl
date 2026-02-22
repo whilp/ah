@@ -143,7 +143,7 @@ local function main(args: {string}): integer, string
   local session_name = parsed.session_name
   local steer_msg = parsed.steer_msg
   local followup_msg = parsed.followup_msg
-  local max_tokens = parsed.max_tokens
+  local max_tokens = parsed.max_session_tokens
   local remaining = parsed.remaining
 
   -- Supervisor mode: --sandbox starts proxy, re-execs as sandboxed child
@@ -431,6 +431,7 @@ local function main(args: {string}): integer, string
   local on_event = cli_mod.make_cli_handler(parsed.skill)
   local agent_opts: loop.AgentOpts = {}
   if max_tokens then agent_opts.max_tokens = max_tokens end
+  if parsed.max_turn_tokens then agent_opts.max_turn_tokens = parsed.max_turn_tokens end
   if parsed.must_produce then agent_opts.must_produce = parsed.must_produce end
   local stop_reason = loop.run_agent(d, qdb, effective_system, effective_model, prompt, parent_id, on_event, agent_opts)
 
