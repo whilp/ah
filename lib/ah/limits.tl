@@ -6,7 +6,7 @@ local auth = require("ah.auth")
 -- Detect proxy from environment (same pattern as api.tl).
 local function get_proxy_url(): string
   local http_proxy = os.getenv("https_proxy") or os.getenv("HTTPS_PROXY")
-    or os.getenv("http_proxy") or os.getenv("HTTP_PROXY")
+  or os.getenv("http_proxy") or os.getenv("HTTP_PROXY")
   if http_proxy and http_proxy:sub(1, 7) == "unix://" then
     local path = http_proxy:sub(8)
     local url, err = fetch.unix_proxy(path)
@@ -66,13 +66,13 @@ local function cmd_limits(): integer
 
   local url = "https://api.anthropic.com/api/oauth/usage"
   local result = fetch.stream(url, {
-    method = "GET",
-    headers = {
-      ["authorization"] = "Bearer " .. creds.access_token,
-      ["accept"] = "application/json",
-    } as {string: string},
-    proxy = get_proxy_url(),
-  } as fetch.Opts)
+      method = "GET",
+      headers = {
+        ["authorization"] = "Bearer " .. creds.access_token,
+        ["accept"] = "application/json",
+      } as {string: string},
+      proxy = get_proxy_url(),
+    } as fetch.Opts)
 
   if not result.ok then
     io.stderr:write("limits: fetch failed: " .. (result.error or "unknown") .. "\n")
