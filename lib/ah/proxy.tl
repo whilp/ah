@@ -29,6 +29,7 @@ local record M
   parse_allow_hosts: function(string): {string:boolean}
   parse_base_url: function(string): string
   nb_connect: function(Socket, number, integer): boolean, string
+  send_all: function(Socket, string): boolean, string
 end
 
 local ALLOWLIST: {string:boolean} = {
@@ -151,6 +152,36 @@ local function nb_connect(sock: Socket, addr: number, port: integer): boolean, s
   return false, "connect failed: unexpected poll events=" .. tostring(ev)
 end
 
+-- Send all data on a socket, handling short writes.
+-- Loops with poll(POLLOUT) until all bytes are sent.
+local SEND_TIMEOUT_MS = 30000
+
+local function send_all(sock: Socket, data: string): boolean, string
+  local sent = 0
+  while sent < #data do
+    local n, err = sock:send(data:sub(sent + 1))
+    if not n or n == 0 then
+      return false, err or "send failed"
+    end
+    sent = sent + (n as integer)
+    if sent < #data then
+      local fds: {number:number} = { [sock.fd] = net.POLLOUT }
+      local revents, poll_err = net.poll(fds, SEND_TIMEOUT_MS)
+      if not revents then
+        return false, "poll failed: " .. (poll_err or "unknown")
+      end
+      local ev = revents[sock.fd] or 0
+      if ev == 0 then
+        return false, "send timed out"
+      end
+      if ev & net.POLLERR ~= 0 then
+        return false, "send error"
+      end
+    end
+  end
+  return true
+end
+
 local function relay(client: Socket, upstream: Socket)
   local BUFSIZ = 65536
   local bytes_relayed: integer = 0
@@ -176,14 +207,11 @@ local function relay(client: Socket, upstream: Socket)
       break
     end
 
-    if client_ev & (net.POLLERR | net.POLLHUP | net.POLLNVAL) ~= 0 then
-      log("relay client event:", tostring(client_ev), "after", tostring(bytes_relayed), "bytes")
-      break
-    end
-    if upstream_ev & (net.POLLERR | net.POLLHUP | net.POLLNVAL) ~= 0 then
-      log("relay upstream event:", tostring(upstream_ev), "after", tostring(bytes_relayed), "bytes")
-      break
-    end
+    -- Read available data before checking error flags.
+    -- When POLLIN is set alongside POLLERR|POLLHUP, there may be an error
+    -- response to forward (e.g. API error message before connection close).
+    local client_err = false
+    local upstream_err = false
 
     if client_ev & net.POLLIN ~= 0 then
       local data = client:recv(BUFSIZ)
@@ -192,7 +220,11 @@ local function relay(client: Socket, upstream: Socket)
         break
       end
       bytes_relayed = bytes_relayed + #data
-      upstream:send(data)
+      local ok, send_err = send_all(upstream, data)
+      if not ok then
+        log("relay send to upstream failed:", send_err, "after", tostring(bytes_relayed), "bytes")
+        break
+      end
     end
 
     if upstream_ev & net.POLLIN ~= 0 then
@@ -202,7 +234,27 @@ local function relay(client: Socket, upstream: Socket)
         break
       end
       bytes_relayed = bytes_relayed + #data
-      client:send(data)
+      local ok, send_err = send_all(client, data)
+      if not ok then
+        log("relay send to client failed:", send_err, "after", tostring(bytes_relayed), "bytes")
+        break
+      end
+    end
+
+    -- Check error/hangup flags after reading any available data.
+    if client_ev & (net.POLLERR | net.POLLHUP | net.POLLNVAL) ~= 0 then
+      client_err = true
+    end
+    if upstream_ev & (net.POLLERR | net.POLLHUP | net.POLLNVAL) ~= 0 then
+      upstream_err = true
+    end
+    if client_err then
+      log("relay client event:", tostring(client_ev), "after", tostring(bytes_relayed), "bytes")
+      break
+    end
+    if upstream_err then
+      log("relay upstream event:", tostring(upstream_ev), "after", tostring(bytes_relayed), "bytes")
+      break
     end
   end
 end
@@ -303,5 +355,6 @@ end
 M.parse_allow_hosts = parse_allow_hosts
 M.parse_base_url = parse_base_url
 M.nb_connect = nb_connect
+M.send_all = send_all
 
 return M
