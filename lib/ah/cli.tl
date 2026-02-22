@@ -5,6 +5,80 @@ local loop = require("ah.loop")
 local render = require("ah.render")
 local compact = require("ah.compact")
 
+-- Cache for find_difftool result across calls.
+-- false means "already checked, no difftool found"; nil means "not yet checked"
+local _difftool_cache: string | boolean = nil
+
+-- Find a difftool for rendering diff output.
+-- Checks AH_DIFFTOOL env var first, then autodetects delta on PATH.
+-- Returns the tool command string, or nil if none available.
+local function find_difftool(): string
+  if _difftool_cache ~= nil then
+    if _difftool_cache == false then
+      return nil
+    end
+    return _difftool_cache as string
+  end
+
+  local env_tool = os.getenv("AH_DIFFTOOL")
+  if env_tool and env_tool ~= "" then
+    _difftool_cache = env_tool
+    return env_tool
+  end
+
+  -- Autodetect delta at common paths
+  local candidates: {string} = {
+    "/usr/bin/delta",
+    "/usr/local/bin/delta",
+    "/opt/homebrew/bin/delta",
+  }
+  for _, path in ipairs(candidates) do
+    local f = io.open(path, "r")
+    if f then
+      f:close()
+      _difftool_cache = path
+      return path
+    end
+  end
+
+  -- Try PATH via command -v
+  local handle = io.popen("command -v delta 2>/dev/null")
+  if handle then
+    local result = handle:read("*l")
+    handle:close()
+    if result and result ~= "" then
+      _difftool_cache = result
+      return result
+    end
+  end
+
+  _difftool_cache = false
+  return nil
+end
+
+-- Run diff text through a difftool subprocess.
+-- Returns rendered output string, or nil on failure.
+local function run_difftool(difftool: string, diff_text: string): string
+  if not difftool or diff_text == "" then
+    return nil
+  end
+  local handle = io.popen("echo " .. string.format("%q", diff_text) .. " | " .. difftool .. " 2>/dev/null")
+  if not handle then
+    return nil
+  end
+  local output = handle:read("*a")
+  local ok = handle:close()
+  if not ok or not output or output == "" then
+    return nil
+  end
+  return output
+end
+
+-- Reset the difftool cache (for testing).
+local function reset_difftool_cache()
+  _difftool_cache = nil
+end
+
 -- Format token count as human-friendly string (e.g., 1234 -> "1.2k", 12345 -> "12.3k")
 local function format_tokens(n: integer): string
   if n >= 1000000 then
@@ -184,44 +258,59 @@ local function make_cli_handler(skill_name: string): events.EventCallback
       -- Show truncated output (first 3 lines, then count)
       local result = event.tool_output or ""
       if result ~= "" and result ~= "(no output)" then
-        -- Detect diff-like commands for colorization
-        local is_diff_cmd = false
-        if is_tty and event.tool_name == "bash" and key ~= "" then
-          is_diff_cmd = key:match("diff") ~= nil
-          or key:match("show") ~= nil
-          or key:match("log %-p") ~= nil
+        -- For edit tool on a TTY, try to pipe through a difftool
+        local difftool_rendered = false
+        if is_tty and event.tool_name == "edit" then
+          local difftool = find_difftool()
+          if difftool then
+            local rendered = run_difftool(difftool, result)
+            if rendered then
+              io.stderr:write(rendered)
+              difftool_rendered = true
+            end
+          end
         end
 
-        local lines: {string} = {}
-        for line in result:gmatch("[^\n]+") do
-          table.insert(lines, line)
-        end
-        local max_lines = 3
-        for j = 1, math.min(max_lines, #lines) do
-          local line = lines[j]
-          if #line > 80 then
-            line = line:sub(1, 77) .. "..."
+        if not difftool_rendered then
+          -- Detect diff-like commands for colorization
+          local is_diff_cmd = false
+          if is_tty and event.tool_name == "bash" and key ~= "" then
+            is_diff_cmd = key:match("diff") ~= nil
+            or key:match("show") ~= nil
+            or key:match("log %-p") ~= nil
           end
-          if is_diff_cmd then
-            local colored = colorize_diff_line(line)
-            if colored ~= line then
-              io.stderr:write(string.format("%s%s%s\n", indent, colored, ""))
+
+          local lines: {string} = {}
+          for line in result:gmatch("[^\n]+") do
+            table.insert(lines, line)
+          end
+          local max_lines = 3
+          for j = 1, math.min(max_lines, #lines) do
+            local line = lines[j]
+            if #line > 80 then
+              line = line:sub(1, 77) .. "..."
+            end
+            if is_diff_cmd then
+              local colored = colorize_diff_line(line)
+              if colored ~= line then
+                io.stderr:write(string.format("%s%s%s\n", indent, colored, ""))
+              else
+                io.stderr:write(string.format("%s%s%s%s\n", DIM, indent, line, RESET))
+              end
+            elseif is_tty then
+              local colored, was_colored = colorize_tool_line(line)
+              if was_colored then
+                io.stderr:write(string.format("%s%s%s\n", indent, colored, ""))
+              else
+                io.stderr:write(string.format("%s%s%s%s\n", DIM, indent, line, RESET))
+              end
             else
               io.stderr:write(string.format("%s%s%s%s\n", DIM, indent, line, RESET))
             end
-          elseif is_tty then
-            local colored, was_colored = colorize_tool_line(line)
-            if was_colored then
-              io.stderr:write(string.format("%s%s%s\n", indent, colored, ""))
-            else
-              io.stderr:write(string.format("%s%s%s%s\n", DIM, indent, line, RESET))
-            end
-          else
-            io.stderr:write(string.format("%s%s%s%s\n", DIM, indent, line, RESET))
           end
-        end
-        if #lines > max_lines then
-          io.stderr:write(string.format("%s%s... (%d more lines)%s\n", DIM, indent, #lines - max_lines, RESET))
+          if #lines > max_lines then
+            io.stderr:write(string.format("%s%s... (%d more lines)%s\n", DIM, indent, #lines - max_lines, RESET))
+          end
         end
       end
 
@@ -236,4 +325,7 @@ return {
   colorize_diff_line = colorize_diff_line,
   colorize_tool_line = colorize_tool_line,
   make_cli_handler = make_cli_handler,
+  find_difftool = find_difftool,
+  run_difftool = run_difftool,
+  reset_difftool_cache = reset_difftool_cache,
 }

@@ -228,4 +228,68 @@ local function test_make_cli_handler_agent_end_no_tokens_no_output()
 end
 test_make_cli_handler_agent_end_no_tokens_no_output()
 
+-- find_difftool tests
+
+local function test_find_difftool_env_var()
+  cli.reset_difftool_cache()
+  -- Save and set env var
+  local old = os.getenv("AH_DIFFTOOL")
+  -- We can't unset easily in Lua, but we can use a trick:
+  -- set via the C-level isn't available, so just test the logic with a temp var
+  -- by checking what happens when we call find_difftool after reset.
+  -- The env var test requires the env to be set at test startup via shell.
+  -- Skip if AH_DIFFTOOL is not set in the env (can't set env from Lua).
+  if old then
+    local result = cli.find_difftool()
+    assert(result == old, "find_difftool should return AH_DIFFTOOL env var value, got: " .. tostring(result))
+  end
+  cli.reset_difftool_cache()
+end
+test_find_difftool_env_var()
+
+local function test_find_difftool_returns_string_or_nil()
+  cli.reset_difftool_cache()
+  local result = cli.find_difftool()
+  assert(result == nil or type(result) == "string", "find_difftool should return string or nil, got: " .. type(result))
+  cli.reset_difftool_cache()
+end
+test_find_difftool_returns_string_or_nil()
+
+local function test_find_difftool_cached()
+  cli.reset_difftool_cache()
+  local result1 = cli.find_difftool()
+  local result2 = cli.find_difftool()
+  assert(result1 == result2, "find_difftool should return same cached result")
+  cli.reset_difftool_cache()
+end
+test_find_difftool_cached()
+
+-- run_difftool tests
+
+local function test_run_difftool_cat_passthrough()
+  local input = "- old line\n+ new line"
+  local result = cli.run_difftool("cat", input)
+  assert(result ~= nil, "run_difftool with cat should succeed")
+  assert(result:find("old line") ~= nil, "output should contain input text, got: " .. tostring(result))
+end
+test_run_difftool_cat_passthrough()
+
+local function test_run_difftool_invalid_tool()
+  local result = cli.run_difftool("/nonexistent/tool/xyz", "- old\n+ new")
+  assert(result == nil, "run_difftool with nonexistent tool should return nil, got: " .. tostring(result))
+end
+test_run_difftool_invalid_tool()
+
+local function test_run_difftool_empty_input()
+  local result = cli.run_difftool("cat", "")
+  assert(result == nil, "run_difftool with empty input should return nil")
+end
+test_run_difftool_empty_input()
+
+local function test_run_difftool_nil_tool()
+  local result = cli.run_difftool(nil, "- old\n+ new")
+  assert(result == nil, "run_difftool with nil tool should return nil")
+end
+test_run_difftool_nil_tool()
+
 print("all cli tests passed")
