@@ -283,6 +283,10 @@ local function main(args: {string}): integer, string
     reader:close()
     io.write("extracted " .. count .. " file(s) to " .. output_dir .. "\n")
     return 0
+
+  elseif cmd == "limits" then
+    local limits_mod = require("ah.limits")
+    return limits_mod.cmd_limits()
   end
 
   -- Session selection
