@@ -778,36 +778,36 @@ end
 local function test_make_cli_handler_agent_end_shows_percentage()
   local handler = init_tokens.make_cli_handler(nil)
   local output = capture_stderr(function()
-    -- fire agent_start to set model
-    handler({event_type = "agent_start", model = "claude-opus-4-5-20251101"} as any)
-    -- fire agent_end with known token counts (200k input, 0 output → 100% of 200k)
-    handler({
-      event_type = "agent_end",
-      total_input_tokens = 100000,
-      total_output_tokens = 0,
-      total_cache_read_tokens = 0,
-    } as any)
-  end)
+      -- fire agent_start to set model
+      handler({event_type = "agent_start", model = "claude-opus-4-5-20251101"} as any)
+      -- fire agent_end with known token counts (200k input, 0 output → 100% of 200k)
+      handler({
+          event_type = "agent_end",
+          total_input_tokens = 100000,
+          total_output_tokens = 0,
+          total_cache_read_tokens = 0,
+        } as any)
+    end)
   assert(output:match("%%"), "agent_end output should contain '%', got: " .. output)
-  assert(output:match("200k"), "agent_end output should contain '200k' budget, got: " .. output)
-  assert(output:match("100k"), "agent_end output should contain '100k' input, got: " .. output)
+  assert(output:match("200%.0k"), "agent_end output should contain '200.0k' budget, got: " .. output)
+  assert(output:match("100%.0k"), "agent_end output should contain '100.0k' input, got: " .. output)
 end
 test_make_cli_handler_agent_end_shows_percentage()
 
 local function test_make_cli_handler_budget_exceeded_shows_percentage()
   local handler = init_tokens.make_cli_handler(nil)
   local output = capture_stderr(function()
-    handler({event_type = "agent_start", model = "claude-opus-4-5-20251101"} as any)
-    handler({
-      event_type = "budget_exceeded",
-      total_input_tokens = 180000,
-      total_output_tokens = 10000,
-      max_tokens = 200000,
-    } as any)
-  end)
+      handler({event_type = "agent_start", model = "claude-opus-4-5-20251101"} as any)
+      handler({
+          event_type = "budget_exceeded",
+          total_input_tokens = 180000,
+          total_output_tokens = 10000,
+          max_tokens = 200000,
+        } as any)
+    end)
   assert(output:match("token budget exceeded"), "should say 'token budget exceeded', got: " .. output)
   assert(output:match("%%"), "budget_exceeded output should contain '%', got: " .. output)
-  assert(output:match("190k"), "budget_exceeded output should contain '190k' total, got: " .. output)
+  assert(output:match("190%.0k"), "budget_exceeded output should contain '190.0k' total, got: " .. output)
 end
 test_make_cli_handler_budget_exceeded_shows_percentage()
 
@@ -815,14 +815,14 @@ local function test_make_cli_handler_agent_end_nil_model_uses_default()
   -- No agent_start fired — captured_model is nil, should default to 200k
   local handler = init_tokens.make_cli_handler(nil)
   local output = capture_stderr(function()
-    handler({
-      event_type = "agent_end",
-      total_input_tokens = 1000,
-      total_output_tokens = 200,
-      total_cache_read_tokens = 0,
-    } as any)
-  end)
-  assert(output:match("200k"), "nil model should fall back to 200k budget, got: " .. output)
+      handler({
+          event_type = "agent_end",
+          total_input_tokens = 1000,
+          total_output_tokens = 200,
+          total_cache_read_tokens = 0,
+        } as any)
+    end)
+  assert(output:match("200%.0k"), "nil model should fall back to 200.0k budget, got: " .. output)
   assert(output:match("%%"), "output should contain '%', got: " .. output)
 end
 test_make_cli_handler_agent_end_nil_model_uses_default()
@@ -831,13 +831,13 @@ local function test_make_cli_handler_agent_end_no_tokens_no_output()
   -- Zero tokens: no token line should be written
   local handler = init_tokens.make_cli_handler(nil)
   local output = capture_stderr(function()
-    handler({
-      event_type = "agent_end",
-      total_input_tokens = 0,
-      total_output_tokens = 0,
-      total_cache_read_tokens = 0,
-    } as any)
-  end)
+      handler({
+          event_type = "agent_end",
+          total_input_tokens = 0,
+          total_output_tokens = 0,
+          total_cache_read_tokens = 0,
+        } as any)
+    end)
   assert(not output:match("%%"), "zero tokens should produce no token line, got: " .. output)
   assert(not output:match("total"), "zero tokens should produce no total line, got: " .. output)
 end
