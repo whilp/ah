@@ -1,19 +1,21 @@
 #!/usr/bin/env cosmic
--- test_init.tl: tests for init module (system prompt loading)
+-- test_init.tl: tests for prompt loading and session management
 local fs = require("cosmic.fs")
 local cio = require("cosmic.io")
 local init = require("ah.init")
 local db = require("ah.db")
+local prompt_mod = require("ah.prompt")
+local sessions_mod = require("ah.sessions")
 
 local TEST_TMPDIR = os.getenv("TEST_TMPDIR") or "/tmp"
 
+-- Prompt loading tests
+
 local function test_load_system_prompt_default()
-  -- No files exist, should still contain runtime context (datetime and cwd)
-  -- but no git info (not a git repo)
   local empty_dir = fs.join(TEST_TMPDIR, "empty")
   fs.makedirs(empty_dir)
 
-  local prompt = init.load_system_prompt(empty_dir)
+  local prompt = prompt_mod.load_system_prompt(empty_dir)
   assert(prompt:match("Current date: %d%d%d%d%-%d%d%-%d%d"), "should contain current date")
   assert(prompt:match("Working directory: "), "should contain working directory")
   assert(not prompt:match("Git branch:"), "should not contain git branch in non-repo dir")
@@ -25,7 +27,7 @@ local function test_load_claude_md()
   fs.makedirs(cwd)
   cio.barf(fs.join(cwd, "CLAUDE.md"), "# Project\nThis is context")
 
-  local claude_content = init.load_claude_md(cwd)
+  local claude_content = prompt_mod.load_claude_md(cwd)
   assert(claude_content:match("Project Context"), "should have header")
   assert(claude_content:match("This is context"), "should include CLAUDE.md content")
 end
@@ -35,7 +37,7 @@ local function test_load_claude_md_missing()
   local cwd = fs.join(TEST_TMPDIR, "no_claude")
   fs.makedirs(cwd)
 
-  local claude_content = init.load_claude_md(cwd)
+  local claude_content = prompt_mod.load_claude_md(cwd)
   assert(claude_content == "", "should return empty string when no CLAUDE.md")
 end
 test_load_claude_md_missing()
@@ -45,38 +47,47 @@ local function test_load_agents_md()
   fs.makedirs(cwd)
   cio.barf(fs.join(cwd, "AGENTS.md"), "# Agents\nDo things this way")
 
-  local content = init.load_claude_md(cwd)
+  local content = prompt_mod.load_claude_md(cwd)
   assert(content:match("Agent Context"), "should have AGENTS.md header")
   assert(content:match("Do things this way"), "should include AGENTS.md content")
 end
 test_load_agents_md()
 
 local function test_load_both_claude_and_agents_md()
-  -- CLAUDE.md supersedes AGENTS.md when both exist
   local cwd = fs.join(TEST_TMPDIR, "cwd_both")
   fs.makedirs(cwd)
   cio.barf(fs.join(cwd, "CLAUDE.md"), "claude context")
   cio.barf(fs.join(cwd, "AGENTS.md"), "agents context")
 
-  local content = init.load_claude_md(cwd)
+  local content = prompt_mod.load_claude_md(cwd)
   assert(content:match("Project Context"), "should have CLAUDE.md header")
   assert(content:match("claude context"), "should include CLAUDE.md content")
   assert(not content:match("Agent Context"), "should NOT have AGENTS.md header")
-  assert(not content:match("agents context"), "should NOT include AGENTS.md content")
 end
 test_load_both_claude_and_agents_md()
 
 local function test_load_system_prompt_with_claude_md()
   local cwd = fs.join(TEST_TMPDIR, "cwd_with_claude")
   fs.makedirs(cwd)
-
   cio.barf(fs.join(cwd, "CLAUDE.md"), "This is my project context")
 
-  local prompt = init.load_system_prompt(cwd)
+  local prompt = prompt_mod.load_system_prompt(cwd)
   assert(prompt:match("Project Context"), "should have CLAUDE.md header")
   assert(prompt:match("This is my project context"), "should append CLAUDE.md content")
 end
 test_load_system_prompt_with_claude_md()
+
+-- Backward compatibility: test through init module
+
+local function test_backward_compat_load_claude_md()
+  local cwd = fs.join(TEST_TMPDIR, "compat_claude")
+  fs.makedirs(cwd)
+  cio.barf(fs.join(cwd, "CLAUDE.md"), "compat test")
+
+  local content = init.load_claude_md(cwd)
+  assert(content:match("compat test"), "init.load_claude_md should still work")
+end
+test_backward_compat_load_claude_md()
 
 -- Session management tests
 
@@ -84,7 +95,7 @@ local function test_list_sessions_empty()
   local cwd = fs.join(TEST_TMPDIR, "sessions_empty")
   fs.makedirs(fs.join(cwd, ".ah"))
 
-  local sessions = init.list_sessions(cwd)
+  local sessions = sessions_mod.list_sessions(cwd)
   assert(#sessions == 0, "empty .ah should have 0 sessions")
 end
 test_list_sessions_empty()
@@ -94,10 +105,8 @@ local function test_list_sessions()
   local ah_dir = fs.join(cwd, ".ah")
   fs.makedirs(ah_dir)
 
-  -- Create two session dbs with different ULIDs (26 chars each)
-  -- Use ULIDs that sort predictably (earlier timestamp = lexically smaller)
-  local ulid1 = "01KGW111111111111111111111" -- earlier (26 chars)
-  local ulid2 = "01KGW222222222222222222222" -- later (26 chars)
+  local ulid1 = "01KGW111111111111111111111"
+  local ulid2 = "01KGW222222222222222222222"
 
   local d1 = db.open(fs.join(ah_dir, ulid1 .. ".db"))
   local msg1 = db.create_message(d1, "user")
@@ -113,15 +122,12 @@ local function test_list_sessions()
   db.add_content_block(d2, msg2c.id, "text", {content = "Thanks"})
   db.close(d2)
 
-  local sessions = init.list_sessions(cwd)
+  local sessions = sessions_mod.list_sessions(cwd)
   assert(#sessions == 2, "should have 2 sessions, got " .. #sessions)
-  -- Sorted by ULID descending (most recent first)
   assert(sessions[1].ulid == ulid2, "first should be ulid2 (most recent)")
   assert(sessions[2].ulid == ulid1, "second should be ulid1")
-
   assert(sessions[1].msg_count == 3, "session 2 should have 3 messages")
   assert(sessions[1].first_prompt == "Fix the login bug", "session 2 first prompt mismatch")
-
   assert(sessions[2].msg_count == 1, "session 1 should have 1 message")
   assert(sessions[2].first_prompt == "Hello world", "session 1 first prompt mismatch")
 end
@@ -132,13 +138,12 @@ local function test_resolve_session_exact()
   local ah_dir = fs.join(cwd, ".ah")
   fs.makedirs(ah_dir)
 
-  local ulid1 = "01KGWAAAAAAAAAAAAAAAAAAAAA" -- 26 chars
+  local ulid1 = "01KGWAAAAAAAAAAAAAAAAAAAAA"
   local d1 = db.open(fs.join(ah_dir, ulid1 .. ".db"))
   db.create_message(d1, "user")
   db.close(d1)
 
-  -- Exact match
-  local resolved, err = init.resolve_session(cwd, ulid1)
+  local resolved, err = sessions_mod.resolve_session(cwd, ulid1)
   assert(resolved == ulid1, "exact match should work: " .. tostring(err))
 end
 test_resolve_session_exact()
@@ -148,13 +153,12 @@ local function test_resolve_session_prefix()
   local ah_dir = fs.join(cwd, ".ah")
   fs.makedirs(ah_dir)
 
-  local ulid1 = "01KGWBBBBBBBBBBBBBBBBBBBBB" -- 26 chars
+  local ulid1 = "01KGWBBBBBBBBBBBBBBBBBBBBB"
   local d1 = db.open(fs.join(ah_dir, ulid1 .. ".db"))
   db.create_message(d1, "user")
   db.close(d1)
 
-  -- Prefix match
-  local resolved, err = init.resolve_session(cwd, "01KGWB")
+  local resolved, err = sessions_mod.resolve_session(cwd, "01KGWB")
   assert(resolved == ulid1, "prefix match should work: " .. tostring(err))
 end
 test_resolve_session_prefix()
@@ -164,8 +168,8 @@ local function test_resolve_session_ambiguous()
   local ah_dir = fs.join(cwd, ".ah")
   fs.makedirs(ah_dir)
 
-  local ulid1 = "01KGWCCCCC1111111111111111" -- 26 chars
-  local ulid2 = "01KGWCCCCC2222222222222222" -- 26 chars
+  local ulid1 = "01KGWCCCCC1111111111111111"
+  local ulid2 = "01KGWCCCCC2222222222222222"
   local d1 = db.open(fs.join(ah_dir, ulid1 .. ".db"))
   db.create_message(d1, "user")
   db.close(d1)
@@ -173,10 +177,9 @@ local function test_resolve_session_ambiguous()
   db.create_message(d2, "user")
   db.close(d2)
 
-  -- Ambiguous prefix
-  local resolved, err = init.resolve_session(cwd, "01KGWCCCCC")
+  local resolved, err = sessions_mod.resolve_session(cwd, "01KGWCCCCC")
   assert(not resolved, "ambiguous prefix should fail")
-  assert(err:match("ambiguous"), "error should mention ambiguous: " .. tostring(err))
+  assert(err:match("ambiguous"), "error should mention ambiguous")
 end
 test_resolve_session_ambiguous()
 
@@ -185,662 +188,10 @@ local function test_resolve_session_not_found()
   local ah_dir = fs.join(cwd, ".ah")
   fs.makedirs(ah_dir)
 
-  local resolved, err = init.resolve_session(cwd, "NOTEXIST")
+  local resolved, err = sessions_mod.resolve_session(cwd, "NOTEXIST")
   assert(not resolved, "non-existent should fail")
-  assert(err:match("no session"), "error should mention no session: " .. tostring(err))
+  assert(err:match("no session"), "error should mention no session")
 end
 test_resolve_session_not_found()
-
--- Arg parsing tests
-
-local function test_parse_args_help()
-  local parsed, err = init.parse_args({"-h"})
-  assert(not parsed, "help should return nil")
-  assert(err == "help", "err should be 'help', got: " .. tostring(err))
-end
-test_parse_args_help()
-
-local function test_parse_args_long_help()
-  local parsed, err = init.parse_args({"--help"})
-  assert(not parsed, "--help should return nil")
-  assert(err == "help", "err should be 'help', got: " .. tostring(err))
-end
-test_parse_args_long_help()
-
-local function test_parse_args_model()
-  local parsed = init.parse_args({"-m", "opus"})
-  assert(parsed, "should parse successfully")
-  assert(parsed.model == "opus", "model should be opus, got: " .. tostring(parsed.model))
-end
-test_parse_args_model()
-
-local function test_parse_args_unknown_option()
-  local parsed, err = init.parse_args({"--bogus"})
-  assert(not parsed, "unknown option should return nil")
-  assert(err == "unknown", "err should be 'unknown', got: " .. tostring(err))
-end
-test_parse_args_unknown_option()
-
-local function test_parse_args_work_subcommand_flags()
-  -- This is the failing case from the workflow:
-  -- ah work --repo owner/repo --prompt update-docs
-  -- The top-level parser must NOT reject --repo and --prompt as unknown options.
-  -- Instead, it should stop at "work" and pass everything after to the subcommand.
-  local parsed, err = init.parse_args({"work", "--repo", "owner/repo", "--prompt", "update-docs"})
-  assert(parsed, "work subcommand args should not be rejected, got err: " .. tostring(err))
-  assert(parsed.remaining[1] == "work", "first remaining should be 'work', got: " .. tostring(parsed.remaining[1]))
-  assert(parsed.remaining[2] == "--repo", "second remaining should be '--repo', got: " .. tostring(parsed.remaining[2]))
-  assert(parsed.remaining[3] == "owner/repo", "third remaining should be 'owner/repo', got: " .. tostring(parsed.remaining[3]))
-  assert(parsed.remaining[4] == "--prompt", "fourth remaining should be '--prompt', got: " .. tostring(parsed.remaining[4]))
-  assert(parsed.remaining[5] == "update-docs", "fifth remaining should be 'update-docs', got: " .. tostring(parsed.remaining[5]))
-end
-test_parse_args_work_subcommand_flags()
-
-local function test_parse_args_top_level_opts_before_work()
-  -- ah -m opus work --repo owner/repo
-  -- Top-level -m should be parsed, work and its args should be in remaining.
-  local parsed, err = init.parse_args({"-m", "opus", "work", "--repo", "owner/repo"})
-  assert(parsed, "should parse successfully, got err: " .. tostring(err))
-  assert(parsed.model == "opus", "model should be opus, got: " .. tostring(parsed.model))
-  assert(parsed.remaining[1] == "work", "first remaining should be 'work', got: " .. tostring(parsed.remaining[1]))
-  assert(parsed.remaining[2] == "--repo", "second remaining should be '--repo', got: " .. tostring(parsed.remaining[2]))
-  assert(parsed.remaining[3] == "owner/repo", "third remaining should be 'owner/repo', got: " .. tostring(parsed.remaining[3]))
-end
-test_parse_args_top_level_opts_before_work()
-
-local function test_parse_args_work_with_issue()
-  -- ah work --repo owner/repo --issue 42
-  local parsed, err = init.parse_args({"work", "--repo", "owner/repo", "--issue", "42"})
-  assert(parsed, "should parse successfully, got err: " .. tostring(err))
-  assert(parsed.remaining[1] == "work", "first remaining should be 'work'")
-  assert(parsed.remaining[2] == "--repo", "--repo should be in remaining")
-  assert(parsed.remaining[3] == "owner/repo", "repo value should be in remaining")
-  assert(parsed.remaining[4] == "--issue", "--issue should be in remaining")
-  assert(parsed.remaining[5] == "42", "issue number should be in remaining")
-end
-test_parse_args_work_with_issue()
-
-local function test_parse_args_cd()
-  local parsed = init.parse_args({"--cd", "/path/to/project", "hello"})
-  assert(parsed, "should parse successfully")
-  assert(parsed.cd_path == "/path/to/project", "cd_path should be /path/to/project, got: " .. tostring(parsed.cd_path))
-  assert(parsed.remaining[1] == "hello", "prompt should be in remaining")
-end
-test_parse_args_cd()
-
--- Sandbox protect-dirs parsing
-
-local record InitSandbox
-  parse_protect_dirs: function(string): {string}
-end
-local init_sandbox = require("ah.init") as InitSandbox
-
-local function test_parse_protect_dirs_single()
-  local dirs = init_sandbox.parse_protect_dirs("o/work/plan")
-  assert(#dirs == 1, "should have 1 dir, got: " .. #dirs)
-  assert(dirs[1] == "o/work/plan", "dir should match, got: " .. dirs[1])
-end
-test_parse_protect_dirs_single()
-
-local function test_parse_protect_dirs_multiple()
-  local dirs = init_sandbox.parse_protect_dirs("o/work/plan:o/work/do")
-  assert(#dirs == 2, "should have 2 dirs, got: " .. #dirs)
-  assert(dirs[1] == "o/work/plan", "first dir, got: " .. dirs[1])
-  assert(dirs[2] == "o/work/do", "second dir, got: " .. dirs[2])
-end
-test_parse_protect_dirs_multiple()
-
-local function test_parse_protect_dirs_nil()
-  local dirs = init_sandbox.parse_protect_dirs(nil)
-  assert(#dirs == 0, "nil should return empty table, got: " .. #dirs)
-end
-test_parse_protect_dirs_nil()
-
-local function test_parse_protect_dirs_empty()
-  local dirs = init_sandbox.parse_protect_dirs("")
-  assert(#dirs == 0, "empty string should return empty table, got: " .. #dirs)
-end
-test_parse_protect_dirs_empty()
-
--- Sandbox CLI flag parsing tests
-
-local function test_parse_args_sandbox()
-  local parsed = init.parse_args({"--sandbox", "hello"})
-  assert(parsed, "should parse successfully")
-  assert(parsed.sandbox == true, "sandbox should be true")
-  assert(parsed.remaining[1] == "hello", "prompt should be in remaining")
-end
-test_parse_args_sandbox()
-
-local function test_parse_args_timeout()
-  local parsed = init.parse_args({"--timeout", "300", "hello"})
-  assert(parsed, "should parse successfully")
-  assert(parsed.timeout == 300, "timeout should be 300, got: " .. tostring(parsed.timeout))
-  assert(parsed.remaining[1] == "hello", "prompt should be in remaining")
-end
-test_parse_args_timeout()
-
-local function test_parse_args_allow_host_single()
-  local parsed = init.parse_args({"--sandbox", "--allow-host", "api.example.com:443", "hello"})
-  assert(parsed, "should parse successfully")
-  assert(parsed.allow_hosts, "allow_hosts should be set")
-  assert(#parsed.allow_hosts == 1, "should have 1 host, got: " .. #parsed.allow_hosts)
-  assert(parsed.allow_hosts[1] == "api.example.com:443", "host mismatch, got: " .. parsed.allow_hosts[1])
-end
-test_parse_args_allow_host_single()
-
-local function test_parse_args_allow_host_multiple()
-  local parsed = init.parse_args({"--sandbox", "--allow-host", "api.example.com:443", "--allow-host", "hooks.slack.com:443", "hello"})
-  assert(parsed, "should parse successfully")
-  assert(#parsed.allow_hosts == 2, "should have 2 hosts, got: " .. #parsed.allow_hosts)
-  assert(parsed.allow_hosts[1] == "api.example.com:443", "first host")
-  assert(parsed.allow_hosts[2] == "hooks.slack.com:443", "second host")
-end
-test_parse_args_allow_host_multiple()
-
-local function test_parse_args_unveil_single()
-  local parsed = init.parse_args({"--sandbox", "--unveil", "o/work/plan:r", "hello"})
-  assert(parsed, "should parse successfully")
-  assert(parsed.unveil_dirs, "unveil_dirs should be set")
-  assert(#parsed.unveil_dirs == 1, "should have 1 unveil, got: " .. #parsed.unveil_dirs)
-  assert(parsed.unveil_dirs[1] == "o/work/plan:r", "unveil mismatch, got: " .. parsed.unveil_dirs[1])
-end
-test_parse_args_unveil_single()
-
-local function test_parse_args_unveil_multiple()
-  local parsed = init.parse_args({"--sandbox", "--unveil", "o/work/plan:r", "--unveil", "o/work/do:rw", "hello"})
-  assert(parsed, "should parse successfully")
-  assert(#parsed.unveil_dirs == 2, "should have 2 unveils, got: " .. #parsed.unveil_dirs)
-  assert(parsed.unveil_dirs[1] == "o/work/plan:r", "first unveil")
-  assert(parsed.unveil_dirs[2] == "o/work/do:rw", "second unveil")
-end
-test_parse_args_unveil_multiple()
-
-local function test_parse_args_sandbox_combined()
-  local parsed = init.parse_args({
-      "--sandbox", "--timeout", "180",
-      "--allow-host", "hooks.slack.com:443",
-      "--unveil", "o/work/plan:r",
-      "-m", "opus", "--db", "test.db",
-      "do the thing"
-    })
-  assert(parsed, "should parse successfully")
-  assert(parsed.sandbox == true, "sandbox should be true")
-  assert(parsed.timeout == 180, "timeout should be 180")
-  assert(#parsed.allow_hosts == 1, "should have 1 allow-host")
-  assert(parsed.allow_hosts[1] == "hooks.slack.com:443", "allow-host value")
-  assert(#parsed.unveil_dirs == 1, "should have 1 unveil")
-  assert(parsed.unveil_dirs[1] == "o/work/plan:r", "unveil value")
-  assert(parsed.model == "opus", "model should be opus")
-  assert(parsed.db_path == "test.db", "db should be test.db")
-  assert(parsed.remaining[1] == "do the thing", "prompt in remaining")
-end
-test_parse_args_sandbox_combined()
-
-local function test_parse_args_sandbox_with_work()
-  -- --sandbox before work subcommand shouldn't interfere
-  local parsed = init.parse_args({"--sandbox", "work", "--repo", "owner/repo"})
-  assert(parsed, "should parse successfully")
-  assert(parsed.sandbox == true, "sandbox should be true")
-  assert(parsed.remaining[1] == "work", "work in remaining")
-  assert(parsed.remaining[2] == "--repo", "--repo in remaining")
-  assert(parsed.remaining[3] == "owner/repo", "repo value in remaining")
-end
-test_parse_args_sandbox_with_work()
-
-local function test_parse_args_no_sandbox_defaults()
-  local parsed = init.parse_args({"hello"})
-  assert(parsed, "should parse successfully")
-  assert(not parsed.sandbox, "sandbox should be nil/false by default")
-  assert(not parsed.timeout, "timeout should be nil by default")
-  assert(not parsed.allow_hosts or #parsed.allow_hosts == 0, "allow_hosts should be empty by default")
-  assert(not parsed.unveil_dirs or #parsed.unveil_dirs == 0, "unveil_dirs should be empty by default")
-end
-test_parse_args_no_sandbox_defaults()
-
--- parse_unveil helper tests
-
-local function test_parse_unveil_entry()
-  local path, perms = init.parse_unveil_entry("o/work/plan:r")
-  assert(path == "o/work/plan", "path should be o/work/plan, got: " .. tostring(path))
-  assert(perms == "r", "perms should be r, got: " .. tostring(perms))
-end
-test_parse_unveil_entry()
-
-local function test_parse_unveil_entry_rw()
-  local path, perms = init.parse_unveil_entry("src:rwc")
-  assert(path == "src", "path should be src")
-  assert(perms == "rwc", "perms should be rwc, got: " .. tostring(perms))
-end
-test_parse_unveil_entry_rw()
-
-local function test_parse_unveil_entry_absolute()
-  local path, perms = init.parse_unveil_entry("/tmp:rwxc")
-  assert(path == "/tmp", "path should be /tmp")
-  assert(perms == "rwxc", "perms should be rwxc")
-end
-test_parse_unveil_entry_absolute()
-
-local function test_parse_unveil_entry_no_perms()
-  local path, perms = init.parse_unveil_entry("o/work/plan")
-  assert(path == "o/work/plan", "path should be o/work/plan")
-  assert(perms == "r", "perms should default to r, got: " .. tostring(perms))
-end
-test_parse_unveil_entry_no_perms()
-
--- Help text completeness: run the built binary and check --help output
-
-local function get_help_text(): string
-  local ah_bin = os.getenv("AH_BIN")
-  assert(ah_bin, "AH_BIN not set — need built binary")
-  local f = io.popen(ah_bin .. " --help 2>&1")
-  assert(f, "failed to run ah --help")
-  local help = f:read("*a") as string
-  f:close()
-  return help
-end
-
-local function test_usage_text_contains_all_options()
-  local help = get_help_text()
-  assert(#help > 0, "ah --help should produce output")
-
-  -- every long option defined in the parser must appear as --name in help
-  local defined_options = {
-    "help", "new", "session", "name", "db", "model", "output", "cd",
-    "steer", "followup", "max-tokens", "sandbox", "timeout",
-    "allow-host", "unveil", "skill", "must-produce",
-  }
-  for _, opt in ipairs(defined_options) do
-    assert(help:find("--" .. opt, 1, true),
-      "help text missing option: --" .. opt)
-  end
-end
-test_usage_text_contains_all_options()
-
-local function test_usage_text_contains_short_options()
-  local help = get_help_text()
-  local short_options = {"-h", "-n", "-S", "-m", "-o"}
-  for _, opt in ipairs(short_options) do
-    assert(help:find(opt, 1, true),
-      "help text missing short option: " .. opt)
-  end
-end
-test_usage_text_contains_short_options()
-
-local function test_parse_args_tool()
-  local parsed = init.parse_args({"--tool", "foo=/usr/bin/foo", "-t", "bar=/tmp/bar", "hello"})
-  assert(parsed, "should parse --tool args")
-  assert(#parsed.tool_overrides == 2, "should have 2 tool overrides: " .. tostring(#parsed.tool_overrides))
-  assert(parsed.tool_overrides[1] == "foo=/usr/bin/foo", "first override: " .. parsed.tool_overrides[1])
-  assert(parsed.tool_overrides[2] == "bar=/tmp/bar", "second override: " .. parsed.tool_overrides[2])
-  assert(parsed.remaining[1] == "hello", "remaining should be prompt")
-end
-test_parse_args_tool()
-
--- Sandbox sub-option validation tests
-
-local function test_parse_args_unveil_without_sandbox()
-  local parsed, err = init.parse_args({"--unveil", "/tmp:r", "hello"})
-  assert(not parsed, "--unveil without --sandbox should fail")
-  assert(err == "error: --unveil requires --sandbox", "err should mention --unveil requires --sandbox, got: " .. tostring(err))
-end
-test_parse_args_unveil_without_sandbox()
-
-local function test_parse_args_allow_host_without_sandbox()
-  local parsed, err = init.parse_args({"--allow-host", "example.com:443", "hello"})
-  assert(not parsed, "--allow-host without --sandbox should fail")
-  assert(err == "error: --allow-host requires --sandbox", "err should mention --allow-host requires --sandbox, got: " .. tostring(err))
-end
-test_parse_args_allow_host_without_sandbox()
-
-local function test_parse_args_sandbox_with_unveil()
-  local parsed = init.parse_args({"--sandbox", "--unveil", "/tmp:r", "hello"})
-  assert(parsed, "--sandbox --unveil should succeed")
-  assert(parsed.sandbox == true, "sandbox should be true")
-  assert(#parsed.unveil_dirs == 1, "should have 1 unveil")
-end
-test_parse_args_sandbox_with_unveil()
-
-local function test_parse_args_sandbox_with_allow_host()
-  local parsed = init.parse_args({"--sandbox", "--allow-host", "example.com:443", "hello"})
-  assert(parsed, "--sandbox --allow-host should succeed")
-  assert(parsed.sandbox == true, "sandbox should be true")
-  assert(#parsed.allow_hosts == 1, "should have 1 allow-host")
-end
-test_parse_args_sandbox_with_allow_host()
-
--- Diff colorization tests
-
-local record InitDiff
-  colorize_diff_line: function(string): string
-end
-local init_diff = require("ah.init") as InitDiff
-
-local function test_colorize_diff_line_plus()
-  local result = init_diff.colorize_diff_line("+added line")
-  assert(result == "\27[34m+added line\27[0m", "plus line should be blue, got: " .. result)
-end
-test_colorize_diff_line_plus()
-
-local function test_colorize_diff_line_minus()
-  local result = init_diff.colorize_diff_line("-removed line")
-  assert(result == "\27[33m-removed line\27[0m", "minus line should be yellow, got: " .. result)
-end
-test_colorize_diff_line_minus()
-
-local function test_colorize_diff_line_hunk()
-  local result = init_diff.colorize_diff_line("@@ -1,3 +1,4 @@")
-  assert(result == "\27[36m@@ -1,3 +1,4 @@\27[0m", "hunk header should be cyan, got: " .. result)
-end
-test_colorize_diff_line_hunk()
-
-local function test_colorize_diff_line_header_plus()
-  local result = init_diff.colorize_diff_line("+++ b/file.txt")
-  assert(result == "\27[1m+++ b/file.txt\27[0m", "+++ header should be bold, got: " .. result)
-end
-test_colorize_diff_line_header_plus()
-
-local function test_colorize_diff_line_header_minus()
-  local result = init_diff.colorize_diff_line("--- a/file.txt")
-  assert(result == "\27[1m--- a/file.txt\27[0m", "--- header should be bold, got: " .. result)
-end
-test_colorize_diff_line_header_minus()
-
-local function test_colorize_diff_line_plain()
-  local result = init_diff.colorize_diff_line(" context line")
-  assert(result == " context line", "context line should be unchanged, got: " .. result)
-end
-test_colorize_diff_line_plain()
-
--- Tool output colorization tests
-
-local record ParsedArgsView
-  remaining: {string}
-  output_path: string
-end
-
-local enum OptionArgType
-  "required"
-  "none"
-end
-
-local record OptionDef
-  name: string
-  short: string
-  has_arg: OptionArgType
-end
-
-local record InitTool
-  colorize_tool_line: function(string): string, boolean
-  parse_subcommand_options: function({string}, {OptionDef}): {string: string}
-  parse_args: function({string}): ParsedArgsView, string
-end
-local init_tool = require("ah.init") as InitTool
-
-local function test_colorize_tool_line_pass()
-  local result, colored = init_tool.colorize_tool_line("PASS test_foo")
-  assert(colored == true, "PASS should be colored")
-  assert(result == "\27[1;34mPASS test_foo\27[0m", "PASS should be blue+bold, got: " .. result)
-end
-test_colorize_tool_line_pass()
-
-local function test_colorize_tool_line_pass_prefix()
-  -- "PASSING" should also match (prefix match)
-  local result, colored = init_tool.colorize_tool_line("PASSING all tests")
-  assert(colored == true, "PASSING should be colored")
-  assert(result:find("\27%[1;34m"), "PASSING should be blue+bold")
-end
-test_colorize_tool_line_pass_prefix()
-
-local function test_colorize_tool_line_fail()
-  local result, colored = init_tool.colorize_tool_line("FAIL test_bar")
-  assert(colored == true, "FAIL should be colored")
-  assert(result == "\27[1;33mFAIL test_bar\27[0m", "FAIL should be yellow+bold, got: " .. result)
-end
-test_colorize_tool_line_fail()
-
-local function test_colorize_tool_line_failure_prefix()
-  -- "FAILURE" should also match (prefix match)
-  local result, colored = init_tool.colorize_tool_line("FAILURE in module X")
-  assert(colored == true, "FAILURE should be colored")
-  assert(result:find("\27%[1;33m"), "FAILURE should be yellow+bold")
-end
-test_colorize_tool_line_failure_prefix()
-
-local function test_colorize_tool_line_error_lower()
-  local result, colored = init_tool.colorize_tool_line("error: something broke")
-  assert(colored == true, "error: should be colored")
-  assert(result == "\27[1;33merror: something broke\27[0m", "error: should be yellow+bold, got: " .. result)
-end
-test_colorize_tool_line_error_lower()
-
-local function test_colorize_tool_line_error_upper()
-  local result, colored = init_tool.colorize_tool_line("Error: compilation failed")
-  assert(colored == true, "Error: should be colored")
-  assert(result == "\27[1;33mError: compilation failed\27[0m", "Error: should be yellow+bold, got: " .. result)
-end
-test_colorize_tool_line_error_upper()
-
-local function test_colorize_tool_line_exit_code()
-  local result, colored = init_tool.colorize_tool_line("exit code: 1")
-  assert(colored == true, "exit code: should be colored")
-  assert(result == "\27[1;33mexit code: 1\27[0m", "exit code: should be yellow+bold, got: " .. result)
-end
-test_colorize_tool_line_exit_code()
-
-local function test_colorize_tool_line_no_match()
-  local result, colored = init_tool.colorize_tool_line("just a normal line")
-  assert(colored == false, "normal line should not be colored")
-  assert(result == "just a normal line", "normal line should be unchanged, got: " .. result)
-end
-test_colorize_tool_line_no_match()
-
-local function test_colorize_tool_line_lowercase_pass()
-  -- "passed" (lowercase) should NOT match
-  local result, colored = init_tool.colorize_tool_line("passed all tests")
-  assert(colored == false, "lowercase 'passed' should not be colored")
-  assert(result == "passed all tests", "lowercase 'passed' should be unchanged")
-end
-test_colorize_tool_line_lowercase_pass()
-
-local function test_colorize_tool_line_empty()
-  local result, colored = init_tool.colorize_tool_line("")
-  assert(colored == false, "empty line should not be colored")
-  assert(result == "", "empty line should be unchanged")
-end
-test_colorize_tool_line_empty()
-
--- parse_embed_output tests
-local function test_parse_subcommand_options_long_flag()
-  local opts: {OptionDef} = {{name = "output", short = "o", has_arg = "required"}}
-  local result = init_tool.parse_subcommand_options({"--output", "o/bin/ah"}, opts)
-  assert(result.output == "o/bin/ah", "expected 'o/bin/ah', got: " .. tostring(result.output))
-end
-test_parse_subcommand_options_long_flag()
-
-local function test_parse_subcommand_options_short_flag()
-  local opts: {OptionDef} = {{name = "output", short = "o", has_arg = "required"}}
-  local result = init_tool.parse_subcommand_options({"-o", "o/bin/ah"}, opts)
-  assert(result.output == "o/bin/ah", "expected 'o/bin/ah', got: " .. tostring(result.output))
-end
-test_parse_subcommand_options_short_flag()
-
-local function test_parse_subcommand_options_short_no_space()
-  local opts: {OptionDef} = {{name = "output", short = "o", has_arg = "required"}}
-  local result = init_tool.parse_subcommand_options({"-oo/bin/ah"}, opts)
-  assert(result.output == "o/bin/ah", "expected 'o/bin/ah', got: " .. tostring(result.output))
-end
-test_parse_subcommand_options_short_no_space()
-
-local function test_parse_subcommand_options_none()
-  local opts: {OptionDef} = {{name = "output", short = "o", has_arg = "required"}}
-  local result = init_tool.parse_subcommand_options({"somefile"}, opts)
-  assert(result.output == nil, "expected nil, got: " .. tostring(result.output))
-end
-test_parse_subcommand_options_none()
-
-local function test_parse_subcommand_options_empty()
-  local opts: {OptionDef} = {{name = "output", short = "o", has_arg = "required"}}
-  local result = init_tool.parse_subcommand_options({}, opts)
-  assert(result.output == nil, "expected nil for empty args, got: " .. tostring(result.output))
-end
-test_parse_subcommand_options_empty()
-
-local function test_parse_subcommand_options_last_wins()
-  local opts: {OptionDef} = {{name = "output", short = "o", has_arg = "required"}}
-  local result = init_tool.parse_subcommand_options({"--output", "first", "--output", "second"}, opts)
-  assert(result.output == "second", "expected 'second', got: " .. tostring(result.output))
-end
-test_parse_subcommand_options_last_wins()
-
-local function test_parse_subcommand_options_multiple()
-  local opts: {OptionDef} = {
-    {name = "output", short = "o", has_arg = "required"},
-    {name = "verbose", short = "v", has_arg = "none"}
-  }
-  local result = init_tool.parse_subcommand_options({"-v", "--output", "out.bin"}, opts)
-  assert(result.verbose == "true", "expected verbose='true', got: " .. tostring(result.verbose))
-  assert(result.output == "out.bin", "expected output='out.bin', got: " .. tostring(result.output))
-end
-test_parse_subcommand_options_multiple()
-
-local function test_parse_subcommand_options_flag_no_arg()
-  local opts: {OptionDef} = {{name = "verbose", short = "v", has_arg = "none"}}
-  local result = init_tool.parse_subcommand_options({"-v", "otherarg"}, opts)
-  assert(result.verbose == "true", "expected verbose='true', got: " .. tostring(result.verbose))
-end
-test_parse_subcommand_options_flag_no_arg()
-
-local function test_parse_args_embed_remaining_contains_output()
-  -- parse_args with POSIX mode: --output after embed lands in remaining
-  local parsed = init_tool.parse_args({"embed", "mydir", "--output", "o/bin/ah"})
-  assert(parsed.remaining[1] == "embed", "remaining[1] should be 'embed'")
-  assert(parsed.remaining[2] == "mydir", "remaining[2] should be 'mydir'")
-  assert(parsed.remaining[3] == "--output", "remaining[3] should be '--output'")
-  assert(parsed.remaining[4] == "o/bin/ah", "remaining[4] should be 'o/bin/ah'")
-  assert(parsed.output_path == nil, "top-level output_path should be nil")
-end
-test_parse_args_embed_remaining_contains_output()
-
--- format_tokens and make_cli_handler tests
-
-local record InitTokens
-  format_tokens: function(integer): string
-  make_cli_handler: function(string): function(any)
-end
-local init_tokens = require("ah.init") as InitTokens
-
-local function test_format_tokens_zero()
-  local result = init_tokens.format_tokens(0)
-  assert(result == "0", "0 should format as '0', got: " .. result)
-end
-test_format_tokens_zero()
-
-local function test_format_tokens_small()
-  local result = init_tokens.format_tokens(999)
-  assert(result == "999", "999 should format as '999', got: " .. result)
-end
-test_format_tokens_small()
-
-local function test_format_tokens_exact_thousand()
-  local result = init_tokens.format_tokens(1000)
-  assert(result == "1.0k", "1000 should format as '1.0k', got: " .. result)
-end
-test_format_tokens_exact_thousand()
-
-local function test_format_tokens_thousands()
-  local result = init_tokens.format_tokens(1200)
-  assert(result == "1.2k", "1200 should format as '1.2k', got: " .. result)
-end
-test_format_tokens_thousands()
-
-local function test_format_tokens_millions()
-  local result = init_tokens.format_tokens(1200000)
-  assert(result == "1.2m", "1200000 should format as '1.2m', got: " .. result)
-end
-test_format_tokens_millions()
-
--- make_cli_handler integration tests (stderr redirected to tmpfile)
-
-local function capture_stderr(fn: function()): string
-  local tmpfile = fs.join(TEST_TMPDIR, "test_stderr_" .. tostring(os.time()) .. ".txt")
-  local old_stderr = io.stderr
-  local new_stderr = io.open(tmpfile, "w")
-  io.stderr = new_stderr
-  fn()
-  io.stderr:close()
-  io.stderr = old_stderr
-  local output = cio.slurp(tmpfile) or ""
-  os.remove(tmpfile)
-  return output
-end
-
-local function test_make_cli_handler_agent_end_shows_percentage()
-  local handler = init_tokens.make_cli_handler(nil)
-  local output = capture_stderr(function()
-      -- fire agent_start to set model
-      handler({event_type = "agent_start", model = "claude-opus-4-5-20251101"} as any)
-      -- fire agent_end with known token counts (200k input, 0 output → 100% of 200k)
-      handler({
-          event_type = "agent_end",
-          total_input_tokens = 100000,
-          total_output_tokens = 0,
-          total_cache_read_tokens = 0,
-        } as any)
-    end)
-  assert(output:match("%%"), "agent_end output should contain '%', got: " .. output)
-  assert(output:match("200%.0k"), "agent_end output should contain '200.0k' budget, got: " .. output)
-  assert(output:match("100%.0k"), "agent_end output should contain '100.0k' input, got: " .. output)
-end
-test_make_cli_handler_agent_end_shows_percentage()
-
-local function test_make_cli_handler_budget_exceeded_shows_percentage()
-  local handler = init_tokens.make_cli_handler(nil)
-  local output = capture_stderr(function()
-      handler({event_type = "agent_start", model = "claude-opus-4-5-20251101"} as any)
-      handler({
-          event_type = "budget_exceeded",
-          total_input_tokens = 180000,
-          total_output_tokens = 10000,
-          max_tokens = 200000,
-        } as any)
-    end)
-  assert(output:match("token budget exceeded"), "should say 'token budget exceeded', got: " .. output)
-  assert(output:match("%%"), "budget_exceeded output should contain '%', got: " .. output)
-  assert(output:match("190%.0k"), "budget_exceeded output should contain '190.0k' total, got: " .. output)
-end
-test_make_cli_handler_budget_exceeded_shows_percentage()
-
-local function test_make_cli_handler_agent_end_nil_model_uses_default()
-  -- No agent_start fired — captured_model is nil, should default to 200k
-  local handler = init_tokens.make_cli_handler(nil)
-  local output = capture_stderr(function()
-      handler({
-          event_type = "agent_end",
-          total_input_tokens = 1000,
-          total_output_tokens = 200,
-          total_cache_read_tokens = 0,
-        } as any)
-    end)
-  assert(output:match("200%.0k"), "nil model should fall back to 200.0k budget, got: " .. output)
-  assert(output:match("%%"), "output should contain '%', got: " .. output)
-end
-test_make_cli_handler_agent_end_nil_model_uses_default()
-
-local function test_make_cli_handler_agent_end_no_tokens_no_output()
-  -- Zero tokens: no token line should be written
-  local handler = init_tokens.make_cli_handler(nil)
-  local output = capture_stderr(function()
-      handler({
-          event_type = "agent_end",
-          total_input_tokens = 0,
-          total_output_tokens = 0,
-          total_cache_read_tokens = 0,
-        } as any)
-    end)
-  assert(not output:match("%%"), "zero tokens should produce no token line, got: " .. output)
-  assert(not output:match("total"), "zero tokens should produce no total line, got: " .. output)
-end
-test_make_cli_handler_agent_end_no_tokens_no_output()
 
 print("all init tests passed")

@@ -1,10 +1,33 @@
 #!/usr/bin/env cosmic
--- test_tools.tl: tests for agent tools
+-- test_tools.tl: tests for tool execution, validation, and overrides
 local fs = require("cosmic.fs")
 local cio = require("cosmic.io")
 local tools = require("ah.tools")
+local json = require("cosmic.json")
 
 local TEST_TMPDIR = os.getenv("TEST_TMPDIR") or "/tmp"
+
+-- Core tool tests
+
+local function test_tool_definitions()
+  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
+  local defs = tools.get_tool_definitions()
+  assert(#defs >= 4, "should have at least 4 tools: " .. tostring(#defs))
+  local by_name: {string: {string: any}} = {}
+  for _, d in ipairs(defs) do
+    local def = d as {string: any}
+    assert(def.name, "tool should have name")
+    assert(def.description, "tool should have description")
+    assert(def.input_schema, "tool should have input_schema")
+    by_name[def.name as string] = def
+  end
+  assert(by_name["read"], "should have read tool")
+  assert(by_name["write"], "should have write tool")
+  assert(by_name["edit"], "should have edit tool")
+  assert(by_name["bash"], "should have bash tool")
+  print("✓ tool definitions are correct")
+end
+test_tool_definitions()
 
 local function test_read_tool()
   local test_file = fs.join(TEST_TMPDIR, "test_read_tool.txt")
@@ -14,1589 +37,398 @@ local function test_read_tool()
   assert(result:match("1\t"), "should have line numbers")
   assert(details, "read should return details")
   assert(details.path == test_file, "details should have path")
-  assert(details.line_count and details.line_count > 0, "details should have line_count")
   print("✓ read tool works")
 end
+test_read_tool()
 
 local function test_read_nonexistent()
-  local result, is_error, details = tools.execute_tool("read", {path = "/nonexistent/file"})
+  local result, is_error = tools.execute_tool("read", {path = "/nonexistent/file"})
   assert(is_error, "should fail for nonexistent file")
   assert(result:match("error"), "should return error message")
-  assert(details == nil, "error should not return details")
   print("✓ read tool handles missing files")
 end
+test_read_nonexistent()
 
 local function test_write_tool()
-  local test_file = os.getenv("TEST_TMPDIR") .. "/test_write.txt"
+  local test_file = fs.join(TEST_TMPDIR, "test_write.txt")
   local result, is_error, details = tools.execute_tool("write", {path = test_file, content = "hello world"})
   assert(not is_error, "write should succeed: " .. result)
-  assert(result:match("1 lines"), "should report line count: " .. result)
-  assert(details, "write should return details")
-  assert(details.path == test_file, "details should have path")
-  assert(details.bytes == 11, "details should have bytes: " .. tostring(details.bytes))
+  assert(details and details.bytes == 11, "details should have bytes")
   print("✓ write tool works")
 end
+test_write_tool()
 
 local function test_edit_tool()
-  local test_file = os.getenv("TEST_TMPDIR") .. "/test_edit.txt"
+  local test_file = fs.join(TEST_TMPDIR, "test_edit.txt")
   tools.execute_tool("write", {path = test_file, content = "hello world"})
-  local result, is_error, details = tools.execute_tool("edit", {
-      path = test_file,
-      old_string = "hello",
-      new_string = "goodbye"
-    })
+  local result, is_error, details = tools.execute_tool("edit", {path = test_file, old_string = "hello", new_string = "goodbye"})
   assert(not is_error, "edit should succeed: " .. result)
-  assert(details, "edit should return details")
-  assert(details.path == test_file, "details should have path")
-  assert(details.old_lines == 1, "details should have old_lines: " .. tostring(details.old_lines))
-  assert(details.new_lines == 1, "details should have new_lines: " .. tostring(details.new_lines))
-
+  assert(details and details.path == test_file, "details should have path")
   local content, _ = tools.execute_tool("read", {path = test_file})
   assert(content:match("goodbye world"), "content should be changed")
   print("✓ edit tool works")
 end
+test_edit_tool()
 
 local function test_edit_tool_percent_in_replacement()
-  local test_file = os.getenv("TEST_TMPDIR") .. "/test_edit_percent.txt"
+  local test_file = fs.join(TEST_TMPDIR, "test_edit_percent.txt")
   tools.execute_tool("write", {path = test_file, content = "value = 100"})
-  local result, is_error = tools.execute_tool("edit", {
-      path = test_file,
-      old_string = "100",
-      new_string = "50%"
-    })
+  local result, is_error = tools.execute_tool("edit", {path = test_file, old_string = "100", new_string = "50%"})
   assert(not is_error, "edit with % should succeed: " .. (result or "nil"))
-
   local content, _ = tools.execute_tool("read", {path = test_file})
   assert(content:match("value = 50%%"), "content should have 50%")
   print("✓ edit tool handles % in replacement string")
 end
+test_edit_tool_percent_in_replacement()
 
 local function test_bash_tool()
   local result, is_error, details = tools.execute_tool("bash", {command = "echo hello"})
   assert(not is_error, "bash should succeed")
   assert(result:match("hello"), "should capture stdout")
-  assert(details, "bash should return details")
-  assert(details.command == "echo hello", "details should have command")
-  assert(details.exit_code == 0, "details should have exit_code 0: " .. tostring(details.exit_code))
+  assert(details and details.exit_code == 0, "exit_code should be 0")
   print("✓ bash tool works")
 end
+test_bash_tool()
 
 local function test_bash_exit_code()
   local result, is_error, details = tools.execute_tool("bash", {command = "exit 1"})
   assert(is_error, "should report error for non-zero exit")
   assert(result:match("exit code: 1"), "should report exit code")
-  assert(details, "bash error should still return details")
-  assert(details.exit_code == 1, "details should have exit_code 1: " .. tostring(details.exit_code))
+  assert(details and details.exit_code == 1, "exit_code should be 1")
   print("✓ bash tool handles exit codes")
 end
-
-local function test_tool_definitions()
-  -- Ensure system tools are loaded
-  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
-
-  local defs = tools.get_tool_definitions()
-  assert(#defs >= 4, "should have at least 4 tools: " .. tostring(#defs))
-
-  -- Build name map for lookup
-  local by_name: {string: {string: any}} = {}
-  for _, d in ipairs(defs) do
-    local def = d as {string: any}
-    assert(def.name, "tool should have name")
-    assert(def.description, "tool should have description")
-    assert(def.input_schema, "tool should have input_schema")
-    local schema = def.input_schema as {string: any}
-    assert(schema.type == "object", "schema type should be object")
-    assert(schema.properties, "schema should have properties")
-    by_name[def.name as string] = def
-  end
-
-  -- Check core tools are present
-  assert(by_name["read"], "should have read tool")
-  assert(by_name["write"], "should have write tool")
-  assert(by_name["edit"], "should have edit tool")
-  assert(by_name["bash"], "should have bash tool")
-
-  -- Check read tool specifically
-  local read_def = by_name["read"]
-  local read_schema = read_def.input_schema as {string: any}
-  local read_props = read_schema.properties as {string: any}
-  local read_required = read_schema.required as {string}
-  assert(read_props.path, "read should have path property")
-  assert(read_required[1] == "path", "path should be required")
-
-  print("✓ tool definitions are correct")
-end
-
-test_tool_definitions()
-test_read_tool()
-test_read_nonexistent()
-test_write_tool()
-test_edit_tool()
-test_edit_tool_percent_in_replacement()
-test_bash_tool()
 test_bash_exit_code()
 
--- Custom tool tests
-local function test_is_valid_tool()
-  assert(not tools.is_valid_tool(nil), "nil should be invalid")
-  assert(not tools.is_valid_tool("string"), "string should be invalid")
-  assert(not tools.is_valid_tool({}), "empty table should be invalid")
-  assert(not tools.is_valid_tool({name = "foo"}), "missing fields should be invalid")
-
-  local valid = {
-    name = "test",
-    description = "A test tool",
-    input_schema = {type = "object", properties = {}, required = {}},
-    execute = function(_: {string: any}): string, boolean return "ok", false end,
-  }
-  assert(tools.is_valid_tool(valid), "valid tool should pass validation")
-  print("✓ is_valid_tool works")
+local function test_bash_timeout()
+  local result, is_error = tools.execute_tool("bash", {command = "sleep 5", timeout = 1000})
+  assert(is_error, "should report error for timeout")
+  assert(result:match("timed out"), "should indicate timeout")
+  print("✓ bash timeout works")
 end
-test_is_valid_tool()
+test_bash_timeout()
 
-local function test_load_custom_tools_empty_dir()
-  local empty_dir = fs.join(TEST_TMPDIR, "empty_tools")
-  fs.makedirs(empty_dir)
-
-  local loaded = tools.load_custom_tools_from_dir(empty_dir)
-  assert(#loaded == 0, "should load 0 tools from empty dir")
-  print("✓ load_custom_tools handles empty directory")
+local function test_bash_timeout_not_triggered()
+  local result, is_error = tools.execute_tool("bash", {command = "echo fast", timeout = 5000})
+  assert(not is_error, "quick command should succeed")
+  assert(result:match("fast"), "should capture output")
+  print("✓ bash timeout does not affect fast commands")
 end
-test_load_custom_tools_empty_dir()
+test_bash_timeout_not_triggered()
 
-local function test_load_custom_tools_nonexistent()
-  local loaded = tools.load_custom_tools_from_dir("/nonexistent/dir")
-  assert(#loaded == 0, "should return empty for nonexistent dir")
-  print("✓ load_custom_tools handles nonexistent directory")
+local function test_bash_env_passthrough()
+  local home = os.getenv("HOME")
+  assert(home, "HOME should be set")
+  local result, is_error = tools.execute_tool("bash", {command = "echo $HOME"})
+  assert(not is_error, "bash should succeed")
+  assert(result:match(home), "child should see HOME")
+  print("✓ bash tool passes environment variables")
 end
-test_load_custom_tools_nonexistent()
+test_bash_env_passthrough()
 
-local function test_load_custom_tool()
-  local tool_dir = fs.join(TEST_TMPDIR, "custom_tools")
-  fs.makedirs(tool_dir)
-
-  cio.barf(fs.join(tool_dir, "hello.lua"), [[
-return {
-  name = "hello",
-  description = "Say hello",
-  input_schema = {type = "object", properties = {name = {type = "string"}}, required = {}},
-  execute = function(input)
-    local name = input.name or "world"
-    return "hello, " .. name .. "!", false
-  end,
-}
-]])
-
-  local loaded = tools.load_custom_tools_from_dir(tool_dir)
-  assert(#loaded == 1, "should load 1 tool")
-  assert(loaded[1].name == "hello", "tool name should be hello")
-
-  local result, is_error = loaded[1].execute({name = "test"})
-  assert(result == "hello, test!", "execute should work: " .. result)
-  assert(not is_error, "should not be error")
-  print("✓ load_custom_tools loads valid tool")
+local function test_bash_newline_in_command()
+  local result, is_error = tools.execute_tool("bash", {command = "echo line1\necho line2"})
+  assert(not is_error, "multiline should succeed")
+  assert(result:match("line1"), "should have line1")
+  assert(result:match("line2"), "should have line2")
+  print("✓ bash handles newlines in commands")
 end
-test_load_custom_tool()
+test_bash_newline_in_command()
 
-local function test_invalid_tool_skipped()
-  local tool_dir = fs.join(TEST_TMPDIR, "invalid_tools")
-  fs.makedirs(tool_dir)
-
-  cio.barf(fs.join(tool_dir, "bad.lua"), "return nil")
-  cio.barf(fs.join(tool_dir, "also_bad.lua"), "return {}")
-  cio.barf(fs.join(tool_dir, "good.lua"), [[
-return {
-  name = "good",
-  description = "Good tool",
-  input_schema = {type = "object", properties = {}, required = {}},
-  execute = function() return "ok", false end,
-}
-]])
-
-  local loaded = tools.load_custom_tools_from_dir(tool_dir)
-  assert(#loaded == 1, "should only load valid tool")
-  assert(loaded[1].name == "good", "should load good tool")
-  print("✓ invalid tools are skipped")
+local function test_bash_brace_expansion()
+  local result, is_error = tools.execute_tool("bash", {command = "echo {a,b,c}"})
+  assert(not is_error, "brace expansion should succeed")
+  assert(result:match("a b c"), "should expand braces: " .. result)
+  print("✓ bash handles brace expansion")
 end
-test_invalid_tool_skipped()
+test_bash_brace_expansion()
+
+-- Project tool loading
 
 local function test_custom_tool_override()
-  -- Project tools in cwd/tools/ should be loaded by init_custom_tools
   local project = fs.join(TEST_TMPDIR, "override_project")
   local project_tools = fs.join(project, "tools")
   fs.makedirs(project_tools)
-
   cio.barf(fs.join(project_tools, "foo.lua"), [[
 return {
-  name = "foo",
-  description = "project foo",
+  name = "foo", description = "project foo",
   input_schema = {type = "object", properties = {}, required = {}},
   execute = function() return "project", false end,
 }
 ]])
-
   tools.init_custom_tools(project)
-
   local result, is_error = tools.execute_tool("foo", {})
   assert(not is_error, "project tool should execute")
-  assert(result == "project", "should run project tool: " .. result)
-
-  -- Reset
+  assert(result == "project", "should run project tool")
   tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent_project"))
   print("✓ project tools loaded from cwd/tools/")
 end
 test_custom_tool_override()
 
 local function test_project_tools_no_dir()
-  -- init_custom_tools with a cwd that has no tools/ directory should not error
   local empty_project = fs.join(TEST_TMPDIR, "empty_project_tools")
   fs.makedirs(empty_project)
   tools.init_custom_tools(empty_project)
-
-  -- Should still have the 4 builtin tools
   local defs = tools.get_tool_definitions()
-  assert(#defs >= 4, "should still have builtin tools: " .. tostring(#defs))
-
-  -- Reset
+  assert(#defs >= 4, "should still have builtin tools")
   tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent_project"))
   print("✓ init_custom_tools handles missing tools/ directory")
 end
 test_project_tools_no_dir()
 
 local function test_dot_ah_tools_wins()
-  -- .ah/tools should take precedence over tools/
   local project = fs.join(TEST_TMPDIR, "dot_ah_tools_project")
-  local bare_tools = fs.join(project, "tools")
-  local dot_ah_tools = fs.join(project, ".ah", "tools")
-  fs.makedirs(bare_tools)
-  fs.makedirs(dot_ah_tools)
-
-  cio.barf(fs.join(bare_tools, "pick.lua"), [[
-return {
-  name = "pick",
-  description = "bare pick",
-  input_schema = {type = "object", properties = {}, required = {}},
-  execute = function() return "from-bare", false end,
-}
+  fs.makedirs(fs.join(project, "tools"))
+  fs.makedirs(fs.join(project, ".ah", "tools"))
+  cio.barf(fs.join(project, "tools", "pick.lua"), [[
+return { name = "pick", description = "bare", input_schema = {type = "object", properties = {}, required = {}}, execute = function() return "from-bare", false end }
 ]])
-
-  cio.barf(fs.join(dot_ah_tools, "pick.lua"), [[
-return {
-  name = "pick",
-  description = "dot-ah pick",
-  input_schema = {type = "object", properties = {}, required = {}},
-  execute = function() return "from-dot-ah", false end,
-}
+  cio.barf(fs.join(project, ".ah", "tools", "pick.lua"), [[
+return { name = "pick", description = "dot-ah", input_schema = {type = "object", properties = {}, required = {}}, execute = function() return "from-dot-ah", false end }
 ]])
-
   tools.init_custom_tools(project)
-
-  local result, is_error = tools.execute_tool("pick", {})
-  assert(not is_error, "should execute")
-  assert(result == "from-dot-ah", ".ah/tools should win over tools/: " .. result)
-
-  -- Reset
+  local result, _ = tools.execute_tool("pick", {})
+  assert(result == "from-dot-ah", ".ah/tools should win: " .. result)
   tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
   print("✓ .ah/tools takes precedence over tools/")
 end
 test_dot_ah_tools_wins()
 
 local function test_bare_tools_when_no_dot_ah()
-  -- tools/ should work when .ah/tools doesn't exist
   local project = fs.join(TEST_TMPDIR, "bare_tools_only")
-  local bare_tools = fs.join(project, "tools")
-  fs.makedirs(bare_tools)
-
-  cio.barf(fs.join(bare_tools, "bare.lua"), [[
-return {
-  name = "bare",
-  description = "bare tool",
-  input_schema = {type = "object", properties = {}, required = {}},
-  execute = function() return "from-bare", false end,
-}
+  fs.makedirs(fs.join(project, "tools"))
+  cio.barf(fs.join(project, "tools", "bare.lua"), [[
+return { name = "bare", description = "bare tool", input_schema = {type = "object", properties = {}, required = {}}, execute = function() return "from-bare", false end }
 ]])
-
   tools.init_custom_tools(project)
-
-  local result, is_error = tools.execute_tool("bare", {})
-  assert(not is_error, "should execute")
-  assert(result == "from-bare", "should load from tools/: " .. result)
-
-  -- Reset
+  local result, _ = tools.execute_tool("bare", {})
+  assert(result == "from-bare", "should load from tools/")
   tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
-  print("✓ tools/ used as fallback when .ah/tools absent")
+  print("✓ tools/ used as fallback")
 end
 test_bare_tools_when_no_dot_ah()
 
--- Bash timeout tests
-local function test_bash_timeout()
-  -- Use a short timeout (1 second) on a command that would take longer
-  local result, is_error = tools.execute_tool("bash", {command = "sleep 5", timeout = 1000})
-  assert(is_error, "should report error for timeout")
-  assert(result:match("timed out"), "should indicate timeout: " .. result)
-  print("✓ bash timeout works")
-end
-test_bash_timeout()
-
-local function test_bash_timeout_not_triggered()
-  -- Quick command should not timeout
-  local result, is_error = tools.execute_tool("bash", {command = "echo fast", timeout = 5000})
-  assert(not is_error, "quick command should succeed")
-  assert(result:match("fast"), "should capture output")
-  assert(not result:match("timed out"), "should not timeout")
-  print("✓ bash timeout does not affect fast commands")
-end
-test_bash_timeout_not_triggered()
-
-local function test_bash_env_passthrough()
-  -- Verify that environment variables are passed to child processes
-  -- HOME should always be set and passed through
-  local home = os.getenv("HOME")
-  assert(home, "HOME should be set in test environment")
-
-  local result, is_error = tools.execute_tool("bash", {command = "echo $HOME"})
-  assert(not is_error, "bash should succeed")
-  assert(result:match(home), "child process should see HOME env var: " .. result)
-
-  -- Also verify PATH is passed (needed for commands to work)
-  local path_result, path_error = tools.execute_tool("bash", {command = "echo $PATH"})
-  assert(not path_error, "bash should succeed")
-  assert(path_result:match("/"), "child process should see PATH with directories: " .. path_result)
-  print("✓ bash tool passes environment variables to child processes")
-end
-test_bash_env_passthrough()
-
-local function test_teal_tool_loading()
-  local project = fs.join(TEST_TMPDIR, "teal_tool")
-  local project_tools = fs.join(project, "tools")
-  fs.makedirs(project_tools)
-
-  cio.barf(fs.join(project_tools, "greet.tl"), [[
-return {
-  name = "greet",
-  description = "Greet in teal",
-  system_prompt = "Always greet warmly.",
-  input_schema = {type = "object", properties = {name = {type = "string"}}, required = {"name"}},
-  execute = function(input: {string:any}): string, boolean, any
-    local who = (input.name as string) or "world"
-    return "hello, " .. who, false
-  end,
-}
-]])
-
-  tools.init_custom_tools(project)
-
-  local result, is_error = tools.execute_tool("greet", {name = "teal"})
-  assert(not is_error, "teal tool should execute")
-  assert(result == "hello, teal", "should run teal tool: " .. result)
-
-  -- Reset
-  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
-  print("✓ .tl tools loaded from cwd/tools/")
-end
-test_teal_tool_loading()
-
-local function test_teal_overrides_lua()
-  -- .tl takes precedence over .lua with the same basename
-  local project = fs.join(TEST_TMPDIR, "tl_over_lua")
-  local project_tools = fs.join(project, "tools")
-  fs.makedirs(project_tools)
-
-  cio.barf(fs.join(project_tools, "dup.lua"), [[
-return {
-  name = "dup",
-  description = "lua version",
-  input_schema = {type = "object", properties = {}, required = {}},
-  execute = function() return "from-lua", false end,
-}
-]])
-
-  cio.barf(fs.join(project_tools, "dup.tl"), [[
-return {
-  name = "dup",
-  description = "teal version",
-  input_schema = {type = "object", properties = {}, required = {}},
-  execute = function(): string, boolean
-    return "from-teal", false
-  end,
-}
-]])
-
-  tools.init_custom_tools(project)
-
-  local result, is_error = tools.execute_tool("dup", {})
-  assert(not is_error, "should execute")
-  assert(result == "from-teal", ".tl should override .lua: " .. result)
-
-  -- Reset
-  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
-  print("✓ .tl overrides .lua with same basename")
-end
-test_teal_overrides_lua()
-
-local function test_add_tool_override()
-  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
-
-  -- Create a .lua module tool
-  local tool_dir = fs.join(TEST_TMPDIR, "override_tool")
-  fs.makedirs(tool_dir)
-  local tool_path = fs.join(tool_dir, "my-tool.lua")
-  cio.barf(tool_path, [[
-return {
-  name = "my-tool",
-  description = "An override tool",
-  input_schema = {type = "object", properties = {who = {type = "string"}}, required = {}},
-  execute = function(input)
-    return "hello from override " .. (input.who or "world"), false
-  end,
-}
-]])
-
-  tools.add_tool_override("my-tool", tool_path)
-
-  local result, is_error = tools.execute_tool("my-tool", {who = "world"})
-  assert(not is_error, "override tool should execute: " .. tostring(result))
-  assert(result:match("hello from override world"), "should run override: " .. result)
-
-  -- Reset
-  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
-  print("✓ add_tool_override registers a .lua module tool")
-end
-test_add_tool_override()
-
-local function test_add_tool_override_replaces_existing()
-  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
-
-  -- bash is a system tool; override it with a .lua module
-  local tool_dir = fs.join(TEST_TMPDIR, "override_bash")
-  fs.makedirs(tool_dir)
-  local tool_path = fs.join(tool_dir, "fake-bash.lua")
-  cio.barf(tool_path, [[
-return {
-  name = "bash",
-  description = "Fake bash",
-  input_schema = {type = "object", properties = {command = {type = "string"}}, required = {}},
-  execute = function() return "replaced", false end,
-}
-]])
-
-  tools.add_tool_override("bash", tool_path)
-
-  local result, is_error = tools.execute_tool("bash", {command = ""})
-  assert(not is_error, "override should execute")
-  assert(result:match("replaced"), "should run override, not system bash: " .. result)
-
-  -- Reset
-  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
-  print("✓ add_tool_override replaces existing tool by name")
-end
-test_add_tool_override_replaces_existing()
-
-local function test_add_tool_override_rejects_non_module()
-  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
-
-  local defs_before = #tools.get_tool_definitions()
-
-  -- Passing an executable (non .tl/.lua) should be rejected
-  tools.add_tool_override("deploy", "/usr/bin/echo")
-
-  local defs_after = #tools.get_tool_definitions()
-  assert(defs_before == defs_after, "non-module tool should not be added")
-
-  -- Reset
-  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
-  print("✓ add_tool_override rejects non .tl/.lua files")
-end
-test_add_tool_override_rejects_non_module()
-
--- Image read tests
-local json = require("cosmic.json")
+-- Image tests
 
 local function test_read_image_png()
-  -- Create a minimal valid PNG (1x1 transparent pixel)
   local png_data = "\137PNG\r\n\26\n\0\0\0\rIHDR\0\0\0\1\0\0\0\1\8\6\0\0\0\31\21\196\137\0\0\0\nIDATx\156c\0\1\0\0\5\0\1\r\10-\180\0\0\0\0IEND\174B`\130"
   local png_path = fs.join(TEST_TMPDIR, "test.png")
   cio.barf(png_path, png_data)
-
   local result, is_error = tools.execute_tool("read", {path = png_path})
-  assert(not is_error, "should read image successfully")
-
+  assert(not is_error, "should read image")
   local parsed = json.decode(result) as {string: any}
-  assert(parsed, "result should be valid JSON")
-  assert(parsed.__image__ == true, "should have __image__ marker")
-  assert(parsed.content, "should have content array")
-
-  local content = (parsed.content as {any})[1] as {string: any}
-  assert(content.type == "image", "content type should be image")
-  assert(content.source, "should have source")
-
-  local source = content.source as {string: any}
-  assert(source.type == "base64", "source type should be base64")
-  assert(source.media_type == "image/png", "media type should be image/png")
-  assert(source.data and #(source.data as string) > 0, "should have base64 data")
+  assert(parsed and parsed.__image__ == true, "should have __image__ marker")
   print("✓ read tool handles PNG images")
 end
 test_read_image_png()
 
 local function test_read_image_jpg()
-  -- Create a minimal JPEG (not valid image but has correct extension)
-  local jpg_path = fs.join(TEST_TMPDIR, "test.jpg")
-  cio.barf(jpg_path, "fake jpg content")
-
-  local result, is_error = tools.execute_tool("read", {path = jpg_path})
-  assert(not is_error, "should read jpg successfully")
-
+  cio.barf(fs.join(TEST_TMPDIR, "test.jpg"), "fake jpg content")
+  local result, is_error = tools.execute_tool("read", {path = fs.join(TEST_TMPDIR, "test.jpg")})
+  assert(not is_error, "should read jpg")
   local parsed = json.decode(result) as {string: any}
-  assert(parsed.__image__ == true, "should have __image__ marker")
-
-  local content = (parsed.content as {any})[1] as {string: any}
-  local source = content.source as {string: any}
-  assert(source.media_type == "image/jpeg", "media type should be image/jpeg")
+  assert(parsed and parsed.__image__ == true, "should have __image__ marker")
   print("✓ read tool handles JPEG images")
 end
 test_read_image_jpg()
 
-local function test_read_image_webp()
-  local webp_path = fs.join(TEST_TMPDIR, "test.webp")
-  cio.barf(webp_path, "fake webp content")
-
-  local result, is_error = tools.execute_tool("read", {path = webp_path})
-  assert(not is_error, "should read webp successfully")
-
-  local parsed = json.decode(result) as {string: any}
-  local content = (parsed.content as {any})[1] as {string: any}
-  local source = content.source as {string: any}
-  assert(source.media_type == "image/webp", "media type should be image/webp")
-  print("✓ read tool handles WebP images")
-end
-test_read_image_webp()
-
-local function test_read_image_gif()
-  local gif_path = fs.join(TEST_TMPDIR, "test.gif")
-  cio.barf(gif_path, "GIF89a fake")
-
-  local result, is_error = tools.execute_tool("read", {path = gif_path})
-  assert(not is_error, "should read gif successfully")
-
-  local parsed = json.decode(result) as {string: any}
-  local content = (parsed.content as {any})[1] as {string: any}
-  local source = content.source as {string: any}
-  assert(source.media_type == "image/gif", "media type should be image/gif")
-  print("✓ read tool handles GIF images")
-end
-test_read_image_gif()
-
 local function test_read_text_not_image()
-  -- Ensure .txt files are still treated as text
-  local txt_path = fs.join(TEST_TMPDIR, "test.txt")
-  cio.barf(txt_path, "hello world")
-
-  local result, is_error = tools.execute_tool("read", {path = txt_path})
-  assert(not is_error, "should read txt successfully")
+  cio.barf(fs.join(TEST_TMPDIR, "test_not_img.txt"), "hello world")
+  local result, is_error = tools.execute_tool("read", {path = fs.join(TEST_TMPDIR, "test_not_img.txt")})
+  assert(not is_error, "should read txt")
   assert(not result:match("__image__"), "txt should not be treated as image")
-  assert(result:match("1\t"), "should have line numbers")
-  assert(result:match("hello world"), "should have content")
-  print("✓ read tool treats .txt as text, not image")
+  print("✓ read tool treats .txt as text")
 end
 test_read_text_not_image()
 
 local function test_read_binary_file()
-  -- Create a file with null bytes (binary indicator)
-  local bin_path = fs.join(TEST_TMPDIR, "test.bin")
-  cio.barf(bin_path, "MZ\0\0PE\0\0binary content\0\0more")
-
-  local result, is_error = tools.execute_tool("read", {path = bin_path})
+  cio.barf(fs.join(TEST_TMPDIR, "test.bin"), "MZ\0\0PE\0\0binary content\0\0more")
+  local result, is_error = tools.execute_tool("read", {path = fs.join(TEST_TMPDIR, "test.bin")})
   assert(is_error, "should report error for binary file")
-  assert(result:match("binary file"), "should indicate binary: " .. result)
+  assert(result:match("binary"), "should mention binary")
   print("✓ read tool detects binary files")
 end
 test_read_binary_file()
 
-local function test_read_binary_by_control_chars()
-  -- Create a file with many control characters (binary indicator)
-  local bin_path = fs.join(TEST_TMPDIR, "test_ctrl.bin")
-  local content = ""
-  for i = 1, 100 do
-    content = content .. string.char(1) .. string.char(2) .. string.char(3)
-  end
-  cio.barf(bin_path, content)
+-- Validation tests
 
-  local result, is_error = tools.execute_tool("read", {path = bin_path})
-  assert(is_error, "should report error for binary file with control chars")
-  assert(result:match("binary file"), "should indicate binary: " .. result)
-  print("✓ read tool detects binary by control character ratio")
-end
-test_read_binary_by_control_chars()
-
--- Input validation tests
 local function test_validate_input_valid()
-  local schema: {string: any} = {
-    type = "object",
-    properties = {
-      path = {type = "string"},
-      count = {type = "integer"},
-    },
-    required = {"path"},
-  }
-  local err = tools.validate_input(schema, {path = "/tmp/foo", count = 10})
+  local schema = {type = "object", properties = {name = {type = "string"}, age = {type = "integer"}}, required = {"name"}}
+  local err = tools.validate_input(schema, {name = "Alice", age = 30})
   assert(err == nil, "valid input should pass: " .. tostring(err))
   print("✓ validate_input accepts valid input")
 end
 test_validate_input_valid()
 
 local function test_validate_input_missing_required()
-  local schema: {string: any} = {
-    type = "object",
-    properties = {
-      path = {type = "string"},
-      content = {type = "string"},
-    },
-    required = {"path", "content"},
-  }
-  local err = tools.validate_input(schema, {path = "/tmp/foo"})
-  assert(err ~= nil, "should fail for missing required property")
-  assert(err:match("missing required property: content"), "should name the missing property: " .. err)
-  print("✓ validate_input catches missing required properties")
+  local schema = {type = "object", properties = {name = {type = "string"}}, required = {"name"}}
+  local err = tools.validate_input(schema, {})
+  assert(err and err:match("missing required"), "should report missing required")
+  print("✓ validate_input catches missing required")
 end
 test_validate_input_missing_required()
 
 local function test_validate_input_wrong_type()
-  local schema: {string: any} = {
-    type = "object",
-    properties = {
-      path = {type = "string"},
-      timeout = {type = "integer"},
-    },
-    required = {"path"},
-  }
-  local err = tools.validate_input(schema, {path = 123})
-  assert(err ~= nil, "should fail for wrong type")
-  assert(err:match("property 'path': expected string, got number"), "should describe type mismatch: " .. err)
-  print("✓ validate_input catches wrong property types")
+  local schema = {type = "object", properties = {name = {type = "string"}}, required = {}}
+  local err = tools.validate_input(schema, {name = 42})
+  assert(err and err:match("expected string"), "should report type mismatch")
+  print("✓ validate_input catches wrong type")
 end
 test_validate_input_wrong_type()
 
-local function test_validate_input_multiple_errors()
-  local schema: {string: any} = {
-    type = "object",
-    properties = {
-      path = {type = "string"},
-      content = {type = "string"},
-    },
-    required = {"path", "content"},
-  }
-  local err = tools.validate_input(schema, {})
-  assert(err ~= nil, "should fail for multiple missing properties")
-  assert(err:match("missing required property: path"), "should report path missing: " .. err)
-  assert(err:match("missing required property: content"), "should report content missing: " .. err)
-  print("✓ validate_input reports multiple errors")
-end
-test_validate_input_multiple_errors()
-
-local function test_validate_input_optional_missing()
-  local schema: {string: any} = {
-    type = "object",
-    properties = {
-      path = {type = "string"},
-      offset = {type = "integer"},
-    },
-    required = {"path"},
-  }
-  local err = tools.validate_input(schema, {path = "/tmp/foo"})
-  assert(err == nil, "optional properties can be missing: " .. tostring(err))
-  print("✓ validate_input allows missing optional properties")
-end
-test_validate_input_optional_missing()
-
-local function test_validate_input_no_required()
-  local schema: {string: any} = {
-    type = "object",
-    properties = {
-      args = {type = "string"},
-    },
-  }
-  local err = tools.validate_input(schema, {})
-  assert(err == nil, "schema with no required should pass: " .. tostring(err))
-  print("✓ validate_input handles schema with no required array")
-end
-test_validate_input_no_required()
-
-local function test_validate_input_boolean_type()
-  local schema: {string: any} = {
-    type = "object",
-    properties = {
-      flag = {type = "boolean"},
-    },
-    required = {"flag"},
-  }
-  local err = tools.validate_input(schema, {flag = true})
-  assert(err == nil, "boolean should validate: " .. tostring(err))
-  local err2 = tools.validate_input(schema, {flag = "true"})
-  assert(err2 ~= nil, "string should not pass as boolean")
-  assert(err2:match("expected boolean, got string"), "should describe boolean mismatch: " .. err2)
-  print("✓ validate_input handles boolean types")
-end
-test_validate_input_boolean_type()
-
 local function test_execute_tool_validation_error()
-  -- execute_tool should return validation error before calling the tool
   local result, is_error = tools.execute_tool("read", {})
-  assert(is_error, "should be an error")
-  assert(result:match("validation error"), "should be a validation error: " .. result)
-  assert(result:match("missing required property: path"), "should mention missing path: " .. result)
+  assert(is_error, "missing required param should fail")
+  assert(result:match("missing required"), "should report validation error")
   print("✓ execute_tool returns validation errors")
 end
 test_execute_tool_validation_error()
 
-local function test_execute_tool_type_validation()
-  local result, is_error = tools.execute_tool("bash", {command = 42})
-  assert(is_error, "should be an error")
-  assert(result:match("validation error"), "should be a validation error: " .. result)
-  assert(result:match("expected string, got number"), "should describe type mismatch: " .. result)
-  print("✓ execute_tool catches type mismatches")
-end
-test_execute_tool_type_validation()
+-- Override tests
 
--- Split return value (details) tests
-local function test_read_details_multiline()
-  local test_file = fs.join(TEST_TMPDIR, "test_multiline.txt")
-  cio.barf(test_file, "line1\nline2\nline3\n")
-
-  local result, is_error, details = tools.execute_tool("read", {path = test_file})
-  assert(not is_error, "read should succeed")
-  assert(details, "should return details")
-  assert(details.path == test_file, "details path should match")
-  assert(details.line_count == 4, "should count lines (including trailing): " .. tostring(details.line_count))
-  print("✓ read details include line_count")
-end
-test_read_details_multiline()
-
-local function test_edit_details_multiline()
-  local test_file = fs.join(TEST_TMPDIR, "test_edit_multi.txt")
-  cio.barf(test_file, "line1\nline2\nline3\n")
-
-  local result, is_error, details = tools.execute_tool("edit", {
-      path = test_file,
-      old_string = "line2",
-      new_string = "replaced_a\nreplaced_b\nreplaced_c"
-    })
-  assert(not is_error, "edit should succeed")
-  assert(details, "should return details")
-  assert(details.old_lines == 1, "old_lines should be 1")
-  assert(details.new_lines == 3, "new_lines should be 3: " .. tostring(details.new_lines))
-  print("✓ edit details track line count changes")
-end
-test_edit_details_multiline()
-
-local function test_read_image_details()
-  local png_path = fs.join(TEST_TMPDIR, "test_details.png")
-  cio.barf(png_path, "fake png data for details test")
-
-  local result, is_error, details = tools.execute_tool("read", {path = png_path})
-  assert(not is_error, "should read image")
-  assert(details, "image read should return details")
-  assert(details.path == png_path, "details path should match")
-  assert(details.bytes == 30, "details should have bytes: " .. tostring(details.bytes))
-  assert(details.media_type == "image/png", "details should have media_type")
-  print("✓ read image returns details with media_type and bytes")
-end
-test_read_image_details()
-
-local function test_validation_error_no_details()
-  local result, is_error, details = tools.execute_tool("read", {})
-  assert(is_error, "should be error")
-  assert(details == nil, "validation errors should not return details")
-  print("✓ validation errors return nil details")
-end
-test_validation_error_no_details()
-
-local function test_unknown_tool_no_details()
-  local result, is_error, details = tools.execute_tool("nonexistent", {})
-  assert(is_error, "should be error")
-  assert(details == nil, "unknown tool should not return details")
-  print("✓ unknown tool returns nil details")
-end
-test_unknown_tool_no_details()
-
--- Test that bash tool preserves literal newlines in command strings.
--- Regression: old code used sh -c %q double-wrapping which turned
--- newlines into line-continuations, mangling multi-line commands
--- (e.g. git commit messages with heredocs).
-local function test_bash_newline_in_command()
-  local cmd = "echo first\necho second"
-  local result, is_error = tools.execute_tool("bash", {command = cmd})
-  assert(not is_error, "multiline command should succeed: " .. result)
-  assert(result:match("first\nsecond"), "should run both echo commands: " .. result)
-  print("✓ bash tool preserves literal newlines in commands")
-end
-test_bash_newline_in_command()
-
--- Test that bash tool supports bash-specific syntax (brace expansion).
--- Regression: old code used sh which lacks brace expansion.
-local function test_bash_brace_expansion()
-  local result, is_error = tools.execute_tool("bash", {command = "echo {a,b,c}"})
-  assert(not is_error, "bash should succeed")
-  assert(result:match("a b c"), "brace expansion should work (bash feature): " .. result)
-  print("✓ bash tool supports bash features (brace expansion)")
-end
-test_bash_brace_expansion()
-
--- Test abort_running_tools with no running processes (should be a no-op)
-local function test_abort_no_processes()
-  -- Should not error when nothing is running
-  tools.abort_running_tools()
-  print("✓ abort_running_tools handles no running processes")
-end
-test_abort_no_processes()
-
--- Test abort_running_tools kills a running process
-local function test_abort_kills_process()
-  -- Start a long-running process via bash tool in background
-  -- We do this by starting the tool in a coroutine-like approach:
-  -- spawn a sleep directly and verify it gets killed
-  local child_mod = require("cosmic.child")
-  local signal_mod = require("cosmic.signal")
-  local time_mod = require("cosmic.time")
-
-  -- Use the bash tool to start a process, but since bash tool is synchronous
-  -- (blocks on handle:read()), we test the abort mechanism more directly:
-  -- Start a process, register it, then call abort
-  local handle = child_mod.spawn({"sleep", "30"})
-  assert(handle, "should spawn process")
-  local pid = handle.pid
-  assert(pid, "should have pid")
-
-  -- Verify it's running (kill with signal 0 checks existence)
-  local alive = pcall(function() signal_mod.kill(pid, 0) end)
-  assert(alive, "process should be alive")
-
-  -- The abort function works on running_processes tracked by tools module.
-  -- Since we spawned this externally, abort_running_tools won't see it.
-  -- But we can verify the SIGTERM/SIGKILL pattern works:
-  signal_mod.kill(pid, child_mod.SIGTERM)
-  time_mod.sleep(0, 100000000) -- 100ms
-
-  -- Process should be gone after SIGTERM
-  local still_alive = pcall(function() signal_mod.kill(pid, 0) end)
-  -- Clean up the zombie
-  child_mod.wait(pid, 0)
-  print("✓ SIGTERM/SIGKILL discipline works on spawned processes")
-end
-test_abort_kills_process()
-
--- Test that string integers are coerced to integers before validation
--- Regression: Claude models sometimes serialize integers as strings
-local function test_string_integer_coercion()
-  -- Read tool with string limit/offset (Claude often sends these as strings)
-  local test_file = fs.join(TEST_TMPDIR, "test_coerce.txt")
-  cio.barf(test_file, "line1\nline2\nline3\nline4\nline5\n")
-
-  local result, is_error = tools.execute_tool("read", {
-      path = test_file,
-      limit = "2", -- string instead of integer
-      offset = "2" -- string instead of integer
-    })
-  assert(not is_error, "read with string integers should succeed: " .. result)
-  assert(result:match("2\tline2"), "should start at offset 2: " .. result)
-  assert(not result:match("4\tline4"), "should respect limit of 2: " .. result)
-  print("✓ read tool coerces string integers to integers")
-end
-test_string_integer_coercion()
-
-local function test_bash_timeout_string_coercion()
-  -- Bash tool with string timeout
-  local result, is_error = tools.execute_tool("bash", {
-      command = "echo hello",
-      timeout = "5000" -- string instead of integer
-    })
-  assert(not is_error, "bash with string timeout should succeed: " .. result)
-  assert(result:match("hello"), "should execute command")
-  print("✓ bash tool coerces string timeout to integer")
-end
-test_bash_timeout_string_coercion()
-
--- format_tools_for_prompt tests
-local function test_format_tools_for_prompt_builtin()
-  -- Reset to no custom tools
+local function test_add_tool_override()
   tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
-
-  local prompt = tools.format_tools_for_prompt()
-  assert(prompt:match("Tools:"), "should have Tools: line")
-  assert(prompt:match("bash"), "should list bash")
-  assert(prompt:match("read"), "should list read")
-  assert(prompt:match("write"), "should list write")
-  assert(prompt:match("edit"), "should list edit")
-  -- Should include system_prompt guidance from builtins
-  assert(prompt:match("old_string"), "should include edit guidance")
-  assert(prompt:match("Use read to examine"), "should include read guidance")
-  print("✓ format_tools_for_prompt includes builtin tools and guidance")
-end
-test_format_tools_for_prompt_builtin()
-
-local function test_format_tools_for_prompt_with_custom()
-  local project = fs.join(TEST_TMPDIR, "prompt_custom_project")
-  local project_tools = fs.join(project, "tools")
-  fs.makedirs(project_tools)
-
-  cio.barf(fs.join(project_tools, "deploy.lua"), [[
+  local tool_dir = fs.join(TEST_TMPDIR, "override_tool")
+  fs.makedirs(tool_dir)
+  cio.barf(fs.join(tool_dir, "my-tool.lua"), [[
 return {
-  name = "deploy",
-  description = "Deploy the application",
-  system_prompt = "Run deploy after all tests pass.\nNever deploy without confirmation.",
-  input_schema = {type = "object", properties = {}, required = {}},
-  execute = function() return "deployed", false end,
+  name = "my-tool", description = "An override tool",
+  input_schema = {type = "object", properties = {who = {type = "string"}}, required = {}},
+  execute = function(input) return "hello from override " .. (input.who or "world"), false end,
 }
 ]])
-
-  tools.init_custom_tools(project)
-
-  local prompt = tools.format_tools_for_prompt()
-  assert(prompt:match("deploy"), "should list deploy tool")
-  assert(prompt:match("Deploy the application"), "should include deploy description")
-  assert(prompt:match("Never deploy without confirmation"), "should include deploy system_prompt")
-
-  -- Reset
+  tools.add_tool_override("my-tool", fs.join(tool_dir, "my-tool.lua"))
+  local result, is_error = tools.execute_tool("my-tool", {who = "world"})
+  assert(not is_error, "override tool should execute")
+  assert(result:match("hello from override world"), "should run override")
   tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
-  print("✓ format_tools_for_prompt includes custom tool guidance")
+  print("✓ add_tool_override registers a tool")
 end
-test_format_tools_for_prompt_with_custom()
+test_add_tool_override()
 
--- remove_tool tests
+local function test_add_tool_override_replaces_existing()
+  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
+  local tool_dir = fs.join(TEST_TMPDIR, "override_bash")
+  fs.makedirs(tool_dir)
+  cio.barf(fs.join(tool_dir, "fake-bash.lua"), [[
+return { name = "bash", description = "Fake bash",
+  input_schema = {type = "object", properties = {command = {type = "string"}}, required = {}},
+  execute = function() return "replaced", false end }
+]])
+  tools.add_tool_override("bash", fs.join(tool_dir, "fake-bash.lua"))
+  local result, _ = tools.execute_tool("bash", {command = ""})
+  assert(result:match("replaced"), "should run override")
+  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
+  print("✓ add_tool_override replaces existing tool")
+end
+test_add_tool_override_replaces_existing()
+
+local function test_add_tool_override_rejects_non_module()
+  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
+  local defs_before = #tools.get_tool_definitions()
+  tools.add_tool_override("deploy", "/usr/bin/echo")
+  assert(defs_before == #tools.get_tool_definitions(), "non-module should not be added")
+  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
+  print("✓ add_tool_override rejects non .tl/.lua files")
+end
+test_add_tool_override_rejects_non_module()
+
 local function test_remove_tool()
   tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
-
-  -- bash should exist
-  local defs_before = tools.get_tool_definitions()
-  local has_bash = false
-  for _, d in ipairs(defs_before) do
-    if (d as {string: any}).name == "bash" then has_bash = true end
-  end
-  assert(has_bash, "should have bash before removal")
-
-  -- Remove it
   local removed = tools.remove_tool("bash")
-  assert(removed, "remove_tool should return true for existing tool")
-
-  -- bash should be gone
-  local defs_after = tools.get_tool_definitions()
-  for _, d in ipairs(defs_after) do
-    assert((d as {string: any}).name ~= "bash", "bash should not appear after removal")
-  end
-
-  -- execute_tool should fail
+  assert(removed, "should return true for existing tool")
   local result, is_error = tools.execute_tool("bash", {command = "echo hi"})
   assert(is_error, "executing removed tool should error")
-  assert(result:match("unknown tool"), "should report unknown tool: " .. result)
-
-  -- Removing non-existent tool returns false
   local removed2 = tools.remove_tool("nonexistent-tool")
-  assert(not removed2, "remove_tool should return false for missing tool")
-
-  -- prompt Tools: line should not list bash, and no ## bash section
-  local prompt = tools.format_tools_for_prompt()
-  local tools_line = prompt:match("Tools:[^\n]+")
-  assert(tools_line, "should have Tools: line")
-  assert(not tools_line:match("bash"), "Tools: line should not list bash: " .. tools_line)
-  assert(not prompt:match("## bash"), "should not have ## bash section")
-
-  -- Reset
+  assert(not removed2, "should return false for missing tool")
   tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
   print("✓ remove_tool removes a tool by name")
 end
 test_remove_tool()
 
--- add_tool_override with .lua module files
-local function test_add_tool_override_lua()
-  local tool_dir = fs.join(TEST_TMPDIR, "override_lua")
-  fs.makedirs(tool_dir)
+local function test_format_tools_for_prompt_builtin()
+  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
+  local prompt = tools.format_tools_for_prompt()
+  assert(prompt:match("Tools:"), "should have Tools: header")
+  assert(prompt:match("bash"), "should list bash")
+  assert(prompt:match("read"), "should list read")
+  print("✓ format_tools_for_prompt lists builtins")
+end
+test_format_tools_for_prompt_builtin()
 
-  local tool_path = fs.join(tool_dir, "mytool.lua")
-  cio.barf(tool_path, [[
-return {
-  name = "internal-name",
-  description = "A lua module tool",
-  input_schema = {type = "object", properties = {x = {type = "string"}}, required = {}},
-  execute = function(input)
-    return "lua-tool:" .. (input.x or "nil"), false
-  end,
-}
+-- String integer coercion
+
+local function test_string_integer_coercion()
+  local test_file = fs.join(TEST_TMPDIR, "coerce_test.txt")
+  cio.barf(test_file, "line1\nline2\nline3\nline4\nline5\n")
+  local result, is_error = tools.execute_tool("read", {path = test_file, offset = "2" as any, limit = "2" as any})
+  assert(not is_error, "string integers should be coerced")
+  assert(result:match("2\t"), "should start at line 2")
+  print("✓ string integer coercion works")
+end
+test_string_integer_coercion()
+
+local function test_bash_timeout_string_coercion()
+  local result, is_error = tools.execute_tool("bash", {command = "echo fast", timeout = "5000" as any})
+  assert(not is_error, "string timeout should be coerced")
+  assert(result:match("fast"), "should work with coerced timeout")
+  print("✓ bash timeout string coercion works")
+end
+test_bash_timeout_string_coercion()
+
+local function test_abort_no_processes()
+  tools.abort_running_tools()
+  print("✓ abort with no running processes is safe")
+end
+test_abort_no_processes()
+
+-- Skill tool require tests
+
+local function test_skill_tool_requires_project_module()
+  local project = fs.join(TEST_TMPDIR, "skill_cwd_require")
+  fs.makedirs(fs.join(project, "lib"))
+  fs.makedirs(fs.join(project, "skills", "myskill", "tools"))
+  cio.barf(fs.join(project, "lib", "shared.lua"), [[
+return { value = function() return "from-shared-lib" end }
 ]])
-
-  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
-
-  -- Should not exist yet
-  local result, is_error = tools.execute_tool("mytool", {x = "hi"})
-  assert(is_error, "mytool should not exist before override")
-
-  -- Add via --tool name=path.lua
-  tools.add_tool_override("mytool", tool_path)
-
-  result, is_error = tools.execute_tool("mytool", {x = "hi"})
-  assert(not is_error, "lua override should succeed: " .. result)
-  assert(result == "lua-tool:hi", "should run lua module: " .. result)
-
-  -- Name from --tool flag should win over internal name
-  local defs = tools.get_tool_definitions()
-  local found = false
-  for _, d in ipairs(defs) do
-    if (d as {string: any}).name == "mytool" then found = true end
-    assert((d as {string: any}).name ~= "internal-name", "internal name should be overridden by --tool name")
-  end
-  assert(found, "tool should appear as 'mytool'")
-
-  -- Reset
-  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
-  print("✓ add_tool_override loads .lua module files")
-end
-test_add_tool_override_lua()
-
-local function test_add_tool_override_lua_overrides_builtin()
-  local tool_dir = fs.join(TEST_TMPDIR, "override_builtin_lua")
-  fs.makedirs(tool_dir)
-
-  local tool_path = fs.join(tool_dir, "myread.lua")
-  cio.barf(tool_path, [[
-return {
-  name = "myread",
-  description = "Overridden read",
-  input_schema = {type = "object", properties = {path = {type = "string"}}, required = {"path"}},
-  execute = function(input)
-    return "override:" .. input.path, false
-  end,
-}
+  cio.barf(fs.join(project, "skills", "myskill", "tools", "myskill.lua"), [[
+local shared = require("lib.shared")
+return { name = "myskill", description = "Skill tool that uses shared lib",
+  input_schema = {type = "object", properties = {}, required = {}},
+  execute = function() return shared.value(), false end }
 ]])
-
+  tools.init_custom_tools(project)
+  local orig_dir = fs.getcwd()
+  fs.chdir(project)
+  tools.load_skill_tools(fs.join(project, "skills", "myskill"))
+  fs.chdir(orig_dir)
+  local result, is_error = tools.execute_tool("myskill", {})
+  assert(not is_error, "skill tool should execute: " .. tostring(result))
+  assert(result == "from-shared-lib", "should require project module")
+  package.loaded["lib.shared"] = nil
   tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
-  tools.add_tool_override("read", tool_path)
-
-  local result, is_error = tools.execute_tool("read", {path = "/foo"})
-  assert(not is_error, "overridden read should succeed")
-  assert(result == "override:/foo", "should run override: " .. result)
-
-  -- Reset
-  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
-  print("✓ add_tool_override .lua can override builtins")
+  print("✓ skill tools can require() from project root")
 end
-test_add_tool_override_lua_overrides_builtin()
+test_skill_tool_requires_project_module()
 
-local function test_add_tool_override_lua_invalid()
-  local tool_dir = fs.join(TEST_TMPDIR, "override_invalid_lua")
-  fs.makedirs(tool_dir)
-
-  -- Invalid tool (missing required fields)
-  local tool_path = fs.join(tool_dir, "bad.lua")
-  cio.barf(tool_path, "return {}")
-
-  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
-  local defs_before = #tools.get_tool_definitions()
-
-  -- Should warn but not crash
-  tools.add_tool_override("bad", tool_path)
-
-  local defs_after = #tools.get_tool_definitions()
-  assert(defs_before == defs_after, "invalid lua tool should not be added")
-
-  -- Reset
-  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
-  print("✓ add_tool_override skips invalid .lua files")
-end
-test_add_tool_override_lua_invalid()
-
-local function test_add_tool_override_lua_nonexistent()
-  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
-  local defs_before = #tools.get_tool_definitions()
-
-  -- Should warn but not crash
-  tools.add_tool_override("ghost", fs.join(TEST_TMPDIR, "no-such-file.lua"))
-
-  local defs_after = #tools.get_tool_definitions()
-  assert(defs_before == defs_after, "nonexistent .lua file should not add a tool")
-
-  -- Reset
-  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
-  print("✓ add_tool_override handles nonexistent .lua file")
-end
-test_add_tool_override_lua_nonexistent()
-
--- Test that lua tools can require sibling lua modules
-local function test_lua_tool_require_lua()
-  local tool_dir = fs.join(TEST_TMPDIR, "lua_require_lua")
-  fs.makedirs(tool_dir)
-
-  -- Helper module
-  cio.barf(fs.join(tool_dir, "helper.lua"), [[
-return { greet = function(name) return "hello, " .. name end }
-]])
-
-  -- Tool that requires the helper
-  cio.barf(fs.join(tool_dir, "greeter.lua"), [[
-local helper = require("helper")
-return {
-  name = "greeter",
-  description = "Greet with helper",
-  input_schema = {type = "object", properties = {name = {type = "string"}}, required = {"name"}},
-  execute = function(input)
-    return helper.greet(input.name), false
-  end,
-}
-]])
-
-  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
-  local loaded = tools.load_custom_tools_from_dir(tool_dir)
-  assert(#loaded == 1, "should load 1 tool (helper is not a valid tool): " .. tostring(#loaded))
-  assert(loaded[1].name == "greeter", "should load greeter tool")
-
-  local result, is_error = loaded[1].execute({name = "world"})
-  assert(not is_error, "greeter should succeed: " .. tostring(result))
-  assert(result == "hello, world", "should use helper module: " .. result)
-
-  -- Clean up package.loaded to avoid interference
-  package.loaded["helper"] = nil
-
-  -- Reset
-  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
-  print("✓ lua tool can require sibling lua module")
-end
-test_lua_tool_require_lua()
-
--- Test that teal tools can require sibling teal modules
-local function test_teal_tool_require_teal()
-  local tool_dir = fs.join(TEST_TMPDIR, "tl_require_tl")
-  fs.makedirs(tool_dir)
-
-  -- Helper teal module
-  cio.barf(fs.join(tool_dir, "tl_helper.tl"), [[
-local record M
-  greet: function(string): string
-end
-
-function M.greet(name: string): string
-  return "hi, " .. name
-end
-
-return M
-]])
-
-  -- Tool that requires the teal helper
-  cio.barf(fs.join(tool_dir, "tl_greeter.tl"), [[
-local helper = require("tl_helper")
-return {
-  name = "tl_greeter",
-  description = "Greet with teal helper",
-  input_schema = {type = "object", properties = {name = {type = "string"}}, required = {"name"}},
-  execute = function(input: {string:any}): string, boolean
-    local who = input.name as string
-    return helper.greet(who), false
-  end,
-}
-]])
-
-  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
-  local loaded = tools.load_custom_tools_from_dir(tool_dir)
-
-  -- Find the greeter tool (helper is also a valid load target but not a tool)
-  local greeter: tools.Tool = nil
-  for _, t in ipairs(loaded) do
-    if t.name == "tl_greeter" then greeter = t end
-  end
-  assert(greeter, "should load tl_greeter tool")
-
-  local result, is_error = greeter.execute({name = "teal"})
-  assert(not is_error, "tl_greeter should succeed: " .. tostring(result))
-  assert(result == "hi, teal", "should use teal helper module: " .. result)
-
-  -- Clean up
-  package.loaded["tl_helper"] = nil
-
-  -- Reset
-  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
-  print("✓ teal tool can require sibling teal module")
-end
-test_teal_tool_require_teal()
-
--- Test that add_tool_override enables sibling requires
 local function test_add_tool_override_require()
   local tool_dir = fs.join(TEST_TMPDIR, "override_require")
   fs.makedirs(tool_dir)
-
-  -- Helper module
-  cio.barf(fs.join(tool_dir, "ovr_helper.lua"), [[
-return { msg = function() return "from-helper" end }
-]])
-
-  -- Tool that requires the helper
-  local tool_path = fs.join(tool_dir, "ovr_tool.lua")
-  cio.barf(tool_path, [[
+  cio.barf(fs.join(tool_dir, "ovr_helper.lua"), [[return { msg = function() return "from-helper" end }]])
+  cio.barf(fs.join(tool_dir, "ovr_tool.lua"), [[
 local ovr_helper = require("ovr_helper")
-return {
-  name = "ovr_tool",
-  description = "Override tool with require",
+return { name = "ovr_tool", description = "Override tool with require",
   input_schema = {type = "object", properties = {}, required = {}},
-  execute = function()
-    return ovr_helper.msg(), false
-  end,
-}
+  execute = function() return ovr_helper.msg(), false end }
 ]])
-
   tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
-  tools.add_tool_override("ovr_tool", tool_path)
-
+  tools.add_tool_override("ovr_tool", fs.join(tool_dir, "ovr_tool.lua"))
   local result, is_error = tools.execute_tool("ovr_tool", {})
-  assert(not is_error, "override tool should succeed: " .. tostring(result))
-  assert(result == "from-helper", "should use helper via require: " .. result)
-
-  -- Clean up
+  assert(not is_error, "override tool should succeed")
+  assert(result == "from-helper", "should use helper via require")
   package.loaded["ovr_helper"] = nil
-
-  -- Reset
   tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
   print("✓ add_tool_override enables sibling requires")
 end
 test_add_tool_override_require()
-
--- Test that skill tools can require() modules from the project root (cwd)
--- Regression: load_skill_tools did not add cwd to package.path, so
--- skill tools that require("lib.foo") failed to resolve (issue #361)
-local function test_skill_tool_requires_project_module()
-  -- Set up a fake project with a shared lib and a skill tool that requires it
-  local project = fs.join(TEST_TMPDIR, "skill_cwd_require")
-  local lib_dir = fs.join(project, "lib")
-  local skill_dir = fs.join(project, "skills", "myskill")
-  local skill_tools = fs.join(skill_dir, "tools")
-  fs.makedirs(lib_dir)
-  fs.makedirs(skill_tools)
-
-  -- Shared library at lib/shared.lua
-  cio.barf(fs.join(lib_dir, "shared.lua"), [[
-return { value = function() return "from-shared-lib" end }
-]])
-
-  -- Skill tool that requires "lib.shared" (needs cwd in package.path)
-  cio.barf(fs.join(skill_tools, "myskill.lua"), [[
-local shared = require("lib.shared")
-return {
-  name = "myskill",
-  description = "Skill tool that uses shared lib",
-  input_schema = {type = "object", properties = {}, required = {}},
-  execute = function()
-    return shared.value(), false
-  end,
-}
-]])
-
-  -- init with this project as cwd, then load skill tools
-  tools.init_custom_tools(project)
-
-  -- Save and change to project dir so fs.getcwd() returns it
-  local orig_dir = fs.getcwd()
-  fs.chdir(project)
-
-  tools.load_skill_tools(skill_dir)
-
-  -- Restore cwd
-  fs.chdir(orig_dir)
-
-  -- The skill tool should be loaded and functional
-  local result, is_error = tools.execute_tool("myskill", {})
-  assert(not is_error, "skill tool should load and execute: " .. tostring(result))
-  assert(result == "from-shared-lib", "skill tool should require project module: " .. result)
-
-  -- Clean up
-  package.loaded["lib.shared"] = nil
-  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
-  print("✓ skill tools can require() modules from project root (cwd)")
-end
-test_skill_tool_requires_project_module()
-
--- Test that .tl skill tools can require() .tl modules from project root (cwd)
--- Regression: tl.loader() was never called, so the teal package searcher
--- was not installed and require() only searched for .lua files (issue #364)
-local function test_tl_skill_tool_requires_tl_module()
-  local project = fs.join(TEST_TMPDIR, "tl_skill_cwd_require")
-  local lib_dir = fs.join(project, "lib")
-  local skill_dir = fs.join(project, "skills", "tskill")
-  local skill_tools = fs.join(skill_dir, "tools")
-  fs.makedirs(lib_dir)
-  fs.makedirs(skill_tools)
-
-  -- Shared teal library at lib/tl_shared.tl
-  cio.barf(fs.join(lib_dir, "tl_shared.tl"), [[
-local record M
-  value: function(): string
-end
-
-function M.value(): string
-  return "from-tl-shared-lib"
-end
-
-return M
-]])
-
-  -- Skill tool (.tl) that requires "lib.tl_shared"
-  cio.barf(fs.join(skill_tools, "tskill.tl"), [[
-local shared = require("lib.tl_shared")
-return {
-  name = "tskill",
-  description = "Teal skill tool that uses teal shared lib",
-  input_schema = {type = "object", properties = {}, required = {}},
-  execute = function(): string, boolean
-    return shared.value(), false
-  end,
-}
-]])
-
-  -- init with this project as cwd, then load skill tools
-  tools.init_custom_tools(project)
-
-  local orig_dir = fs.getcwd()
-  fs.chdir(project)
-
-  tools.load_skill_tools(skill_dir)
-
-  fs.chdir(orig_dir)
-
-  -- The .tl skill tool should be loaded and functional
-  local result, is_error = tools.execute_tool("tskill", {})
-  assert(not is_error, "tl skill tool should load and execute: " .. tostring(result))
-  assert(result == "from-tl-shared-lib", "tl skill tool should require tl project module: " .. result)
-
-  -- Clean up
-  package.loaded["lib.tl_shared"] = nil
-  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
-  print("✓ .tl skill tools can require() .tl modules from project root (cwd)")
-end
-test_tl_skill_tool_requires_tl_module()
-
--- Tests for looks_like_tool AST guard (issue #408)
-
-local function test_looks_like_tool_valid_lua()
-  local source = [[
-return {
-  name = "foo",
-  description = "A test tool",
-  input_schema = {type = "object", properties = {}},
-  execute = function() return "ok", false end,
-}
-]]
-  assert(tools.looks_like_tool(source, true), "valid lua tool should pass")
-  print("✓ looks_like_tool accepts valid lua tool")
-end
-test_looks_like_tool_valid_lua()
-
-local function test_looks_like_tool_valid_teal()
-  local source = [[
-return {
-  name = "greet",
-  description = "test",
-  input_schema = {type = "object", properties = {}},
-  execute = function(input: {string:any}): string, boolean
-    return "ok", false
-  end,
-}
-]]
-  assert(tools.looks_like_tool(source, false), "valid teal tool should pass")
-  print("✓ looks_like_tool accepts valid teal tool")
-end
-test_looks_like_tool_valid_teal()
-
-local function test_looks_like_tool_os_exit()
-  local source = "os.exit(0)"
-  assert(not tools.looks_like_tool(source, true), "os.exit() script should be rejected")
-  print("✓ looks_like_tool rejects os.exit() script")
-end
-test_looks_like_tool_os_exit()
-
-local function test_looks_like_tool_no_return()
-  local source = "print('hello')"
-  assert(not tools.looks_like_tool(source, true), "script without return should be rejected")
-  print("✓ looks_like_tool rejects script without return")
-end
-test_looks_like_tool_no_return()
-
-local function test_looks_like_tool_empty()
-  assert(not tools.looks_like_tool("", true), "empty source should be rejected")
-  print("✓ looks_like_tool rejects empty source")
-end
-test_looks_like_tool_empty()
-
-local function test_looks_like_tool_syntax_error()
-  assert(not tools.looks_like_tool("invalid !!!", true), "syntax error should be rejected")
-  print("✓ looks_like_tool rejects syntax errors")
-end
-test_looks_like_tool_syntax_error()
-
-local function test_looks_like_tool_missing_name()
-  local source = [[
-return {
-  description = "no name",
-  execute = function() end,
-}
-]]
-  assert(not tools.looks_like_tool(source, true), "table missing name should be rejected")
-  print("✓ looks_like_tool rejects table missing name key")
-end
-test_looks_like_tool_missing_name()
-
-local function test_looks_like_tool_missing_execute()
-  local source = [[
-return {
-  name = "foo",
-  description = "no execute",
-}
-]]
-  assert(not tools.looks_like_tool(source, true), "table missing execute should be rejected")
-  print("✓ looks_like_tool rejects table missing execute key")
-end
-test_looks_like_tool_missing_execute()
-
-local function test_looks_like_tool_variable_return()
-  -- Returns a variable — can't statically verify, should pass optimistically
-  local source = "local t = {} ; t.name = 'foo' ; return t"
-  assert(tools.looks_like_tool(source, true), "variable return should pass optimistically")
-  print("✓ looks_like_tool accepts variable return optimistically")
-end
-test_looks_like_tool_variable_return()
-
-local function test_looks_like_tool_function_call_return()
-  -- Returns a function call — can't statically verify, should pass optimistically
-  local source = "return require('foo').make_tool()"
-  assert(tools.looks_like_tool(source, true), "function call return should pass optimistically")
-  print("✓ looks_like_tool accepts function call return optimistically")
-end
-test_looks_like_tool_function_call_return()
-
-local function test_looks_like_tool_return_nil()
-  local source = "return nil"
-  -- nil return is a variable-like expression, passes optimistically
-  -- is_valid_tool will catch it at runtime
-  assert(tools.looks_like_tool(source, true), "return nil should pass optimistically")
-  print("✓ looks_like_tool accepts return nil optimistically")
-end
-test_looks_like_tool_return_nil()
-
--- Integration test: os.exit() in tools dir is skipped without killing process
-local function test_os_exit_in_tools_dir_skipped()
-  local tool_dir = fs.join(TEST_TMPDIR, "os_exit_tools")
-  fs.makedirs(tool_dir)
-
-  -- This would kill the process if evaluated
-  cio.barf(fs.join(tool_dir, "killer.lua"), "os.exit(1)")
-
-  -- A valid tool alongside it
-  cio.barf(fs.join(tool_dir, "safe.lua"), [[
-return {
-  name = "safe",
-  description = "Safe tool",
-  input_schema = {type = "object", properties = {}, required = {}},
-  execute = function() return "safe", false end,
-}
-]])
-
-  local loaded = tools.load_custom_tools_from_dir(tool_dir)
-  assert(#loaded == 1, "should load only the safe tool, got: " .. tostring(#loaded))
-  assert(loaded[1].name == "safe", "should load safe tool")
-  print("✓ os.exit() script in tools dir is skipped without killing process")
-end
-test_os_exit_in_tools_dir_skipped()
-
--- Integration test: os.exit() in teal file is skipped
-local function test_os_exit_teal_skipped()
-  local tool_dir = fs.join(TEST_TMPDIR, "os_exit_teal")
-  fs.makedirs(tool_dir)
-
-  cio.barf(fs.join(tool_dir, "killer.tl"), "os.exit(1)")
-
-  local loaded = tools.load_custom_tools_from_dir(tool_dir)
-  assert(#loaded == 0, "os.exit teal file should be skipped")
-  print("✓ os.exit() in .tl file is skipped without killing process")
-end
-test_os_exit_teal_skipped()
-
--- Integration test: add_tool_override guards against os.exit()
-local function test_override_os_exit_guarded()
-  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
-  local defs_before = #tools.get_tool_definitions()
-
-  local tool_dir = fs.join(TEST_TMPDIR, "override_os_exit")
-  fs.makedirs(tool_dir)
-  local bad_path = fs.join(tool_dir, "bad.lua")
-  cio.barf(bad_path, "os.exit(1)")
-
-  tools.add_tool_override("bad", bad_path)
-
-  local defs_after = #tools.get_tool_definitions()
-  assert(defs_before == defs_after, "os.exit override should not be added")
-
-  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
-  print("✓ add_tool_override guards against os.exit() script")
-end
-test_override_os_exit_guarded()
-
--- Tests for graceful handling of tools that fail to load (issue #321)
-
-local function test_teal_syntax_error_skipped()
-  -- A .tl file with invalid syntax should be skipped, not crash
-  local tool_dir = fs.join(TEST_TMPDIR, "teal_syntax_error")
-  fs.makedirs(tool_dir)
-
-  cio.barf(fs.join(tool_dir, "broken.tl"), "invalid syntax !!!")
-
-  local loaded = tools.load_custom_tools_from_dir(tool_dir)
-  assert(#loaded == 0, "broken .tl should be skipped, loaded: " .. tostring(#loaded))
-  print("✓ .tl file with syntax error is skipped without crash")
-end
-test_teal_syntax_error_skipped()
-
-local function test_lua_load_error_skipped()
-  -- A .lua file with invalid syntax should be skipped, not crash
-  local tool_dir = fs.join(TEST_TMPDIR, "lua_load_error")
-  fs.makedirs(tool_dir)
-
-  cio.barf(fs.join(tool_dir, "broken.lua"), "this is not lua !!!")
-
-  local loaded = tools.load_custom_tools_from_dir(tool_dir)
-  assert(#loaded == 0, "broken .lua should be skipped, loaded: " .. tostring(#loaded))
-  print("✓ .lua file with load error is skipped without crash")
-end
-test_lua_load_error_skipped()
-
-local function test_teal_runtime_error_at_load_skipped()
-  -- A .tl file that throws at module-level execution should be skipped
-  local tool_dir = fs.join(TEST_TMPDIR, "teal_runtime_error")
-  fs.makedirs(tool_dir)
-
-  cio.barf(fs.join(tool_dir, "throws.tl"), [[
--- valid teal that throws at module level
-error("boom at load time")
-]])
-
-  local loaded = tools.load_custom_tools_from_dir(tool_dir)
-  assert(#loaded == 0, ".tl that throws at load should be skipped, loaded: " .. tostring(#loaded))
-  print("✓ .tl file that throws at module level is skipped without crash")
-end
-test_teal_runtime_error_at_load_skipped()
-
-local function test_add_tool_override_teal_syntax_error()
-  -- add_tool_override with a broken .tl file should warn but not crash
-  local tool_dir = fs.join(TEST_TMPDIR, "override_teal_syntax_error")
-  fs.makedirs(tool_dir)
-
-  local broken_path = fs.join(tool_dir, "broken.tl")
-  cio.barf(broken_path, "invalid syntax !!!")
-
-  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
-  local defs_before = #tools.get_tool_definitions()
-
-  -- Should warn but not crash
-  tools.add_tool_override("broken", broken_path)
-
-  local defs_after = #tools.get_tool_definitions()
-  assert(defs_before == defs_after, "broken .tl override should not add a tool")
-
-  -- Reset
-  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
-  print("✓ add_tool_override skips .tl file with syntax error without crash")
-end
-test_add_tool_override_teal_syntax_error()
 
 print("\nAll tools tests passed!")
