@@ -90,7 +90,7 @@ tools are defined as lua or teal modules that return a table:
 ### tiers
 
 tools load from three directory tiers at startup via
-`tools.init_custom_tools(cwd)`, plus skill and CLI tiers. later tiers
+`tools.init_custom_tools(cwd)`, plus a skill tier. later tiers
 override earlier ones by name:
 
 1. **system** (`/zip/embed/sys/tools/`) — built-in tools (read, write,
@@ -102,7 +102,7 @@ override earlier ones by name:
 4. **skill** (`<skill-base-dir>/tools/`) — tools bundled with the active
    skill. loaded automatically when a skill is invoked via `--skill`,
    `/skill:name`, or the `skill` tool at runtime.
-5. **CLI** (`--tool name=cmd`) — highest precedence, overrides everything.
+5. **override** (`--tool name=cmd`) — highest precedence, overrides everything.
 
 ### file type precedence
 
@@ -110,10 +110,9 @@ within a single directory, when multiple files share a basename:
 
 1. **`.tl`** — teal source, compiled at runtime via `tl.load()`
 2. **`.lua`** — lua module, loaded via `loadfile()`
-3. **executable** — any file with +x, wrapped as a CLI tool
 
-higher-priority formats win. for example, if `tools/` contains both
-`foo.tl` and `foo.lua`, the `.tl` version is used.
+`.tl` wins over `.lua`. executable files (without `.tl`/`.lua` extension)
+are ignored — tools must always be `.tl` or `.lua` modules.
 
 embedded tiers (system, embed) only contain `.lua` files since
 `sys/tools/*.tl` is pre-compiled by the Makefile. `.tl` runtime loading
@@ -149,8 +148,8 @@ embed overlays can similarly override system tools for custom ah
 distributions. projects then override both.
 
 **caveats:**
-- accidental shadowing is possible. a file named `.ah/tools/bash` or
-  `tools/bash` (even if unrelated to ah) would replace the builtin
+- accidental shadowing is possible. a file named `.ah/tools/bash.lua` or
+  `tools/bash.lua` (even if unrelated to ah) would replace the builtin
   bash tool.
   using `.ah/tools/` reduces this risk since the directory is explicitly for ah.
 - if a bash override omits `running_processes`, ctrl+c abort won't kill
@@ -158,39 +157,12 @@ distributions. projects then override both.
 - the override is total — there is no way to "extend" a core tool; you
   replace it.
 
-### executable tools
-
-any executable file in `cwd/.ah/tools/` or `cwd/tools/` (without a `.tl` or `.lua` extension)
-becomes a CLI tool. a companion `<name>.md` file provides metadata via
-yaml frontmatter:
-
-```markdown
----
-description: Deploy the application
----
-
-Run deploy only after all tests pass.
-Never deploy without user confirmation.
-```
-
-- `description` frontmatter field → tool description
-- body after frontmatter → `system_prompt` guidance
-- if no `.md` file exists, falls back to `--help` output for description
-
-executable tools accept an `args` string parameter. the args string
-is passed to `bash -c` (or `$AH_SHELL -c`) along with the tool path,
-so shell features like quoting, pipes, and globs work normally.
-
-### CLI tool overrides (`--tool/-t`)
+### tool overrides (`--tool/-t`)
 
 the `--tool` (`-t`) flag registers or removes tools from the command
 line with highest precedence:
 
 ```sh
-# add tools (executables)
-ah --tool deploy=/usr/local/bin/deploy 'deploy the app'
-ah -t lint=./tools/lint -t fmt=./tools/fmt 'fix lint errors'
-
 # add tools (.tl or .lua module files)
 ah -t gh=skills/triage/tools/gh.tl 'triage issues'
 ah -t mytool=./tools/custom.lua 'use custom tool'
@@ -204,12 +176,11 @@ format: `--tool name=cmd` adds or replaces a tool. `--tool name=`
 (empty cmd) removes it entirely — the tool disappears from the API
 tool list and the system prompt. repeatable.
 
-when adding, `cmd` can be:
-- a **`.tl` or `.lua` file** — loaded as a module tool (same format as
-  project tools: must return a table with name, description, input_schema,
-  execute). the name from `--tool` overrides the module's internal name.
-- an **executable path** — wrapped as a CLI tool. a companion `<cmd>.md`
-  file is read for description (frontmatter) and system_prompt (body).
+`cmd` must be a **`.tl` or `.lua` file** — loaded as a module tool (same
+format as project tools: must return a table with name, description,
+input_schema, execute). the name from `--tool` overrides the module's
+internal name. executable paths are not supported; wrap them in a
+`.tl`/`.lua` module that shells out via `cosmic.child.spawn`.
 
 CLI overrides are applied after `init_custom_tools()`, so they replace
 or remove any tool regardless of tier.

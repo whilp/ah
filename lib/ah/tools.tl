@@ -133,158 +133,6 @@ local function load_custom_tools_from_dir(dir: string): {Tool}
   return loaded
 end
 
--- Check if a file is executable
-local function is_executable(path: string): boolean
-  local handle, err = child.spawn({"test", "-x", path})
-  if not handle then return false end
-  local _, _, exit_str = handle:read()
-  return tonumber(exit_str) == 0
-end
-
--- Parse simple yaml frontmatter from markdown content.
--- Returns frontmatter fields and body (content after frontmatter).
-local function parse_frontmatter(content: string): {string: string}, string
-  local fields: {string: string} = {}
-
-  if not content:match("^%-%-%-\n") then
-    return fields, content
-  end
-
-  local fm_end = content:find("\n%-%-%-\n", 4)
-  if not fm_end then
-    return fields, content
-  end
-
-  local fm_block = content:sub(5, fm_end - 1)
-  local body = content:sub(fm_end + 5)
-
-  for line in fm_block:gmatch("[^\n]+") do
-    local key, value = line:match("^([%w_%-]+):%s*(.+)$")
-    if key and value then
-      value = value:match("^[\"'](.+)[\"']$") or value
-      fields[key] = value
-    end
-  end
-
-  return fields, body
-end
-
--- Load CLI tools from a directory.
--- Each executable becomes a tool; description and system_prompt from <name>.md
-local function load_cli_tools_from_dir(dir: string): {Tool}
-  local loaded: {Tool} = {}
-
-  local dh = fs.opendir(dir)
-  if not dh then return loaded end
-
-  while true do
-    local name = dh:read()
-    if not name then break end
-    if name == "." or name == ".." then goto continue end
-
-    local bin_path = fs.join(dir, name)
-
-    -- Skip non-executables and metadata/source files
-    if name:match("%.md$") then goto continue end
-    if name:match("%.lua$") then goto continue end
-    if name:match("%.tl$") then goto continue end
-    if not is_executable(bin_path) then goto continue end
-
-    -- Get description and system_prompt from <name>.md (frontmatter + body)
-    local description = "CLI tool: " .. name
-    local tool_system_prompt: string = nil
-    local md_path = fs.join(dir, name .. ".md")
-    local md_content = cio.slurp(md_path)
-    if md_content then
-      local fields, body = parse_frontmatter(md_content)
-      if fields.description and fields.description ~= "" then
-        description = fields.description
-      else
-        -- Fall back to first non-empty, non-heading line
-        for line in md_content:gmatch("[^\n]+") do
-          local trimmed = line:match("^%s*(.-)%s*$")
-          if trimmed and trimmed ~= "" and not trimmed:match("^#") then
-            description = trimmed
-            break
-          end
-        end
-      end
-      -- Body after frontmatter becomes system_prompt guidance
-      local trimmed_body = body:match("^%s*(.-)%s*$")
-      if trimmed_body and trimmed_body ~= "" then
-        tool_system_prompt = trimmed_body
-      end
-    else
-      -- Try --help
-      local handle = child.spawn({bin_path, "--help"})
-      if handle then
-        local _, stdout = handle:read()
-        if stdout and stdout ~= "" then
-          local first_line = (stdout as string):match("^[^\n]+")
-          if first_line then
-            description = first_line:sub(1, 200)
-          end
-        end
-      end
-    end
-
-    -- Create tool
-    local tool_name = name
-    local tool_path = bin_path
-    local tool: Tool = {
-      name = tool_name,
-      description = description,
-      system_prompt = tool_system_prompt,
-      input_schema = {
-        type = "object",
-        properties = {
-          args = {type = "string", description = "Command-line arguments"},
-        },
-      },
-      execute = function(input: {string: any}): string, boolean, ToolDetails
-        local args_str = (input.args as string) or ""
-
-        -- Invoke via bash -c so args get proper shell expansion
-        local shell_cmd = tool_path
-        if args_str ~= "" then
-          shell_cmd = shell_cmd .. " " .. args_str
-        end
-
-        local handle, err = child.spawn({os.getenv("AH_SHELL") or "bash", "-c", shell_cmd})
-        if not handle then
-          return "error: failed to spawn: " .. tostring(err), true, nil
-        end
-
-        local _, stdout, exit_str = handle:read()
-        local stdout_str = (stdout as string) or ""
-        local exit_code = tonumber(exit_str) as integer or 0
-
-        local result_parts: {string} = {}
-        if stdout_str ~= "" then
-          table.insert(result_parts, stdout_str)
-        end
-        if exit_code ~= 0 then
-          table.insert(result_parts, "exit code: " .. tostring(exit_code))
-        end
-
-        local result = table.concat(result_parts, "\n")
-        if result == "" then
-          result = "(no output)"
-        end
-
-        return result, exit_code ~= 0,
-        {command = tool_name .. " " .. args_str, exit_code = exit_code} as ToolDetails
-      end,
-    }
-
-    table.insert(loaded, tool)
-    ::continue::
-  end
-
-  dh:close()
-  return loaded
-end
-
 -- Merge tools into a name-indexed map (later calls override earlier)
 local function merge_tools(by_name: {string: Tool}, new_tools: {Tool})
   for _, tool in ipairs(new_tools) do
@@ -313,7 +161,6 @@ local function init_custom_tools(cwd?: string)
   merge_tools(by_name, load_custom_tools_from_dir("/zip/embed/tools"))
 
   -- Project tier: .ah/tools wins over tools/ if present
-  -- Precedence within a directory: .tl > .lua > executable
   local dot_ah_tools = fs.join(cwd, ".ah", "tools")
   local bare_tools = fs.join(cwd, "tools")
   local dh_check = fs.opendir(dot_ah_tools)
@@ -324,7 +171,6 @@ local function init_custom_tools(cwd?: string)
   else
     project_tools_dir = bare_tools
   end
-  merge_tools(by_name, load_cli_tools_from_dir(project_tools_dir))
   merge_tools(by_name, load_custom_tools_from_dir(project_tools_dir))
 
   tools = {}
@@ -353,9 +199,7 @@ local function load_skill_tools(base_dir: string)
     by_name[tool.name] = tool
   end
 
-  -- Load CLI tools (executables) then module tools (.tl/.lua)
-  -- Module tools override CLI tools with the same basename
-  merge_tools(by_name, load_cli_tools_from_dir(tools_dir))
+  -- Load module tools (.tl/.lua)
   merge_tools(by_name, load_custom_tools_from_dir(tools_dir))
 
   tools = {}
@@ -365,112 +209,40 @@ local function load_skill_tools(base_dir: string)
 end
 
 -- Add a tool override by name.
--- If cmd ends in .tl or .lua, loads it as a module tool.
--- Otherwise treats cmd as an executable path (wrapped as a CLI tool).
+-- cmd must end in .tl or .lua — loads it as a module tool.
 -- This has highest precedence — it overrides system, embed, and project tools.
 local function add_tool_override(name: string, cmd: string)
-  -- .tl / .lua files: load as module tools
-  if cmd:match("%.tl$") or cmd:match("%.lua$") then
-    -- Add tool's directory to package.path for sibling requires
-    local dir = cmd:match("^(.+)/[^/]+$") or "."
-    add_to_package_path(dir)
-
-    local load_ok, chunk, load_err = pcall(load_tool_file, cmd)
-    if not load_ok then
-      -- chunk holds the thrown error message when pcall catches a throw
-      io.stderr:write(string.format("warning: failed to load tool %s from %s: %s\n", name, cmd, tostring(chunk)))
-      return
-    end
-    if not chunk then
-      io.stderr:write(string.format("warning: failed to load tool %s from %s: %s\n", name, cmd, tostring(load_err)))
-      return
-    end
-    local ok, result = pcall(chunk as function(): any)
-    if not ok then
-      io.stderr:write(string.format("warning: failed to execute tool %s from %s: %s\n", name, cmd, tostring(result)))
-      return
-    end
-    if not is_valid_tool(result) then
-      io.stderr:write(string.format("warning: invalid tool format in %s\n", cmd))
-      return
-    end
-    local tool = result as Tool
-    -- Use the name from --tool flag, not the module's internal name
-    tool.name = name
-
-    -- Override existing or append
-    for i, existing in ipairs(tools) do
-      if existing.name == name then
-        tools[i] = tool
-        return
-      end
-    end
-    table.insert(tools, tool)
+  if not (cmd:match("%.tl$") or cmd:match("%.lua$")) then
+    io.stderr:write(string.format("warning: tool %s: only .tl and .lua files are supported (got %s)\n", name, cmd))
     return
   end
 
-  -- Executable: wrap as CLI tool
-  -- Read description/system_prompt from <cmd>.md if it exists
-  local description = "CLI tool: " .. name
-  local tool_system_prompt: string = nil
-  local md_path = cmd .. ".md"
-  local md_content = cio.slurp(md_path)
-  if md_content then
-    local fields, body = parse_frontmatter(md_content)
-    if fields.description and fields.description ~= "" then
-      description = fields.description
-    end
-    local trimmed_body = body:match("^%s*(.-)%s*$")
-    if trimmed_body and trimmed_body ~= "" then
-      tool_system_prompt = trimmed_body
-    end
+  -- Add tool's directory to package.path for sibling requires
+  local dir = cmd:match("^(.+)/[^/]+$") or "."
+  add_to_package_path(dir)
+
+  local load_ok, chunk, load_err = pcall(load_tool_file, cmd)
+  if not load_ok then
+    -- chunk holds the thrown error message when pcall catches a throw
+    io.stderr:write(string.format("warning: failed to load tool %s from %s: %s\n", name, cmd, tostring(chunk)))
+    return
   end
-
-  local tool_cmd = cmd
-  local tool: Tool = {
-    name = name,
-    description = description,
-    system_prompt = tool_system_prompt,
-    input_schema = {
-      type = "object",
-      properties = {
-        args = {type = "string", description = "Command-line arguments"},
-      },
-    },
-    execute = function(input: {string: any}): string, boolean, ToolDetails
-      local args_str = (input.args as string) or ""
-      -- Invoke via bash -c so args get proper shell expansion
-      local shell_cmd = tool_cmd
-      if args_str ~= "" then
-        shell_cmd = shell_cmd .. " " .. args_str
-      end
-
-      local handle, spawn_err = child.spawn({os.getenv("AH_SHELL") or "bash", "-c", shell_cmd})
-      if not handle then
-        return "error: failed to spawn: " .. tostring(spawn_err), true, nil
-      end
-
-      local _, stdout, exit_str = handle:read()
-      local stdout_str = (stdout as string) or ""
-      local exit_code = tonumber(exit_str) as integer or 0
-
-      local result_parts: {string} = {}
-      if stdout_str ~= "" then
-        table.insert(result_parts, stdout_str)
-      end
-      if exit_code ~= 0 then
-        table.insert(result_parts, "exit code: " .. tostring(exit_code))
-      end
-
-      local result = table.concat(result_parts, "\n")
-      if result == "" then
-        result = "(no output)"
-      end
-
-      return result, exit_code ~= 0,
-      {command = name .. " " .. args_str, exit_code = exit_code} as ToolDetails
-    end,
-  }
+  if not chunk then
+    io.stderr:write(string.format("warning: failed to load tool %s from %s: %s\n", name, cmd, tostring(load_err)))
+    return
+  end
+  local ok, result = pcall(chunk as function(): any)
+  if not ok then
+    io.stderr:write(string.format("warning: failed to execute tool %s from %s: %s\n", name, cmd, tostring(result)))
+    return
+  end
+  if not is_valid_tool(result) then
+    io.stderr:write(string.format("warning: invalid tool format in %s\n", cmd))
+    return
+  end
+  local tool = result as Tool
+  -- Use the name from --tool flag, not the module's internal name
+  tool.name = name
 
   -- Override existing or append
   for i, existing in ipairs(tools) do
@@ -727,7 +499,6 @@ return {
   add_tool_override = add_tool_override,
   remove_tool = remove_tool,
   load_custom_tools_from_dir = load_custom_tools_from_dir,
-  load_cli_tools_from_dir = load_cli_tools_from_dir,
   is_valid_tool = is_valid_tool,
   Tool = Tool,
   ToolDetails = ToolDetails,
