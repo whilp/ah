@@ -172,8 +172,10 @@ $(o)/%.tl.teal.ok: %.tl $(cosmic)
 	@mkdir -p $(@D)
 	@TL_PATH='$(TL_PATH)' $(cosmic) --test $@ $(cosmic) --check-types "$<"
 
+lint_files := $(shell git ls-files 2>/dev/null)
+
 # format checking
-all_fmt_srcs := $(shell git ls-files '*.tl' 2>/dev/null)
+all_fmt_srcs := $(filter %.tl,$(lint_files))
 all_fmt_checks := $(patsubst %,$(o)/%.fmt.ok,$(all_fmt_srcs))
 
 .PHONY: check-format
@@ -188,7 +190,6 @@ $(o)/%.tl.fmt.ok: %.tl $(cosmic)
 	@$(cosmic) --test $@ $(cosmic) --check-format "$<"
 
 # lint
-lint_files := $(shell git ls-files 2>/dev/null)
 all_linted := $(patsubst %,$(o)/%.lint.ok,$(lint_files))
 
 .PHONY: lint
