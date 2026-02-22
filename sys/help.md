@@ -5,6 +5,7 @@ commands:
   (no args)           continue from last message
   sessions            list all sessions
   usage               show token usage and cache stats
+  limits              show Claude Max subscription usage (OAuth only)
   embed <dir>         embed files into /zip/embed/
   extract <dir>       extract /zip/embed/ to directory
 
