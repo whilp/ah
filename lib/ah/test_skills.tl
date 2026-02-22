@@ -346,4 +346,45 @@ local function test_bare_skills_when_no_dot_ah()
     "file_path should be from skills/: " .. loaded["bare-skill"].file_path)
 end
 test_bare_skills_when_no_dot_ah()
+
+local function test_agents_skills_loads()
+  -- .agents/skills/ should be scanned and loaded
+  local project = fs.join(tmpdir, "agents-skills-project")
+  local agents_skills = fs.join(project, ".agents", "skills")
+  fs.makedirs(agents_skills)
+
+  cio.barf(fs.join(agents_skills, "deploy.md"),
+    "---\nname: deploy\ndescription: agents deploy skill\n---\n# Deploy")
+
+  local loaded = skills.load_skills(project)
+  assert(loaded["deploy"] ~= nil, ".agents/skills skill should be loaded")
+  assert(loaded["deploy"].description == "agents deploy skill",
+    ".agents/skills description mismatch: " .. tostring(loaded["deploy"] and loaded["deploy"].description))
+  assert(loaded["deploy"].file_path:match("%.agents/skills/"),
+    "file_path should be from .agents/skills: " .. tostring(loaded["deploy"] and loaded["deploy"].file_path))
+end
+test_agents_skills_loads()
+
+local function test_agents_skills_overrides_dot_ah()
+  -- .agents/skills/ should override .ah/skills/ (last wins)
+  local project = fs.join(tmpdir, "agents-override-project")
+  local dot_ah_skills = fs.join(project, ".ah", "skills")
+  local agents_skills = fs.join(project, ".agents", "skills")
+  fs.makedirs(dot_ah_skills)
+  fs.makedirs(agents_skills)
+
+  cio.barf(fs.join(dot_ah_skills, "pick.md"),
+    "---\nname: pick\ndescription: dot-ah pick\n---\n# Dot-ah")
+  cio.barf(fs.join(agents_skills, "pick.md"),
+    "---\nname: pick\ndescription: agents pick\n---\n# Agents")
+
+  local loaded = skills.load_skills(project)
+  assert(loaded["pick"] ~= nil, "pick skill should be loaded")
+  assert(loaded["pick"].description == "agents pick",
+    ".agents/skills should win over .ah/skills: " .. tostring(loaded["pick"] and loaded["pick"].description))
+  assert(loaded["pick"].file_path:match("%.agents/skills/"),
+    "file_path should be from .agents/skills: " .. tostring(loaded["pick"] and loaded["pick"].file_path))
+end
+test_agents_skills_overrides_dot_ah()
+
 print("all skills tests passed")
