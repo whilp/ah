@@ -722,4 +722,125 @@ local function test_parse_args_embed_remaining_contains_output()
 end
 test_parse_args_embed_remaining_contains_output()
 
+-- format_tokens and make_cli_handler tests
+
+local record InitTokens
+  format_tokens: function(integer): string
+  make_cli_handler: function(string): function(any)
+end
+local init_tokens = require("ah.init") as InitTokens
+
+local function test_format_tokens_zero()
+  local result = init_tokens.format_tokens(0)
+  assert(result == "0", "0 should format as '0', got: " .. result)
+end
+test_format_tokens_zero()
+
+local function test_format_tokens_small()
+  local result = init_tokens.format_tokens(999)
+  assert(result == "999", "999 should format as '999', got: " .. result)
+end
+test_format_tokens_small()
+
+local function test_format_tokens_exact_thousand()
+  local result = init_tokens.format_tokens(1000)
+  assert(result == "1.0k", "1000 should format as '1.0k', got: " .. result)
+end
+test_format_tokens_exact_thousand()
+
+local function test_format_tokens_thousands()
+  local result = init_tokens.format_tokens(1200)
+  assert(result == "1.2k", "1200 should format as '1.2k', got: " .. result)
+end
+test_format_tokens_thousands()
+
+local function test_format_tokens_millions()
+  local result = init_tokens.format_tokens(1200000)
+  assert(result == "1.2m", "1200000 should format as '1.2m', got: " .. result)
+end
+test_format_tokens_millions()
+
+-- make_cli_handler integration tests (stderr redirected to tmpfile)
+
+local function capture_stderr(fn: function()): string
+  local tmpfile = fs.join(TEST_TMPDIR, "test_stderr_" .. tostring(os.time()) .. ".txt")
+  local old_stderr = io.stderr
+  local new_stderr = io.open(tmpfile, "w")
+  io.stderr = new_stderr
+  fn()
+  io.stderr:close()
+  io.stderr = old_stderr
+  local output = cio.slurp(tmpfile) or ""
+  os.remove(tmpfile)
+  return output
+end
+
+local function test_make_cli_handler_agent_end_shows_percentage()
+  local handler = init_tokens.make_cli_handler(nil)
+  local output = capture_stderr(function()
+    -- fire agent_start to set model
+    handler({event_type = "agent_start", model = "claude-opus-4-5-20251101"} as any)
+    -- fire agent_end with known token counts (200k input, 0 output → 100% of 200k)
+    handler({
+      event_type = "agent_end",
+      total_input_tokens = 100000,
+      total_output_tokens = 0,
+      total_cache_read_tokens = 0,
+    } as any)
+  end)
+  assert(output:match("%%"), "agent_end output should contain '%', got: " .. output)
+  assert(output:match("200k"), "agent_end output should contain '200k' budget, got: " .. output)
+  assert(output:match("100k"), "agent_end output should contain '100k' input, got: " .. output)
+end
+test_make_cli_handler_agent_end_shows_percentage()
+
+local function test_make_cli_handler_budget_exceeded_shows_percentage()
+  local handler = init_tokens.make_cli_handler(nil)
+  local output = capture_stderr(function()
+    handler({event_type = "agent_start", model = "claude-opus-4-5-20251101"} as any)
+    handler({
+      event_type = "budget_exceeded",
+      total_input_tokens = 180000,
+      total_output_tokens = 10000,
+      max_tokens = 200000,
+    } as any)
+  end)
+  assert(output:match("token budget exceeded"), "should say 'token budget exceeded', got: " .. output)
+  assert(output:match("%%"), "budget_exceeded output should contain '%', got: " .. output)
+  assert(output:match("190k"), "budget_exceeded output should contain '190k' total, got: " .. output)
+end
+test_make_cli_handler_budget_exceeded_shows_percentage()
+
+local function test_make_cli_handler_agent_end_nil_model_uses_default()
+  -- No agent_start fired — captured_model is nil, should default to 200k
+  local handler = init_tokens.make_cli_handler(nil)
+  local output = capture_stderr(function()
+    handler({
+      event_type = "agent_end",
+      total_input_tokens = 1000,
+      total_output_tokens = 200,
+      total_cache_read_tokens = 0,
+    } as any)
+  end)
+  assert(output:match("200k"), "nil model should fall back to 200k budget, got: " .. output)
+  assert(output:match("%%"), "output should contain '%', got: " .. output)
+end
+test_make_cli_handler_agent_end_nil_model_uses_default()
+
+local function test_make_cli_handler_agent_end_no_tokens_no_output()
+  -- Zero tokens: no token line should be written
+  local handler = init_tokens.make_cli_handler(nil)
+  local output = capture_stderr(function()
+    handler({
+      event_type = "agent_end",
+      total_input_tokens = 0,
+      total_output_tokens = 0,
+      total_cache_read_tokens = 0,
+    } as any)
+  end)
+  assert(not output:match("%%"), "zero tokens should produce no token line, got: " .. output)
+  assert(not output:match("total"), "zero tokens should produce no total line, got: " .. output)
+end
+test_make_cli_handler_agent_end_no_tokens_no_output()
+
 print("all init tests passed")
