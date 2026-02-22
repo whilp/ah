@@ -8,7 +8,7 @@ local auth = require("ah.auth")
 -- Resolved lazily so envd.load() has time to set vars before first use.
 local function get_proxy_url(): string
   local http_proxy = os.getenv("https_proxy") or os.getenv("HTTPS_PROXY")
-                  or os.getenv("http_proxy") or os.getenv("HTTP_PROXY")
+  or os.getenv("http_proxy") or os.getenv("HTTP_PROXY")
   if http_proxy and http_proxy:sub(1, 7) == "unix://" then
     local path = http_proxy:sub(8)
     local url, err = fetch.unix_proxy(path)
@@ -22,7 +22,7 @@ local function get_proxy_url(): string
 end
 
 -- Tool name mapping for Claude Code compatibility (OAuth mode)
-local CLAUDE_CODE_TOOLS: {string:string} = {
+local CLAUDE_CODE_TOOLS: {string: string} = {
   read = "Read",
   write = "Write",
   edit = "Edit",
@@ -30,7 +30,7 @@ local CLAUDE_CODE_TOOLS: {string:string} = {
 }
 
 -- Reverse mapping for inbound tool calls
-local CLAUDE_CODE_TOOLS_REVERSE: {string:string} = {
+local CLAUDE_CODE_TOOLS_REVERSE: {string: string} = {
   Read = "read",
   Write = "write",
   Edit = "edit",
@@ -73,7 +73,7 @@ local MODELS: {string} = {
   "claude-haiku-4-5-20251001",
 }
 
-local MODEL_ALIASES: {string:string} = {
+local MODEL_ALIASES: {string: string} = {
   ["sonnet"] = "claude-sonnet-4-6",
   ["sonnet-1m"] = "claude-sonnet-4-6-1m",
   ["opus"] = "claude-opus-4-6",
@@ -108,7 +108,7 @@ end
 
 -- Extract retry delay from headers or error message
 -- Returns delay in milliseconds, or nil if not found
-local function extract_retry_delay(error_text: string, headers: {string:string}): integer
+local function extract_retry_delay(error_text: string, headers: {string: string}): integer
   headers = headers or {}
 
   -- Check Retry-After header (seconds)
@@ -162,9 +162,9 @@ end
 local function parse_api_error(status: integer, body: string): string
   local err_body = body or ""
   if err_body ~= "" then
-    local parsed = json.decode(err_body) as {string:any}
+    local parsed = json.decode(err_body) as {string: any}
     if parsed and parsed.error then
-      local e = parsed.error as {string:any}
+      local e = parsed.error as {string: any}
       if e.message then
         return string.format("API error %d: %s", status, e.message as string)
       end
@@ -173,9 +173,9 @@ local function parse_api_error(status: integer, body: string): string
   return string.format("API error %d: %s", status, err_body)
 end
 
-local function build_request(messages: {any}, opts: {string:any}, is_oauth: boolean): {string:any}
+local function build_request(messages: {any}, opts: {string: any}, is_oauth: boolean): {string: any}
   opts = opts or {}
-  local req: {string:any} = {
+  local req: {string: any} = {
     model = opts.model or DEFAULT_MODEL,
     max_tokens = opts.max_tokens or DEFAULT_MAX_TOKENS,
     messages = messages,
@@ -186,7 +186,7 @@ local function build_request(messages: {any}, opts: {string:any}, is_oauth: bool
   -- Anthropic caches up to the marked breakpoint, reducing input token costs
   if is_oauth then
     -- OAuth: Claude Code identity MUST be in first system block, user prompt in second
-    local system_blocks: {{string:any}} = {{type = "text", text = CLAUDE_CODE_IDENTITY}}
+    local system_blocks: {{string: any}} = {{type = "text", text = CLAUDE_CODE_IDENTITY}}
     if opts.system then
       table.insert(system_blocks, {type = "text", text = opts.system as string, cache_control = {type = "ephemeral"}})
     else
@@ -202,13 +202,13 @@ local function build_request(messages: {any}, opts: {string:any}, is_oauth: bool
   if opts.tools and #(opts.tools as {any}) > 0 then
     if is_oauth then
       -- Remap tool names to Claude Code format for OAuth
-      local remapped: {{string:any}} = {}
-      for _, tool in ipairs(opts.tools as {{string:any}}) do
+      local remapped: {{string: any}} = {}
+      for _, tool in ipairs(opts.tools as {{string: any}}) do
         table.insert(remapped, {
-          name = to_claude_code_name(tool.name as string),
-          description = tool.description,
-          input_schema = tool.input_schema,
-        })
+            name = to_claude_code_name(tool.name as string),
+            description = tool.description,
+            input_schema = tool.input_schema,
+          })
       end
       req.tools = remapped
     else
@@ -230,7 +230,7 @@ end
 
 -- Stream API call with callback for each event
 -- is_interrupted: optional callback that returns true when the caller wants to abort mid-stream
-local function stream(messages: {any}, opts: {string:any}, callback: function({string:any}), is_interrupted: function(): boolean): {string:any}, string
+local function stream(messages: {any}, opts: {string: any}, callback: function({string: any}), is_interrupted: function(): boolean): {string: any}, string
   local creds, err = auth.load_credentials()
   if not creds then
     return nil, err
@@ -246,7 +246,7 @@ local function stream(messages: {any}, opts: {string:any}, callback: function({s
 
   -- Track timing and retries
   local start_ms = now_ms()
-  local retries: {{string:any}} = {}
+  local retries: {{string: any}} = {}
 
   -- Retry loop for transient errors
   local reader: fetch.Reader = nil
@@ -254,11 +254,11 @@ local function stream(messages: {any}, opts: {string:any}, callback: function({s
 
   for attempt = 0, MAX_RETRIES do
     local stream_result = fetch.stream(get_api_url(), {
-      method = "POST",
-      headers = auth_headers,
-      body = body,
-      proxy = get_proxy_url(),
-    } as fetch.Opts)
+        method = "POST",
+        headers = auth_headers,
+        body = body,
+        proxy = get_proxy_url(),
+      } as fetch.Opts)
 
     if not stream_result.ok then
       last_error = "fetch failed: " .. (stream_result.error or "unknown error")
@@ -289,7 +289,7 @@ local function stream(messages: {any}, opts: {string:any}, callback: function({s
 
       if attempt < MAX_RETRIES and is_retryable_error(status, error_body) then
         -- Try to get delay from headers or error message
-        local delay_ms: integer = extract_retry_delay(error_body, stream_result.headers as {string:string})
+        local delay_ms: integer = extract_retry_delay(error_body, stream_result.headers as {string: string})
         if not delay_ms then
           -- Exponential backoff with jitter
           local base_delay = BASE_DELAY_MS * (2 ^ attempt)
@@ -315,10 +315,10 @@ local function stream(messages: {any}, opts: {string:any}, callback: function({s
   end
 
   -- Parse SSE response with true streaming
-  local response: {string:any} = nil
-  local current_block: {string:any} = nil
+  local response: {string: any} = nil
+  local current_block: {string: any} = nil
   local block_index: integer = nil
-  local content_blocks: {integer:{string:any}} = {}
+  local content_blocks: {integer: {string: any}} = {}
   local was_interrupted = false
 
   for line in reader:lines() do
@@ -330,23 +330,23 @@ local function stream(messages: {any}, opts: {string:any}, callback: function({s
 
     local kind, data = parse_sse_line(line)
     if kind == "data" and data ~= "[DONE]" then
-      local event = json.decode(data) as {string:any}
+      local event = json.decode(data) as {string: any}
       if event then
         if callback then
           callback(event)
         end
 
         if event.type == "message_start" and event.message then
-          response = event.message as {string:any}
+          response = event.message as {string: any}
           response.content = {}
         elseif event.type == "content_block_start" then
-          current_block = event.content_block as {string:any}
+          current_block = event.content_block as {string: any}
           block_index = event.index as integer
           if current_block then
             content_blocks[block_index + 1] = current_block
           end
         elseif event.type == "content_block_delta" and event.delta then
-          local delta = event.delta as {string:any}
+          local delta = event.delta as {string: any}
           if current_block and delta.type == "text_delta" then
             current_block.text = ((current_block.text or "") as string) .. ((delta.text or "") as string)
           elseif current_block and delta.type == "input_json_delta" then
@@ -365,7 +365,7 @@ local function stream(messages: {any}, opts: {string:any}, callback: function({s
           current_block = nil
           block_index = nil
         elseif event.type == "message_delta" then
-          local delta = event.delta as {string:any}
+          local delta = event.delta as {string: any}
           if response and delta then
             response.stop_reason = delta.stop_reason
           end
@@ -404,7 +404,7 @@ local function stream(messages: {any}, opts: {string:any}, callback: function({s
   -- For OAuth, convert tool names back from Claude Code format
   if creds.is_oauth and response and response.content then
     for _, block in ipairs(response.content as {any}) do
-      local b = block as {string:any}
+      local b = block as {string: any}
       if b.type == "tool_use" and b.name then
         b.name = from_claude_code_name(b.name as string)
       end
@@ -424,11 +424,11 @@ local function stream(messages: {any}, opts: {string:any}, callback: function({s
 end
 
 -- Extract tool calls from response
-local function extract_tool_calls(response: {string:any}): {{string:any}}
-  local tool_calls: {{string:any}} = {}
+local function extract_tool_calls(response: {string: any}): {{string: any}}
+  local tool_calls: {{string: any}} = {}
   if response and response.content then
     for _, block in ipairs(response.content as {any}) do
-      local b = block as {string:any}
+      local b = block as {string: any}
       if b.type == "tool_use" then
         table.insert(tool_calls, b)
       end

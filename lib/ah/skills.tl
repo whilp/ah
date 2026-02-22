@@ -15,8 +15,8 @@ end
 
 -- Parse yaml frontmatter from markdown content.
 -- Returns frontmatter fields and body (content after frontmatter).
-local function parse_frontmatter(content: string): {string:string}, string
-  local fields: {string:string} = {}
+local function parse_frontmatter(content: string): {string: string}, string
+  local fields: {string: string} = {}
 
   -- Check for opening ---
   if not content:match("^%-%-%-\n") then
@@ -139,9 +139,9 @@ end
 --   1. system (built-in)
 --   2. embed (zip overlay)
 --   3. project (cwd/skills/)
-local function load_skills(cwd?: string): {string:Skill}
+local function load_skills(cwd?: string): {string: Skill}
   cwd = cwd or fs.getcwd()
-  local skills: {string:Skill} = {}
+  local skills: {string: Skill} = {}
 
   -- System skills first
   local sys_skills = load_skills_from_dir("/zip/embed/sys/skills")
@@ -177,7 +177,7 @@ end
 -- Format skills for inclusion in the system prompt.
 -- Lists skill names, descriptions, and file paths so the model can
 -- use the read tool to load the full content when needed.
-local function format_skills_for_prompt(skills: {string:Skill}): string
+local function format_skills_for_prompt(skills: {string: Skill}): string
   -- Collect into sorted list for deterministic output
   local sorted: {Skill} = {}
   for _, skill in pairs(skills) do
@@ -187,8 +187,8 @@ local function format_skills_for_prompt(skills: {string:Skill}): string
     return ""
   end
   table.sort(sorted, function(a: Skill, b: Skill): boolean
-    return a.name < b.name
-  end)
+      return a.name < b.name
+    end)
 
   local parts: {string} = {}
   table.insert(parts, "The following skills provide specialized instructions for specific tasks.")
@@ -217,7 +217,7 @@ end
 
 -- Expand a /skill:name invocation.
 -- Returns expanded content and whether it was a skill invocation.
-local function expand_skill(prompt: string, skills: {string:Skill}): string, boolean
+local function expand_skill(prompt: string, skills: {string: Skill}): string, boolean
   if not prompt:match("^/skill:") then
     return prompt, false
   end

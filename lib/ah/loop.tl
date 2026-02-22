@@ -32,8 +32,8 @@ local function shorten_path(p: string): string
 end
 
 -- Loop detection thresholds
-local LOOP_WARN_THRESHOLD = 3   -- Consecutive identical turns before steering injection
-local LOOP_BREAK_THRESHOLD = 5  -- Consecutive identical turns before forced break
+local LOOP_WARN_THRESHOLD = 3 -- Consecutive identical turns before steering injection
+local LOOP_BREAK_THRESHOLD = 5 -- Consecutive identical turns before forced break
 
 -- Get monotonic time in seconds
 local function now(): number
@@ -45,7 +45,7 @@ end
 local function tool_key_param(tool_name: string, tool_input: string, details_json: string): string
   -- Try details first (structured data from tool execution)
   if details_json then
-    local details = json.decode(details_json) as {string:any}
+    local details = json.decode(details_json) as {string: any}
     if details then
       -- skill tool: show "source → name, N lines"
       if details.skill_name and details.line_count then
@@ -61,7 +61,7 @@ local function tool_key_param(tool_name: string, tool_input: string, details_jso
 
   -- Fall back to parsing tool_input JSON
   if not tool_input then return "" end
-  local input = json.decode(tool_input) as {string:any}
+  local input = json.decode(tool_input) as {string: any}
   if not input then return "" end
 
   if tool_name == "read" or tool_name == "write" or tool_name == "edit" then
@@ -144,8 +144,8 @@ end
 local function turn_signature(tool_calls: {any}): string
   local parts: {string} = {}
   for _, tool_call in ipairs(tool_calls) do
-    local tc = tool_call as {string:any}
-    local input = (tc.input or {}) as {string:any}
+    local tc = tool_call as {string: any}
+    local input = (tc.input or {}) as {string: any}
     local input_json = json.encode(input)
     local key = tool_key_param(tc.name as string, input_json, nil)
     -- For edit tool, append old_string and new_string to avoid collisions
@@ -195,8 +195,8 @@ end
 
 -- Options for run_agent
 local record AgentOpts
-  max_tokens: integer  -- Optional token budget (input + output combined). Stop with budget_exceeded when exceeded.
-  must_produce: string  -- Optional file path that must exist when agent finishes. Retries once with a reminder.
+  max_tokens: integer -- Optional token budget (input + output combined). Stop with budget_exceeded when exceeded.
+  must_produce: string -- Optional file path that must exist when agent finishes. Retries once with a reminder.
 end
 
 -- Send prompt and run agent loop
@@ -252,11 +252,11 @@ local function run_agent(d: db.DB, qdb: queue.QueueDB, system_prompt: string, mo
       elseif block.block_type == "tool_use" then
         local input = block.tool_input and json.decode(block.tool_input as string) or {}
         table.insert(content, {
-          type = "tool_use",
-          id = block.tool_id,
-          name = block.tool_name,
-          input = input,
-        })
+            type = "tool_use",
+            id = block.tool_id,
+            name = block.tool_name,
+            input = input,
+          })
       elseif block.block_type == "tool_result" then
         -- Truncate stored output for API (full output preserved in DB)
         local tool_output = block.tool_output as string
@@ -264,24 +264,24 @@ local function run_agent(d: db.DB, qdb: queue.QueueDB, system_prompt: string, mo
         local api_content: any = truncation.content
         -- Check if result is structured (image content)
         if tool_output and tool_output:sub(1, 14) == '{"__image__":' then
-          local parsed = json.decode(tool_output) as {string:any}
+          local parsed = json.decode(tool_output) as {string: any}
           if parsed and parsed.__image__ and parsed.content then
             api_content = parsed.content
           end
         end
         table.insert(content, {
-          type = "tool_result",
-          tool_use_id = block.tool_id,
-          content = api_content,
-          is_error = block.is_error == 1,
-        })
+            type = "tool_result",
+            tool_use_id = block.tool_id,
+            content = api_content,
+            is_error = block.is_error == 1,
+          })
       end
     end
 
     table.insert(api_messages, {
-      role = msg.role,
-      content = content,
-    })
+        role = msg.role,
+        content = content,
+      })
     ::continue::
   end
 
@@ -290,13 +290,13 @@ local function run_agent(d: db.DB, qdb: queue.QueueDB, system_prompt: string, mo
   -- inject synthetic error tool_results. This handles corruption from
   -- budget_exceeded, crashes, or other interrupted exits.
   for i = 1, #api_messages - 1 do
-    local msg = api_messages[i] as {string:any}
+    local msg = api_messages[i] as {string: any}
     if msg.role == "assistant" then
       -- Collect tool_use IDs from this assistant message
       local tool_use_ids: {string} = {}
       local msg_content = msg.content as {any}
       for _, block in ipairs(msg_content) do
-        local b = block as {string:any}
+        local b = block as {string: any}
         if b.type == "tool_use" then
           table.insert(tool_use_ids, b.id as string)
         end
@@ -304,12 +304,12 @@ local function run_agent(d: db.DB, qdb: queue.QueueDB, system_prompt: string, mo
 
       if #tool_use_ids > 0 then
         -- Check if next message has matching tool_results
-        local next_msg = api_messages[i + 1] as {string:any}
+        local next_msg = api_messages[i + 1] as {string: any}
         local has_tool_results = false
         if next_msg.role == "user" then
           local next_content = next_msg.content as {any}
           for _, block in ipairs(next_content) do
-            local b = block as {string:any}
+            local b = block as {string: any}
             if b.type == "tool_result" then
               has_tool_results = true
               break
@@ -322,20 +322,20 @@ local function run_agent(d: db.DB, qdb: queue.QueueDB, system_prompt: string, mo
           local synthetic_results: {any} = {}
           for _, tid in ipairs(tool_use_ids) do
             table.insert(synthetic_results, {
-              type = "tool_result",
-              tool_use_id = tid,
-              content = "error: tool execution was interrupted (session resumed)",
-              is_error = true,
-            })
+                type = "tool_result",
+                tool_use_id = tid,
+                content = "error: tool execution was interrupted (session resumed)",
+                is_error = true,
+              })
           end
           -- Insert the synthetic user message right after the assistant message
           table.insert(api_messages, i + 1, {
-            role = "user",
-            content = synthetic_results,
-          })
+              role = "user",
+              content = synthetic_results,
+            })
           emit(on_event, events.error_event(string.format(
-            "repaired %d dangling tool_use block(s) in message history",
-            #tool_use_ids)))
+                "repaired %d dangling tool_use block(s) in message history",
+                #tool_use_ids)))
         end
       end
     end
@@ -380,9 +380,9 @@ local function run_agent(d: db.DB, qdb: queue.QueueDB, system_prompt: string, mo
 
         -- Add to API messages
         table.insert(api_messages, {
-          role = "user",
-          content = {{type = "text", text = "[STEERING] " .. steer_msg.content}},
-        })
+            role = "user",
+            content = {{type = "text", text = "[STEERING] " .. steer_msg.content}},
+          })
 
         -- Update parent for next iteration
         user_msg = steer_user_msg
@@ -408,10 +408,10 @@ local function run_agent(d: db.DB, qdb: queue.QueueDB, system_prompt: string, mo
 
         -- Replace api_messages with compacted summary
         api_messages = {{
-          role = "user",
-          content = {{type = "text", text = compact_result.summary}},
-        }}
-        last_input_tokens = 0  -- Reset to avoid re-triggering
+            role = "user",
+            content = {{type = "text", text = compact_result.summary}},
+          }}
+        last_input_tokens = 0 -- Reset to avoid re-triggering
 
         emit(on_event, events.compaction_complete(compact_result.input_tokens, compact_result.output_tokens))
         db.log_event(d, "compaction_complete", nil, events.to_json(events.compaction_complete(compact_result.input_tokens, compact_result.output_tokens)))
@@ -419,7 +419,7 @@ local function run_agent(d: db.DB, qdb: queue.QueueDB, system_prompt: string, mo
         -- Compaction failed - continue without it
         emit(on_event, events.error_event(compact_err))
         db.log_event(d, "error", nil, events.to_json(events.error_event(compact_err)))
-        last_input_tokens = 0  -- Don't keep retrying
+        last_input_tokens = 0 -- Don't keep retrying
       end
     end
 
@@ -432,12 +432,12 @@ local function run_agent(d: db.DB, qdb: queue.QueueDB, system_prompt: string, mo
     local cache_msg_idx: integer = nil
     local cache_block_idx: integer = nil
     for i = #api_messages, 1, -1 do
-      local msg = api_messages[i] as {string:any}
+      local msg = api_messages[i] as {string: any}
       local content = msg.content as {any}
       if content and #content > 0 then
         cache_msg_idx = i
         cache_block_idx = #content
-        local block = content[cache_block_idx] as {string:any}
+        local block = content[cache_block_idx] as {string: any}
         block.cache_control = {type = "ephemeral"}
         break
       end
@@ -445,23 +445,23 @@ local function run_agent(d: db.DB, qdb: queue.QueueDB, system_prompt: string, mo
 
     -- Stream response with mid-stream interruption support
     local response, err = api.stream(api_messages, {
-      system = system_prompt,
-      model = model,
-      tools = tools.get_tool_definitions(),
-    }, function(event: {string:any})
-      if event.type == "content_block_delta" and event.delta then
-        local delta = event.delta as {string:any}
-        if delta.type == "text_delta" and delta.text then
-          emit(on_event, events.text_delta(delta.text as string))
+        system = system_prompt,
+        model = model,
+        tools = tools.get_tool_definitions(),
+      }, function(event: {string: any})
+        if event.type == "content_block_delta" and event.delta then
+          local delta = event.delta as {string: any}
+          if delta.type == "text_delta" and delta.text then
+            emit(on_event, events.text_delta(delta.text as string))
+          end
         end
-      end
-    end, is_interrupted)
+      end, is_interrupted)
 
     -- Remove the cache_control marker we added (clean up for next iteration)
     if cache_msg_idx and cache_block_idx then
-      local msg = api_messages[cache_msg_idx] as {string:any}
+      local msg = api_messages[cache_msg_idx] as {string: any}
       local content = msg.content as {any}
-      local block = content[cache_block_idx] as {string:any}
+      local block = content[cache_block_idx] as {string: any}
       block.cache_control = nil
     end
 
@@ -482,28 +482,28 @@ local function run_agent(d: db.DB, qdb: queue.QueueDB, system_prompt: string, mo
     end
 
     -- Check if stream was interrupted - persist partial response and exit
-    local resp = response as {string:any}
+    local resp = response as {string: any}
     if interrupted or resp.stop_reason == "interrupted" then
       -- Persist partial assistant response if we have any content
       local resp_content = resp.content as {any}
       if resp_content and #resp_content > 0 then
-        local assistant_blocks: {{string:any}} = {}
+        local assistant_blocks: {{string: any}} = {}
         for _, block in ipairs(resp_content) do
-          local b = block as {string:any}
+          local b = block as {string: any}
           if b.type == "text" and b.text then
             table.insert(assistant_blocks, {block_type = "text", content = b.text as string})
           end
         end
         if #assistant_blocks > 0 then
-          local usage = (resp.usage or {}) as {string:any}
+          local usage = (resp.usage or {}) as {string: any}
           db.begin_transaction(d)
           local partial_msg = db.create_message(d, "assistant", user_msg.id, {
-            input_tokens = usage.input_tokens as integer,
-            output_tokens = usage.output_tokens as integer,
-            stop_reason = "interrupted",
-            model = resp.model as string,
-            api_latency_ms = resp.api_latency_ms as integer,
-          })
+              input_tokens = usage.input_tokens as integer,
+              output_tokens = usage.output_tokens as integer,
+              stop_reason = "interrupted",
+              model = resp.model as string,
+              api_latency_ms = resp.api_latency_ms as integer,
+            })
           for _, blk in ipairs(assistant_blocks) do
             db.add_content_block(d, partial_msg.id, "text", {content = blk.content as string})
           end
@@ -517,32 +517,32 @@ local function run_agent(d: db.DB, qdb: queue.QueueDB, system_prompt: string, mo
     -- Collect response content blocks before writing to DB
     local resp_content = resp.content as {any}
     local assistant_api_content: {any} = {}
-    local assistant_blocks: {{string:any}} = {}
+    local assistant_blocks: {{string: any}} = {}
 
     for _, block in ipairs(resp_content) do
-      local b = block as {string:any}
+      local b = block as {string: any}
       if b.type == "text" then
         table.insert(assistant_blocks, {block_type = "text", content = b.text as string})
         table.insert(assistant_api_content, {type = "text", text = b.text})
       elseif b.type == "tool_use" then
         local input_json = json.encode(b.input or {})
         table.insert(assistant_blocks, {
-          block_type = "tool_use",
-          tool_id = b.id as string,
-          tool_name = b.name as string,
-          tool_input = input_json,
-        })
+            block_type = "tool_use",
+            tool_id = b.id as string,
+            tool_name = b.name as string,
+            tool_input = input_json,
+          })
         table.insert(assistant_api_content, {
-          type = "tool_use",
-          id = b.id,
-          name = b.name,
-          input = b.input or {},
-        })
+            type = "tool_use",
+            id = b.id,
+            name = b.name,
+            input = b.input or {},
+          })
       end
     end
 
     -- Extract usage and metadata from response
-    local usage = (resp.usage or {}) as {string:any}
+    local usage = (resp.usage or {}) as {string: any}
     local cache_creation_tokens = (usage.cache_creation_input_tokens or 0) as integer
     local cache_read_tokens = (usage.cache_read_input_tokens or 0) as integer
     -- Effective input = uncached + cache read + cache creation (full prompt size)
@@ -564,25 +564,25 @@ local function run_agent(d: db.DB, qdb: queue.QueueDB, system_prompt: string, mo
         db.add_content_block(d, assistant_msg.id, "text", {content = blk.content as string})
       elseif blk.block_type == "tool_use" then
         db.add_content_block(d, assistant_msg.id, "tool_use", {
-          tool_id = blk.tool_id as string,
-          tool_name = blk.tool_name as string,
-          tool_input = blk.tool_input as string,
-        })
+            tool_id = blk.tool_id as string,
+            tool_name = blk.tool_name as string,
+            tool_input = blk.tool_input as string,
+          })
       end
     end
 
     -- Log retry events if any occurred
-    local retries = resp.retries as {{string:any}}
+    local retries = resp.retries as {{string: any}}
     if retries then
       for _, retry in ipairs(retries) do
         local retry_json = json.encode(retry)
         db.log_event(d, "retry", assistant_msg.id, retry_json)
         emit(on_event, events.retry_event(
-          (retry.attempt or 0) as integer,
-          (retry.delay_ms or 0) as integer,
-          (retry.status or 0) as integer,
-          (retry.error or "") as string
-        ))
+            (retry.attempt or 0) as integer,
+            (retry.delay_ms or 0) as integer,
+            (retry.status or 0) as integer,
+            (retry.error or "") as string
+          ))
       end
     end
 
@@ -590,25 +590,25 @@ local function run_agent(d: db.DB, qdb: queue.QueueDB, system_prompt: string, mo
 
     -- Emit api_call_end with message metadata and cache stats
     emit(on_event, events.api_call_end(
-      assistant_msg.id,
-      usage.input_tokens as integer,
-      usage.output_tokens as integer,
-      resp.api_latency_ms as integer,
-      resp.model as string,
-      cache_creation_tokens,
-      cache_read_tokens
-    ))
+        assistant_msg.id,
+        usage.input_tokens as integer,
+        usage.output_tokens as integer,
+        resp.api_latency_ms as integer,
+        resp.model as string,
+        cache_creation_tokens,
+        cache_read_tokens
+      ))
 
     -- Log api_call_end event to DB
     db.log_event(d, "api_call_end", assistant_msg.id, events.to_json(events.api_call_end(
-      assistant_msg.id,
-      usage.input_tokens as integer,
-      usage.output_tokens as integer,
-      resp.api_latency_ms as integer,
-      resp.model as string,
-      cache_creation_tokens,
-      cache_read_tokens
-    )))
+          assistant_msg.id,
+          usage.input_tokens as integer,
+          usage.output_tokens as integer,
+          resp.api_latency_ms as integer,
+          resp.model as string,
+          cache_creation_tokens,
+          cache_read_tokens
+        )))
 
     -- Track tokens for budget enforcement
     -- Use last call's effective input (current context size) rather than
@@ -635,11 +635,11 @@ local function run_agent(d: db.DB, qdb: queue.QueueDB, system_prompt: string, mo
         local stub_msg = db.create_message(d, "user", assistant_msg.id)
         for _, tid in ipairs(pending_tool_ids) do
           db.add_content_block(d, stub_msg.id, "tool_result", {
-            tool_id = tid,
-            tool_output = "error: tool execution skipped (token budget exceeded)",
-            is_error = true,
-            duration_ms = 0,
-          })
+              tool_id = tid,
+              tool_output = "error: tool execution skipped (token budget exceeded)",
+              is_error = true,
+              duration_ms = 0,
+            })
         end
         db.commit(d)
       end
@@ -670,9 +670,9 @@ local function run_agent(d: db.DB, qdb: queue.QueueDB, system_prompt: string, mo
 
             -- Add to API messages
             table.insert(api_messages, {
-              role = "user",
-              content = {{type = "text", text = followup_msg.content}},
-            })
+                role = "user",
+                content = {{type = "text", text = followup_msg.content}},
+              })
 
             -- Update user_msg for next iteration
             user_msg = followup_user_msg
@@ -698,9 +698,9 @@ local function run_agent(d: db.DB, qdb: queue.QueueDB, system_prompt: string, mo
           db.commit(d)
 
           table.insert(api_messages, {
-            role = "user",
-            content = {{type = "text", text = reminder}},
-          })
+              role = "user",
+              content = {{type = "text", text = reminder}},
+            })
 
           user_msg = reminder_msg
           goto continue_loop
@@ -708,12 +708,12 @@ local function run_agent(d: db.DB, qdb: queue.QueueDB, system_prompt: string, mo
       end
 
       final_stop_reason = resp.stop_reason as string or "end_turn"
-      break  -- Done, no tool calls and no followup
+      break -- Done, no tool calls and no followup
     end
 
     -- Execute tool calls and collect results before writing to DB
     local tool_results_content: {any} = {}
-    local tool_result_blocks: {{string:any}} = {}
+    local tool_result_blocks: {{string: any}} = {}
     local think_time = (resp.think_time or 0) as number
     local tool_count = #tool_calls
 
@@ -726,7 +726,7 @@ local function run_agent(d: db.DB, qdb: queue.QueueDB, system_prompt: string, mo
         break
       end
 
-      local tc = tool_call as {string:any}
+      local tc = tool_call as {string: any}
       local input_json = json.encode(tc.input or {})
 
       -- Compute preliminary key from input for tool_call_start event
@@ -736,7 +736,7 @@ local function run_agent(d: db.DB, qdb: queue.QueueDB, system_prompt: string, mo
       emit(on_event, events.tool_call_start(tc.name as string, input_json, key, i, tool_count))
 
       local start = now()
-      local result, is_error, details = tools.execute_tool(tc.name as string, (tc.input or {}) as {string:any})
+      local result, is_error, details = tools.execute_tool(tc.name as string, (tc.input or {}) as {string: any})
       local elapsed = now() - start
 
       -- If interrupted during tool execution, abort remaining tools
@@ -750,22 +750,22 @@ local function run_agent(d: db.DB, qdb: queue.QueueDB, system_prompt: string, mo
         -- Encode details for interrupted tool result
         local int_details_json: string = nil
         if details then
-          int_details_json = json.encode(details as {string:any})
+          int_details_json = json.encode(details as {string: any})
         end
 
         table.insert(tool_result_blocks, {
-          tool_id = tc.id as string,
-          tool_output = result,
-          is_error = is_error,
-          duration_ms = elapsed_ms,
-          details = int_details_json,
-        })
+            tool_id = tc.id as string,
+            tool_output = result,
+            is_error = is_error,
+            duration_ms = elapsed_ms,
+            details = int_details_json,
+          })
         table.insert(tool_results_content, {
-          type = "tool_result",
-          tool_use_id = tc.id,
-          content = result,
-          is_error = is_error,
-        })
+            type = "tool_result",
+            tool_use_id = tc.id,
+            content = result,
+            is_error = is_error,
+          })
         final_stop_reason = "interrupted"
         break
       end
@@ -780,7 +780,7 @@ local function run_agent(d: db.DB, qdb: queue.QueueDB, system_prompt: string, mo
       -- Encode details for display and persistence
       local details_json: string = nil
       if details then
-        details_json = json.encode(details as {string:any})
+        details_json = json.encode(details as {string: any})
       end
 
       -- Recompute key with details for richer display in tool_call_end
@@ -799,7 +799,7 @@ local function run_agent(d: db.DB, qdb: queue.QueueDB, system_prompt: string, mo
       -- Check if result is structured (image content) — skip truncation for images
       local api_content: any = api_result
       if result:sub(1, 14) == '{"__image__":' then
-        local parsed = json.decode(result) as {string:any}
+        local parsed = json.decode(result) as {string: any}
         if parsed and parsed.__image__ and parsed.content then
           api_content = parsed.content
         end
@@ -807,20 +807,20 @@ local function run_agent(d: db.DB, qdb: queue.QueueDB, system_prompt: string, mo
 
       -- Collect for later atomic write (store full output in DB)
       table.insert(tool_result_blocks, {
-        tool_id = tc.id as string,
-        tool_output = result,
-        is_error = is_error,
-        duration_ms = elapsed_ms,
-        details = details_json,
-      })
+          tool_id = tc.id as string,
+          tool_output = result,
+          is_error = is_error,
+          duration_ms = elapsed_ms,
+          details = details_json,
+        })
 
       -- Add to API messages content (truncated output)
       table.insert(tool_results_content, {
-        type = "tool_result",
-        tool_use_id = tc.id,
-        content = api_content,
-        is_error = is_error,
-      })
+          type = "tool_result",
+          tool_use_id = tc.id,
+          content = api_content,
+          is_error = is_error,
+        })
     end
 
     -- Write tool results if we have any (even partial results from interruption)
@@ -830,12 +830,12 @@ local function run_agent(d: db.DB, qdb: queue.QueueDB, system_prompt: string, mo
       local tool_result_msg = db.create_message(d, "user", assistant_msg.id)
       for _, blk in ipairs(tool_result_blocks) do
         db.add_content_block(d, tool_result_msg.id, "tool_result", {
-          tool_id = blk.tool_id as string,
-          tool_output = blk.tool_output as string,
-          is_error = blk.is_error as boolean,
-          duration_ms = blk.duration_ms as integer,
-          details = blk.details as string,
-        })
+            tool_id = blk.tool_id as string,
+            tool_output = blk.tool_output as string,
+            is_error = blk.is_error as boolean,
+            duration_ms = blk.duration_ms as integer,
+            details = blk.details as string,
+          })
       end
       db.commit(d)
 
@@ -895,9 +895,9 @@ local function run_agent(d: db.DB, qdb: queue.QueueDB, system_prompt: string, mo
 
       -- Add to API messages
       table.insert(api_messages, {
-        role = "user",
-        content = {{type = "text", text = steering_text}},
-      })
+          role = "user",
+          content = {{type = "text", text = steering_text}},
+        })
 
       user_msg = loop_steer_msg
     end

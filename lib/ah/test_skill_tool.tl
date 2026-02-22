@@ -75,10 +75,10 @@ test_load_skill()
 -- Test tool_key_param formats skill display correctly
 local function test_key_param_format()
   local details_json = json.encode({
-    path = "/zip/embed/sys/skills/init.md",
-    skill_name = "init",
-    line_count = 42,
-  })
+      path = "/zip/embed/sys/skills/init.md",
+      skill_name = "init",
+      line_count = 42,
+    })
   local key = loop.tool_key_param("skill", "{}", details_json)
   assert(key:find("init") ~= nil, "key should contain skill name: " .. key)
   assert(key:find("42 lines") ~= nil, "key should contain line count: " .. key)

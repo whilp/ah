@@ -64,25 +64,25 @@ local function git_cmd(cwd: string, ...: string): string
     argv[#argv + 1] = select(i, ...) as string
   end
   local ok, result = pcall(function(): string
-    local h, err = child.spawn(argv, {cwd = cwd})
-    if not h then return nil end
-    local success, stdout, _ = h:read()
-    if not success then return nil end
-    local out = (stdout as string) or ""
-    if out == "" then return nil end
-    return (out:gsub("%s+$", ""))
-  end)
+      local h, err = child.spawn(argv, {cwd = cwd})
+      if not h then return nil end
+      local success, stdout, _ = h:read()
+      if not success then return nil end
+      local out = (stdout as string) or ""
+      if out == "" then return nil end
+      return (out:gsub("%s+$", ""))
+    end)
   if not ok then return nil end
   return result
 end
 
 -- Gather git context for the working directory. Each value is nil
 -- when the command fails (not a git repo, git not installed, timeout).
-local function git_context(cwd: string): {string:string}
+local function git_context(cwd: string): {string: string}
   return {
-    branch  = git_cmd(cwd, "rev-parse", "--abbrev-ref", "HEAD"),
-    commit  = git_cmd(cwd, "rev-parse", "--short", "HEAD"),
-    remote  = git_cmd(cwd, "remote", "get-url", "origin"),
+    branch = git_cmd(cwd, "rev-parse", "--abbrev-ref", "HEAD"),
+    commit = git_cmd(cwd, "rev-parse", "--short", "HEAD"),
+    remote = git_cmd(cwd, "remote", "get-url", "origin"),
   }
 end
 
@@ -142,7 +142,7 @@ local function list_sessions(cwd?: string): {Session}
 
     -- Check if it's a .db file with ULID name
     if name:match("%.db$") then
-      local session_ulid = name:sub(1, -4)  -- remove .db
+      local session_ulid = name:sub(1, -4) -- remove .db
       -- Validate ULID by checking length and trying to parse timestamp
       if #session_ulid == 26 then
         local ts = ulid.timestamp(session_ulid)
@@ -151,13 +151,13 @@ local function list_sessions(cwd?: string): {Session}
           local d = db.open(db_path)
           if d then
             table.insert(sessions, {
-              ulid = session_ulid,
-              db_path = db_path,
-              msg_count = db.get_message_count(d),
-              first_prompt = db.get_first_user_prompt(d),
-              timestamp = ts,
-              name = db.get_context(d, "session_name"),
-            })
+                ulid = session_ulid,
+                db_path = db_path,
+                msg_count = db.get_message_count(d),
+                first_prompt = db.get_first_user_prompt(d),
+                timestamp = ts,
+                name = db.get_context(d, "session_name"),
+              })
             db.close(d)
           end
         end
@@ -168,8 +168,8 @@ local function list_sessions(cwd?: string): {Session}
 
   -- Sort by ULID descending (most recent first - ULID encodes timestamp)
   table.sort(sessions, function(a: Session, b: Session): boolean
-    return a.ulid > b.ulid
-  end)
+      return a.ulid > b.ulid
+    end)
 
   return sessions
 end
@@ -223,12 +223,12 @@ end
 
 local function usage_text(): string
   local parts: {string} = {}
-  
+
   -- Load base help text from embedded file
   local base_help = cio.slurp("/zip/embed/sys/help.md") or ""
-  
+
   table.insert(parts, base_help)
-  
+
   -- Append dynamic model aliases
   for alias, full in pairs(api.MODEL_ALIASES) do
     table.insert(parts, string.format("  %-18s  %s\n", alias, full))
@@ -239,8 +239,6 @@ end
 local function usage()
   io.stderr:write(usage_text())
 end
-
-
 
 -- List all sessions
 local function cmd_sessions(cwd: string, current_ulid: string)
@@ -261,7 +259,7 @@ local function cmd_sessions(cwd: string, current_ulid: string)
       preview = preview .. "..."
     end
     io.write(string.format("%s %s  %s  %2d msgs%s  %s\n",
-      marker, short_ulid, time_str, s.msg_count, name_str, preview))
+        marker, short_ulid, time_str, s.msg_count, name_str, preview))
   end
 end
 
@@ -296,7 +294,7 @@ local function cmd_usage(d: db.DB)
 
   for _, e in ipairs(ev) do
     if e.details then
-      local detail = json.decode(e.details) as {string:any}
+      local detail = json.decode(e.details) as {string: any}
       if detail then
         local inp = (detail.input_tokens or 0) as integer
         local out = (detail.output_tokens or 0) as integer
@@ -330,8 +328,8 @@ local function cmd_usage(d: db.DB)
     io.write("\ncalls:\n")
     for i, c in ipairs(calls) do
       io.write(string.format("  #%-3d +%-6s in  +%-6s out  %4dms  %s\n",
-        i, format_tokens(c.input), format_tokens(c.output),
-        c.latency, short_model(c.model)))
+          i, format_tokens(c.input), format_tokens(c.output),
+          c.latency, short_model(c.model)))
     end
   end
 end
@@ -380,7 +378,6 @@ local function make_cli_handler(skill_name: string): events.EventCallback
   local RESET = is_tty and "\27[0m" or ""
   local has_text = false
   local text_buffer: {string} = {}
-
 
   -- Flush buffered agent response text to stdout
   local function flush_text()
@@ -502,8 +499,8 @@ local function make_cli_handler(skill_name: string): events.EventCallback
         local is_diff_cmd = false
         if is_tty and event.tool_name == "bash" and key ~= "" then
           is_diff_cmd = key:match("diff") ~= nil
-            or key:match("show") ~= nil
-            or key:match("log %-p") ~= nil
+          or key:match("show") ~= nil
+          or key:match("log %-p") ~= nil
         end
 
         local lines: {string} = {}
@@ -713,7 +710,7 @@ local record FetchMod
 end
 
 local record ChildMod
-  spawn: function({string}, {string:any}): ChildHandle, string
+  spawn: function({string}, {string: any}): ChildHandle, string
 end
 
 local record ChildHandle
@@ -733,8 +730,8 @@ end
 
 -- OptionDef describes a command-line option
 local record OptionDef
-  name: string           -- long name (e.g. "output")
-  short: string          -- short name (e.g. "o")
+  name: string -- long name (e.g. "output")
+  short: string -- short name (e.g. "o")
   has_arg: OptionArgType
 end
 
@@ -742,13 +739,13 @@ end
 -- Returns a table mapping option names to their values (nil if not present).
 -- Supports -s val, -sval, --name val forms. Last occurrence wins.
 -- This allows parsing options that appear after a subcommand.
-local function parse_subcommand_options(args: {string}, opts: {OptionDef}): {string:string}
-  local result: {string:string} = {}
-  
+local function parse_subcommand_options(args: {string}, opts: {OptionDef}): {string: string}
+  local result: {string: string} = {}
+
   -- Build optstring for getopt
   local optstring_parts: {string} = {}
-  local opt_map: {string:string} = {}  -- maps short letter to long name
-  
+  local opt_map: {string: string} = {} -- maps short letter to long name
+
   for _, opt in ipairs(opts) do
     optstring_parts[#optstring_parts + 1] = opt.short
     if opt.has_arg == "required" then
@@ -756,7 +753,7 @@ local function parse_subcommand_options(args: {string}, opts: {OptionDef}): {str
     end
     opt_map[opt.short] = opt.name
   end
-  
+
   local optstring = table.concat(optstring_parts)
   -- Convert OptionDef to the format expected by getopt
   local longopts: {getopt.LongOpt} = {}
@@ -768,21 +765,21 @@ local function parse_subcommand_options(args: {string}, opts: {OptionDef}): {str
     }
   end
   local parser = getopt.new(args, optstring, longopts)
-  
+
   while true do
     local opt, optarg = parser:next()
     if not opt then break end
-    
+
     -- Map short option letters to long names
     local name = opt_map[opt] or opt
-    
+
     if optarg then
       result[name] = optarg
     else
       result[name] = "true"
     end
   end
-  
+
   return result
 end
 
@@ -801,7 +798,7 @@ local function main(args: {string}): integer, string
   if os.getenv("AH_SANDBOX") then
     -- Unveil: restrict filesystem visibility
     local cwd_for_unveil = fs.getcwd()
-    sandbox.unveil(cwd_for_unveil, "rwxc")  -- workspace
+    sandbox.unveil(cwd_for_unveil, "rwxc") -- workspace
     -- Protect directories from earlier phases (more specific = higher priority)
     local protect = parse_protect_dirs(os.getenv("AH_PROTECT_DIRS"))
     for _, dir in ipairs(protect) do
@@ -819,21 +816,21 @@ local function main(args: {string}): integer, string
         end
       end
     end
-    sandbox.unveil("/tmp", "rwxc")           -- proxy socket, temp files, APE binaries
-    sandbox.unveil("/usr", "rx")             -- system binaries
-    sandbox.unveil("/bin", "rx")             -- system binaries
-    sandbox.unveil("/lib", "rx")             -- shared libraries
-    sandbox.unveil("/lib64", "rx")           -- shared libraries (64-bit)
-    sandbox.unveil("/etc/ssl", "r")          -- CA certificates
-    sandbox.unveil("/etc/resolv.conf", "r")  -- DNS config
-    sandbox.unveil("/dev/null", "rw")         -- git and other tools need /dev/null
-    sandbox.unveil("/dev/tty", "rw")          -- terminal access for interactive tools
-    sandbox.unveil("/proc/self", "r")         -- bash and make need /proc/self for process info
+    sandbox.unveil("/tmp", "rwxc") -- proxy socket, temp files, APE binaries
+    sandbox.unveil("/usr", "rx") -- system binaries
+    sandbox.unveil("/bin", "rx") -- system binaries
+    sandbox.unveil("/lib", "rx") -- shared libraries
+    sandbox.unveil("/lib64", "rx") -- shared libraries (64-bit)
+    sandbox.unveil("/etc/ssl", "r") -- CA certificates
+    sandbox.unveil("/etc/resolv.conf", "r") -- DNS config
+    sandbox.unveil("/dev/null", "rw") -- git and other tools need /dev/null
+    sandbox.unveil("/dev/tty", "rw") -- terminal access for interactive tools
+    sandbox.unveil("/proc/self", "r") -- bash and make need /proc/self for process info
     local home = os.getenv("HOME")
     if home then
-      sandbox.unveil(home, "r")              -- git/tool configs
+      sandbox.unveil(home, "r") -- git/tool configs
     end
-    sandbox.unveil(nil, nil)                 -- commit unveil
+    sandbox.unveil(nil, nil) -- commit unveil
 
     -- Pledge: drop inet, keep unix for proxy socket
     -- stdio: basic I/O
@@ -953,11 +950,11 @@ local function main(args: {string}): integer, string
       if a == "--sandbox" then
         -- skip
       elseif a == "--timeout" then
-        i = i + 1  -- skip value too
+        i = i + 1 -- skip value too
       elseif a == "--allow-host" then
-        i = i + 1  -- skip value too
+        i = i + 1 -- skip value too
       elseif a == "--unveil" then
-        i = i + 1  -- skip value too
+        i = i + 1 -- skip value too
       else
         table.insert(child_args, a)
       end
@@ -1023,10 +1020,10 @@ local function main(args: {string}): integer, string
       sub_args[#sub_args + 1] = remaining[si]
     end
     local embed_opts: {OptionDef} = {{
-      name = "output",
-      short = "o",
-      has_arg = "required"
-    }}
+        name = "output",
+        short = "o",
+        has_arg = "required"
+      }}
     local opts = parse_subcommand_options(sub_args, embed_opts)
     local effective_output = opts.output or output_path
     -- Create temp structure with embed/ prefix
@@ -1210,7 +1207,7 @@ local function main(args: {string}): integer, string
   if not parent_id then
     local last = db.get_last_message(d)
     if last then
-      parent_id = (last as {string:any}).id as string
+      parent_id = (last as {string: any}).id as string
     end
   end
 
@@ -1325,10 +1322,10 @@ local function main(args: {string}): integer, string
   -- 2. Immediately abort any running tool processes (SIGTERM -> SIGKILL)
   -- 3. Release session lock
   signal.sigaction(signal.SIGINT, function()
-    interrupted = true
-    tools.abort_running_tools()
-    queue.release_lock(qdb)
-  end)
+      interrupted = true
+      tools.abort_running_tools()
+      queue.release_lock(qdb)
+    end)
 
   -- Resolve model: --model flag > AH_MODEL env > default
   local effective_model = api.resolve_model(model or os.getenv("AH_MODEL"))

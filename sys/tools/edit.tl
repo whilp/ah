@@ -14,7 +14,7 @@ return {
     },
     required = {"path", "old_string", "new_string"},
   },
-  execute = function(input: {string:any}): string, boolean, any
+  execute = function(input: {string: any}): string, boolean, any
     local file_path = input.path as string
     local old_string = input.old_string as string
     local new_string = input.new_string as string

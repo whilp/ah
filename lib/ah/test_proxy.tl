@@ -19,7 +19,7 @@ local record Proxy
   parse_connect: function(string): string, string
   resolvehost: function(string): ip.Addr, string
   is_allowed: function(string): boolean
-  parse_allow_hosts: function(string): {string:boolean}
+  parse_allow_hosts: function(string): {string: boolean}
   parse_base_url: function(string): string
   nb_connect: function(Socket, number, integer): boolean, string
   send_all: function(Socket, string): boolean, string
@@ -383,7 +383,7 @@ local function test_send_all_large()
   local chunks: {string} = {}
   local total = 0
   while total < #test_data do
-    local fds: {number:number} = { [(client as Socket).fd] = net.POLLIN }
+    local fds: {number: number} = {[(client as Socket).fd] = net.POLLIN}
     net.poll(fds, 5000)
     local chunk = (client as Socket):recv(65536)
     if not chunk or chunk == "" then break end

@@ -56,10 +56,10 @@ local function test_content_blocks()
 
   -- Add tool_use block
   local block2 = db.add_content_block(d, msg.id, "tool_use", {
-    tool_id = "tool_123",
-    tool_name = "read",
-    tool_input = '{"path": "/tmp/test"}',
-  })
+      tool_id = "tool_123",
+      tool_name = "read",
+      tool_input = '{"path": "/tmp/test"}',
+    })
   assert(block2.seq == 1, "second block should have seq 1")
   assert(block2.tool_name == "read", "tool_name mismatch")
 
@@ -298,12 +298,12 @@ local function test_message_metadata()
 
   -- Create message with metadata
   local msg2 = db.create_message(d, "assistant", msg1.id, {
-    input_tokens = 100,
-    output_tokens = 50,
-    stop_reason = "end_turn",
-    model = "claude-sonnet",
-    api_latency_ms = 1500,
-  })
+      input_tokens = 100,
+      output_tokens = 50,
+      stop_reason = "end_turn",
+      model = "claude-sonnet",
+      api_latency_ms = 1500,
+    })
   assert(msg2.input_tokens == 100, "input_tokens mismatch")
   assert(msg2.output_tokens == 50, "output_tokens mismatch")
   assert(msg2.stop_reason == "end_turn", "stop_reason mismatch")
@@ -327,10 +327,10 @@ local function test_content_block_duration()
 
   -- Add tool result with duration
   local block2 = db.add_content_block(d, msg.id, "tool_result", {
-    tool_id = "t1",
-    tool_output = "output",
-    duration_ms = 250,
-  })
+      tool_id = "t1",
+      tool_output = "output",
+      duration_ms = 250,
+    })
   assert(block2.duration_ms == 250, "duration_ms mismatch")
 
   -- Verify via query
@@ -381,18 +381,18 @@ local function test_content_block_details()
 
   -- Add tool result without details
   local block1 = db.add_content_block(d, msg.id, "tool_result", {
-    tool_id = "t1",
-    tool_output = "output",
-  })
+      tool_id = "t1",
+      tool_output = "output",
+    })
   assert(block1.details == nil, "block without details should be nil")
 
   -- Add tool result with details
   local details_json = '{"path":"/tmp/test.txt","line_count":42}'
   local block2 = db.add_content_block(d, msg.id, "tool_result", {
-    tool_id = "t2",
-    tool_output = "file contents",
-    details = details_json,
-  })
+      tool_id = "t2",
+      tool_output = "file contents",
+      details = details_json,
+    })
   assert(block2.details == details_json, "details mismatch on insert")
 
   -- Verify via query
@@ -467,14 +467,14 @@ local function test_session_token_totals()
   -- Create messages with token counts
   local msg1 = db.create_message(d, "user")
   local msg2 = db.create_message(d, "assistant", msg1.id, {
-    input_tokens = 100,
-    output_tokens = 50,
-  })
+      input_tokens = 100,
+      output_tokens = 50,
+    })
   local msg3 = db.create_message(d, "user", msg2.id)
   local msg4 = db.create_message(d, "assistant", msg3.id, {
-    input_tokens = 200,
-    output_tokens = 75,
-  })
+      input_tokens = 200,
+      output_tokens = 75,
+    })
 
   local totals = db.get_session_token_totals(d)
   assert(totals.input_tokens == 300, "input_tokens should be 300, got " .. totals.input_tokens)
@@ -489,11 +489,11 @@ local function test_session_token_totals_with_nil()
   local db_path = fs.join(TEST_TMPDIR, "tokens_nil.db")
   local d = db.open(db_path)
 
-  local msg1 = db.create_message(d, "user")  -- nil tokens
+  local msg1 = db.create_message(d, "user") -- nil tokens
   local msg2 = db.create_message(d, "assistant", msg1.id, {
-    input_tokens = 500,
-    output_tokens = 100,
-  })
+      input_tokens = 500,
+      output_tokens = 100,
+    })
 
   local totals = db.get_session_token_totals(d)
   assert(totals.input_tokens == 500, "should handle nil tokens, got " .. totals.input_tokens)

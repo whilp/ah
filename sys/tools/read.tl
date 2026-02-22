@@ -4,7 +4,7 @@ local cio = require("cosmic.io")
 local codec = require("cosmic.codec")
 local json = require("cosmic.json")
 
-local IMAGE_TYPES: {string:string} = {
+local IMAGE_TYPES: {string: string} = {
   jpg = "image/jpeg",
   jpeg = "image/jpeg",
   png = "image/png",
@@ -46,7 +46,7 @@ return {
     },
     required = {"path"},
   },
-  execute = function(input: {string:any}): string, boolean, any
+  execute = function(input: {string: any}): string, boolean, any
     local file_path = input.path as string
     if not file_path then
       return "error: path is required", true
@@ -68,13 +68,13 @@ return {
       local image_block = {
         __image__ = true,
         content = {{
-          type = "image",
-          source = {
-            type = "base64",
-            media_type = media_type,
-            data = base64_data,
-          },
-        }},
+            type = "image",
+            source = {
+              type = "base64",
+              media_type = media_type,
+              data = base64_data,
+            },
+          }},
       }
       return json.encode(image_block), false, {path = file_path, bytes = #content, media_type = media_type}
     end

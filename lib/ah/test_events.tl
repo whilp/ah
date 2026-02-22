@@ -151,7 +151,7 @@ local function test_to_json()
   local json_str = events.to_json(e)
   assert(json_str, "should produce JSON string")
 
-  local parsed = json.decode(json_str) as {string:any}
+  local parsed = json.decode(json_str) as {string: any}
   assert(parsed, "should parse back as valid JSON")
   assert(parsed.event_type == "agent_start", "event_type should survive round-trip")
   assert(parsed.model == "claude-sonnet", "model should survive round-trip")
@@ -163,7 +163,7 @@ test_to_json()
 local function test_to_json_omits_nil()
   local e = events.text_delta("hi")
   local json_str = events.to_json(e)
-  local parsed = json.decode(json_str) as {string:any}
+  local parsed = json.decode(json_str) as {string: any}
 
   -- text_delta should only have event_type, timestamp, text
   assert(parsed.event_type == "text_delta", "should have event_type")
@@ -205,7 +205,7 @@ test_state_change()
 local function test_state_change_json()
   local e = events.state_change("processing", "idle")
   local json_str = events.to_json(e)
-  local parsed = json.decode(json_str) as {string:any}
+  local parsed = json.decode(json_str) as {string: any}
   assert(parsed.event_type == "state_change", "event_type should survive round-trip")
   assert(parsed.from_state == "processing", "from_state should survive round-trip")
   assert(parsed.to_state == "idle", "to_state should survive round-trip")
@@ -234,7 +234,7 @@ test_loop_detected_break()
 local function test_loop_detected_json()
   local e = events.loop_detected(4, "edit:/tmp/file.lua", "warn")
   local json_str = events.to_json(e)
-  local parsed = json.decode(json_str) as {string:any}
+  local parsed = json.decode(json_str) as {string: any}
   assert(parsed.event_type == "loop_detected", "event_type should survive round-trip")
   assert(parsed.consecutive_count == 4, "consecutive_count should survive round-trip")
   assert(parsed.turn_signature == "edit:/tmp/file.lua", "turn_signature should survive round-trip")
@@ -256,7 +256,7 @@ test_budget_exceeded()
 local function test_budget_exceeded_json()
   local e = events.budget_exceeded(100000, 25000, 120000)
   local json_str = events.to_json(e)
-  local parsed = json.decode(json_str) as {string:any}
+  local parsed = json.decode(json_str) as {string: any}
   assert(parsed.event_type == "budget_exceeded", "event_type should survive round-trip")
   assert(parsed.total_input_tokens == 100000, "total_input_tokens should survive round-trip")
   assert(parsed.total_output_tokens == 25000, "total_output_tokens should survive round-trip")
@@ -278,7 +278,7 @@ test_steering_received()
 local function test_steering_received_json()
   local e = events.steering_received("change direction", 1)
   local json_str = events.to_json(e)
-  local parsed = json.decode(json_str) as {string:any}
+  local parsed = json.decode(json_str) as {string: any}
   assert(parsed.event_type == "steering_received", "event_type should survive round-trip")
   assert(parsed.content == "change direction", "content should survive round-trip")
   assert(parsed.message_count == 1, "message_count should survive round-trip")
@@ -299,7 +299,7 @@ test_followup_received()
 local function test_followup_received_json()
   local e = events.followup_received("follow up task", 1)
   local json_str = events.to_json(e)
-  local parsed = json.decode(json_str) as {string:any}
+  local parsed = json.decode(json_str) as {string: any}
   assert(parsed.event_type == "followup_received", "event_type should survive round-trip")
   assert(parsed.content == "follow up task", "content should survive round-trip")
 end
@@ -318,7 +318,7 @@ test_compaction_triggered()
 local function test_compaction_triggered_json()
   local e = events.compaction_triggered(180000, 200000)
   local json_str = events.to_json(e)
-  local parsed = json.decode(json_str) as {string:any}
+  local parsed = json.decode(json_str) as {string: any}
   assert(parsed.event_type == "compaction_triggered", "event_type should survive round-trip")
   assert(parsed.input_tokens == 180000, "input_tokens should survive round-trip")
   assert(parsed.context_limit == 200000, "context_limit should survive round-trip")
@@ -338,7 +338,7 @@ test_compaction_complete()
 local function test_compaction_complete_json()
   local e = events.compaction_complete(150000, 3000)
   local json_str = events.to_json(e)
-  local parsed = json.decode(json_str) as {string:any}
+  local parsed = json.decode(json_str) as {string: any}
   assert(parsed.event_type == "compaction_complete", "event_type should survive round-trip")
   assert(parsed.input_tokens == 150000, "input_tokens should survive round-trip")
   assert(parsed.output_tokens == 3000, "output_tokens should survive round-trip")

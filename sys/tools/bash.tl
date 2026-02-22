@@ -42,7 +42,7 @@ return {
     },
     required = {"command"},
   },
-  execute = function(input: {string:any}): string, boolean, any
+  execute = function(input: {string: any}): string, boolean, any
     local command = input.command as string
     if not command then
       return "error: command is required", true
@@ -60,7 +60,7 @@ return {
       return "error: failed to spawn: " .. tostring(err), true
     end
 
-    local pid = (handle as {string:any}).pid as integer
+    local pid = (handle as {string: any}).pid as integer
     if pid then
       running_processes[pid] = handle
     end

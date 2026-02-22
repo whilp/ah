@@ -58,7 +58,7 @@ local function test_heartbeat()
   local heartbeat1 = info1.heartbeat_at
 
   -- Wait a moment and update heartbeat
-  time.sleep(0, 10000000)  -- 10ms
+  time.sleep(0, 10000000) -- 10ms
   queue.update_heartbeat(qdb)
 
   local info2 = queue.get_lock_info(qdb)

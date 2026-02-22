@@ -29,10 +29,10 @@ local function parse_makefile(content: string): {Item}
     if target_match then
       if pending_comment then
         table.insert(items, {
-          type = "target",
-          name = target_match,
-          description = pending_comment,
-        })
+            type = "target",
+            name = target_match,
+            description = pending_comment,
+          })
       end
       pending_comment = nil
       goto continue
@@ -42,10 +42,10 @@ local function parse_makefile(content: string): {Item}
     if var_match then
       if pending_comment then
         table.insert(items, {
-          type = "option",
-          name = var_match,
-          description = pending_comment,
-        })
+            type = "option",
+            name = var_match,
+            description = pending_comment,
+          })
       end
       pending_comment = nil
       goto continue

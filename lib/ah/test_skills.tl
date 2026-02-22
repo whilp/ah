@@ -164,7 +164,7 @@ end
 test_format_skills_empty()
 
 local function test_format_skills_one()
-  local s: {string:skills.Skill} = {
+  local s: {string: skills.Skill} = {
     ["test-skill"] = {
       name = "test-skill",
       description = "A test skill.",
@@ -182,9 +182,9 @@ end
 test_format_skills_one()
 
 local function test_format_skills_sorted()
-  local s: {string:skills.Skill} = {
-    ["beta"] = { name = "beta", description = "B skill.", file_path = "/b.md", base_dir = "/" },
-    ["alpha"] = { name = "alpha", description = "A skill.", file_path = "/a.md", base_dir = "/" },
+  local s: {string: skills.Skill} = {
+    ["beta"] = {name = "beta", description = "B skill.", file_path = "/b.md", base_dir = "/"},
+    ["alpha"] = {name = "alpha", description = "A skill.", file_path = "/a.md", base_dir = "/"},
   }
   local result = skills.format_skills_for_prompt(s)
   local alpha_pos = result:find("alpha")
@@ -201,7 +201,7 @@ local function test_expand_skill_basic()
   local skill_path = fs.join(skill_dir, "greet.md")
   cio.barf(skill_path, "---\nname: greet\ndescription: Greet someone.\n---\n# Greeting Skill\n\nSay hello politely.")
 
-  local s: {string:skills.Skill} = {
+  local s: {string: skills.Skill} = {
     greet = {
       name = "greet",
       description = "Greet someone.",
@@ -224,7 +224,7 @@ local function test_expand_skill_with_args()
   local skill_path = fs.join(skill_dir, "format.md")
   cio.barf(skill_path, "---\nname: format\ndescription: Format code.\n---\nFormat the code.")
 
-  local s: {string:skills.Skill} = {
+  local s: {string: skills.Skill} = {
     format = {
       name = "format",
       description = "Format code.",
@@ -308,7 +308,6 @@ local function test_load_skills_project_subdirectory_skill()
     "subdirectory skill base_dir should be the subdirectory")
 end
 test_load_skills_project_subdirectory_skill()
-
 
 local function test_dot_ah_skills_wins()
   -- .ah/skills should take precedence over skills/

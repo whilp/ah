@@ -96,8 +96,8 @@ local function test_list_sessions()
 
   -- Create two session dbs with different ULIDs (26 chars each)
   -- Use ULIDs that sort predictably (earlier timestamp = lexically smaller)
-  local ulid1 = "01KGW111111111111111111111"  -- earlier (26 chars)
-  local ulid2 = "01KGW222222222222222222222"  -- later (26 chars)
+  local ulid1 = "01KGW111111111111111111111" -- earlier (26 chars)
+  local ulid2 = "01KGW222222222222222222222" -- later (26 chars)
 
   local d1 = db.open(fs.join(ah_dir, ulid1 .. ".db"))
   local msg1 = db.create_message(d1, "user")
@@ -132,7 +132,7 @@ local function test_resolve_session_exact()
   local ah_dir = fs.join(cwd, ".ah")
   fs.makedirs(ah_dir)
 
-  local ulid1 = "01KGWAAAAAAAAAAAAAAAAAAAAA"  -- 26 chars
+  local ulid1 = "01KGWAAAAAAAAAAAAAAAAAAAAA" -- 26 chars
   local d1 = db.open(fs.join(ah_dir, ulid1 .. ".db"))
   db.create_message(d1, "user")
   db.close(d1)
@@ -148,7 +148,7 @@ local function test_resolve_session_prefix()
   local ah_dir = fs.join(cwd, ".ah")
   fs.makedirs(ah_dir)
 
-  local ulid1 = "01KGWBBBBBBBBBBBBBBBBBBBBB"  -- 26 chars
+  local ulid1 = "01KGWBBBBBBBBBBBBBBBBBBBBB" -- 26 chars
   local d1 = db.open(fs.join(ah_dir, ulid1 .. ".db"))
   db.create_message(d1, "user")
   db.close(d1)
@@ -164,8 +164,8 @@ local function test_resolve_session_ambiguous()
   local ah_dir = fs.join(cwd, ".ah")
   fs.makedirs(ah_dir)
 
-  local ulid1 = "01KGWCCCCC1111111111111111"  -- 26 chars
-  local ulid2 = "01KGWCCCCC2222222222222222"  -- 26 chars
+  local ulid1 = "01KGWCCCCC1111111111111111" -- 26 chars
+  local ulid2 = "01KGWCCCCC2222222222222222" -- 26 chars
   local d1 = db.open(fs.join(ah_dir, ulid1 .. ".db"))
   db.create_message(d1, "user")
   db.close(d1)
@@ -358,12 +358,12 @@ test_parse_args_unveil_multiple()
 
 local function test_parse_args_sandbox_combined()
   local parsed = init.parse_args({
-    "--sandbox", "--timeout", "180",
-    "--allow-host", "hooks.slack.com:443",
-    "--unveil", "o/work/plan:r",
-    "-m", "opus", "--db", "test.db",
-    "do the thing"
-  })
+      "--sandbox", "--timeout", "180",
+      "--allow-host", "hooks.slack.com:443",
+      "--unveil", "o/work/plan:r",
+      "-m", "opus", "--db", "test.db",
+      "do the thing"
+    })
   assert(parsed, "should parse successfully")
   assert(parsed.sandbox == true, "sandbox should be true")
   assert(parsed.timeout == 180, "timeout should be 180")
@@ -572,7 +572,7 @@ end
 
 local record InitTool
   colorize_tool_line: function(string): string, boolean
-  parse_subcommand_options: function({string}, {OptionDef}): {string:string}
+  parse_subcommand_options: function({string}, {OptionDef}): {string: string}
   parse_args: function({string}): ParsedArgsView, string
 end
 local init_tool = require("ah.init") as InitTool

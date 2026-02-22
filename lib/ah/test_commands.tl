@@ -104,7 +104,7 @@ test_substitute_missing_args()
 -- Tests for expand_command
 local function test_expand_known_command()
   local cmds = {
-    test = { name = "test", content = "Hello $1!" }
+    test = {name = "test", content = "Hello $1!"}
   }
   local expanded, was_cmd = commands.expand_command("/test world", cmds)
   assert(was_cmd == true, "should be a command")
@@ -121,7 +121,7 @@ end
 test_expand_unknown_command()
 
 local function test_expand_not_command()
-  local cmds = { test = { name = "test", content = "Hello!" } }
+  local cmds = {test = {name = "test", content = "Hello!"}}
   local expanded, was_cmd = commands.expand_command("not a /command", cmds)
   assert(was_cmd == false, "should not be a command")
   assert(expanded == "not a /command", "should pass through unchanged")
@@ -129,7 +129,7 @@ end
 test_expand_not_command()
 
 local function test_expand_command_no_args()
-  local cmds = { hello = { name = "hello", content = "Just hello!" } }
+  local cmds = {hello = {name = "hello", content = "Just hello!"}}
   local expanded, was_cmd = commands.expand_command("/hello", cmds)
   assert(was_cmd == true, "should be a command")
   assert(expanded == "Just hello!", "expected 'Just hello!', got: " .. expanded)
@@ -137,7 +137,7 @@ end
 test_expand_command_no_args()
 
 local function test_expand_command_with_all_args()
-  local cmds = { echo = { name = "echo", content = "You said: $@" } }
+  local cmds = {echo = {name = "echo", content = "You said: $@"}}
   local expanded, was_cmd = commands.expand_command("/echo hello world", cmds)
   assert(was_cmd == true, "should be a command")
   assert(expanded == "You said: hello world", "expected 'You said: hello world', got: " .. expanded)
@@ -146,8 +146,8 @@ test_expand_command_with_all_args()
 
 local function test_expand_command_hyphen_underscore()
   local cmds = {
-    ["my-cmd"] = { name = "my-cmd", content = "hyphen: $1" },
-    ["my_cmd"] = { name = "my_cmd", content = "underscore: $1" }
+    ["my-cmd"] = {name = "my-cmd", content = "hyphen: $1"},
+    ["my_cmd"] = {name = "my_cmd", content = "underscore: $1"}
   }
   local e1, w1 = commands.expand_command("/my-cmd test", cmds)
   assert(w1 == true, "hyphen command should work")
