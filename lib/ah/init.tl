@@ -1378,4 +1378,6 @@ return {
   usage_text = usage_text,
   colorize_diff_line = colorize_diff_line,
   colorize_tool_line = colorize_tool_line,
+  format_tokens = format_tokens,
+  make_cli_handler = make_cli_handler,
 }
