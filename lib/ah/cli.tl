@@ -116,8 +116,8 @@ local function to_unified_diff(pseudo_diff: string, file_path: string): string
   end
 
   local header = "--- a/" .. file_path .. "\n"
-    .. "+++ b/" .. file_path .. "\n"
-    .. "@@ -1," .. old_count .. " +1," .. new_count .. " @@\n"
+  .. "+++ b/" .. file_path .. "\n"
+  .. "@@ -1," .. old_count .. " +1," .. new_count .. " @@\n"
 
   return header .. table.concat(unified_lines, "\n") .. "\n"
 end
