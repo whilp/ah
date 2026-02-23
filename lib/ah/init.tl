@@ -405,6 +405,36 @@ local function main(args: {string}): integer, string
   end
 
   local effective_system = prompt_mod.load_system_prompt(cwd)
+
+  -- Append sandbox context when running inside a sandbox child.
+  -- Env vars (AH_SANDBOX, AH_UNVEIL, AH_ALLOW_HOSTS) carry the config in child mode.
+  if os.getenv("AH_SANDBOX") then
+    local unveil_entries: {string} = {}
+    local unveil_env = os.getenv("AH_UNVEIL")
+    if unveil_env then
+      for entry in unveil_env:gmatch("[^,]+") do
+        unveil_entries[#unveil_entries + 1] = entry
+      end
+    end
+    local host_entries: {string} = {}
+    local hosts_env = os.getenv("AH_ALLOW_HOSTS")
+    if hosts_env then
+      for entry in hosts_env:gmatch("[^,]+") do
+        host_entries[#host_entries + 1] = entry
+      end
+    end
+    local sandbox_info = prompt_mod.format_sandbox_context({
+        enabled = true,
+        argv = args,
+        unveil_dirs = unveil_entries,
+        allow_hosts = host_entries,
+        pledge_promises = "stdio rpath wpath cpath flock tty proc exec execnative unix prot_exec",
+      })
+    if sandbox_info ~= "" then
+      effective_system = effective_system .. "\n\n" .. sandbox_info
+    end
+  end
+
   local tools_prompt = tools.format_tools_for_prompt()
   if tools_prompt ~= "" then effective_system = effective_system .. "\n\n" .. tools_prompt end
   local skills_prompt = skills.format_skills_for_prompt(loaded_skills)
@@ -451,6 +481,7 @@ return {
   parse_subcommand_options = args_mod.parse_subcommand_options,
   load_system_prompt = prompt_mod.load_system_prompt,
   load_claude_md = prompt_mod.load_claude_md,
+  format_sandbox_context = prompt_mod.format_sandbox_context,
   list_sessions = sessions_mod.list_sessions,
   resolve_session = sessions_mod.resolve_session,
   parse_protect_dirs = args_mod.parse_protect_dirs,

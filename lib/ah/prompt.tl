@@ -91,7 +91,54 @@ local function load_system_prompt(cwd: string): string
   return base
 end
 
+local record SandboxOpts
+  enabled: boolean
+  argv: {string}
+  unveil_dirs: {string}
+  allow_hosts: {string}
+  pledge_promises: string
+  protect_dirs: {string}
+end
+
+-- Format sandbox context for the system prompt.
+-- Returns empty string when opts.enabled is false/nil.
+local function format_sandbox_context(opts: SandboxOpts): string
+  if not opts or not opts.enabled then return "" end
+
+  local parts: {string} = {"## Sandbox"}
+
+  -- Command / argv
+  if opts.argv and #opts.argv > 0 then
+    parts[#parts + 1] = "\nCommand: " .. table.concat(opts.argv, " ")
+  end
+
+  -- Filesystem (unveil)
+  if opts.unveil_dirs and #opts.unveil_dirs > 0 then
+    parts[#parts + 1] = "\n### Filesystem (unveil)"
+    for _, entry in ipairs(opts.unveil_dirs) do
+      parts[#parts + 1] = "- " .. entry
+    end
+  end
+
+  -- Network (proxy allowlist)
+  if opts.allow_hosts and #opts.allow_hosts > 0 then
+    parts[#parts + 1] = "\n### Network (proxy allowlist)"
+    for _, host in ipairs(opts.allow_hosts) do
+      parts[#parts + 1] = "- " .. host
+    end
+  end
+
+  -- Syscalls (pledge)
+  if opts.pledge_promises and opts.pledge_promises ~= "" then
+    parts[#parts + 1] = "\n### Syscalls (pledge)\n" .. opts.pledge_promises
+  end
+
+  return table.concat(parts, "\n")
+end
+
 return {
   load_claude_md = load_claude_md,
   load_system_prompt = load_system_prompt,
+  format_sandbox_context = format_sandbox_context,
+  SandboxOpts = SandboxOpts,
 }

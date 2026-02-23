@@ -194,4 +194,57 @@ local function test_resolve_session_not_found()
 end
 test_resolve_session_not_found()
 
+-- format_sandbox_context tests
+
+local function test_format_sandbox_context_disabled()
+  local result = prompt_mod.format_sandbox_context({enabled = false})
+  assert(result == "", "should return empty string when disabled")
+end
+test_format_sandbox_context_disabled()
+
+local function test_format_sandbox_context_enabled()
+  local result = prompt_mod.format_sandbox_context({
+      enabled = true,
+      argv = {"ah", "--sandbox", "do something"},
+      unveil_dirs = {"/home/user/repo:rwxc", "/tmp:rwxc", "/usr:rx"},
+      allow_hosts = {"api.anthropic.com:443"},
+      pledge_promises = "stdio rpath wpath cpath",
+    })
+  assert(result:match("## Sandbox"), "should contain Sandbox heading")
+  assert(result:match("Command: ah"), "should contain command")
+  assert(result:match("Filesystem %(unveil%)"), "should contain filesystem section")
+  assert(result:match("/home/user/repo:rwxc"), "should list unveil dirs")
+  assert(result:match("Network %(proxy allowlist%)"), "should contain network section")
+  assert(result:match("api%.anthropic%.com:443"), "should list allowed hosts")
+  assert(result:match("Syscalls %(pledge%)"), "should contain pledge section")
+  assert(result:match("stdio rpath"), "should list pledge promises")
+end
+test_format_sandbox_context_enabled()
+
+local function test_format_sandbox_context_empty_hosts()
+  local result = prompt_mod.format_sandbox_context({
+      enabled = true,
+      argv = {"ah"},
+      unveil_dirs = {"/tmp:rwxc"},
+      allow_hosts = {},
+      pledge_promises = "stdio rpath",
+    })
+  assert(result:match("## Sandbox"), "should contain Sandbox heading")
+  assert(not result:match("Network"), "should not contain network section when empty")
+end
+test_format_sandbox_context_empty_hosts()
+
+local function test_format_sandbox_context_empty_unveil()
+  local result = prompt_mod.format_sandbox_context({
+      enabled = true,
+      argv = {"ah"},
+      unveil_dirs = {},
+      allow_hosts = {"api.anthropic.com:443"},
+      pledge_promises = "stdio rpath",
+    })
+  assert(result:match("## Sandbox"), "should contain Sandbox heading")
+  assert(not result:match("Filesystem"), "should not contain filesystem section when empty")
+end
+test_format_sandbox_context_empty_unveil()
+
 print("all init tests passed")
