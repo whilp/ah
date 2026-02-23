@@ -5,6 +5,128 @@ local loop = require("ah.loop")
 local render = require("ah.render")
 local compact = require("ah.compact")
 
+-- Cache for find_difftool result across calls.
+-- false means "already checked, no difftool found"; nil means "not yet checked"
+local _difftool_cache: string | boolean = nil
+
+-- Find a difftool for rendering diff output.
+-- Checks AH_DIFFTOOL env var first, then autodetects delta on PATH.
+-- Returns the tool command string, or nil if none available.
+local function find_difftool(): string
+  if _difftool_cache ~= nil then
+    if _difftool_cache == false then
+      return nil
+    end
+    return _difftool_cache as string
+  end
+
+  local env_tool = os.getenv("AH_DIFFTOOL")
+  if env_tool and env_tool ~= "" then
+    _difftool_cache = env_tool
+    return env_tool
+  end
+
+  -- Autodetect delta at common paths
+  local candidates: {string} = {
+    "/usr/bin/delta",
+    "/usr/local/bin/delta",
+    "/opt/homebrew/bin/delta",
+  }
+  for _, path in ipairs(candidates) do
+    local f = io.open(path, "r")
+    if f then
+      f:close()
+      _difftool_cache = path
+      return path
+    end
+  end
+
+  -- Try PATH via command -v
+  local handle = io.popen("command -v delta 2>/dev/null")
+  if handle then
+    local result = handle:read("*l")
+    handle:close()
+    if result and result ~= "" then
+      _difftool_cache = result
+      return result
+    end
+  end
+
+  _difftool_cache = false
+  return nil
+end
+
+-- Run diff text through a difftool subprocess.
+-- Writes diff_text to a temp file and pipes it to the difftool,
+-- avoiding shell quoting issues with Lua's %q format.
+-- Returns rendered output string, or nil on failure.
+local function run_difftool(difftool: string, diff_text: string): string
+  if not difftool or diff_text == "" then
+    return nil
+  end
+  local tmp = os.tmpname()
+  local f = io.open(tmp, "w")
+  if not f then
+    return nil
+  end
+  f:write(diff_text)
+  f:close()
+  local handle = io.popen(difftool .. " < " .. tmp .. " 2>/dev/null")
+  if not handle then
+    os.remove(tmp)
+    return nil
+  end
+  local output = handle:read("*a")
+  local ok = handle:close()
+  os.remove(tmp)
+  if not ok or not output or output == "" then
+    return nil
+  end
+  return output
+end
+
+-- Convert the edit tool's pseudo-diff ("- "/"+ " prefixed lines) to unified diff format.
+-- Adds --- a/path, +++ b/path, and @@ hunk headers so tools like delta can parse
+-- and syntax-highlight the output.
+-- Returns nil if the input doesn't look like edit tool output.
+local function to_unified_diff(pseudo_diff: string, file_path: string): string
+  if not pseudo_diff or pseudo_diff == "" or not file_path or file_path == "" then
+    return nil
+  end
+
+  local old_count = 0
+  local new_count = 0
+  local unified_lines: {string} = {}
+
+  for line in pseudo_diff:gmatch("([^\n]*)\n?") do
+    if line:sub(1, 2) == "- " then
+      old_count = old_count + 1
+      table.insert(unified_lines, "-" .. line:sub(3))
+    elseif line:sub(1, 2) == "+ " then
+      new_count = new_count + 1
+      table.insert(unified_lines, "+" .. line:sub(3))
+    elseif line ~= "" then
+      -- Not a pseudo-diff line; bail out
+      return nil
+    end
+  end
+
+  if old_count == 0 and new_count == 0 then
+    return nil
+  end
+
+  local header = "--- a/" .. file_path .. "\n"
+  .. "+++ b/" .. file_path .. "\n"
+  .. "@@ -1," .. old_count .. " +1," .. new_count .. " @@\n"
+
+  return header .. table.concat(unified_lines, "\n") .. "\n"
+end
+
+-- Reset the difftool cache (for testing).
+local function reset_difftool_cache()
+  _difftool_cache = nil
+end
+
 -- Format token count as human-friendly string (e.g., 1234 -> "1.2k", 12345 -> "12.3k")
 local function format_tokens(n: integer): string
   if n >= 1000000 then
@@ -189,44 +311,61 @@ local function make_cli_handler(skill_name: string): events.EventCallback
       -- Show truncated output (first 3 lines, then count)
       local result = event.tool_output or ""
       if result ~= "" and result ~= "(no output)" then
-        -- Detect diff-like commands for colorization
-        local is_diff_cmd = false
-        if is_tty and event.tool_name == "bash" and key ~= "" then
-          is_diff_cmd = key:match("diff") ~= nil
-          or key:match("show") ~= nil
-          or key:match("log %-p") ~= nil
+        -- For edit tool on a TTY, try to pipe through a difftool
+        local difftool_rendered = false
+        if is_tty and event.tool_name == "edit" then
+          local difftool = find_difftool()
+          if difftool then
+            local file_path = key ~= "" and key or nil
+            local unified = to_unified_diff(result, file_path)
+            local rendered = run_difftool(difftool, unified or result)
+            if rendered then
+              io.stderr:write(rendered)
+              difftool_rendered = true
+            end
+          end
         end
 
-        local lines: {string} = {}
-        for line in result:gmatch("[^\n]+") do
-          table.insert(lines, line)
-        end
-        local max_lines = 3
-        for j = 1, math.min(max_lines, #lines) do
-          local line = lines[j]
-          if #line > 80 then
-            line = line:sub(1, 77) .. "..."
+        if not difftool_rendered then
+          -- Detect diff-like commands for colorization
+          local is_diff_cmd = false
+          if is_tty and event.tool_name == "bash" and key ~= "" then
+            is_diff_cmd = key:match("diff") ~= nil
+            or key:match("show") ~= nil
+            or key:match("log %-p") ~= nil
           end
-          if is_diff_cmd then
-            local colored = colorize_diff_line(line)
-            if colored ~= line then
-              io.stderr:write(string.format("%s%s%s\n", indent, colored, ""))
+
+          local lines: {string} = {}
+          for line in result:gmatch("[^\n]+") do
+            table.insert(lines, line)
+          end
+          local max_lines = 3
+          for j = 1, math.min(max_lines, #lines) do
+            local line = lines[j]
+            if #line > 80 then
+              line = line:sub(1, 77) .. "..."
+            end
+            if is_diff_cmd then
+              local colored = colorize_diff_line(line)
+              if colored ~= line then
+                io.stderr:write(string.format("%s%s%s\n", indent, colored, ""))
+              else
+                io.stderr:write(string.format("%s%s%s%s\n", DIM, indent, line, RESET))
+              end
+            elseif is_tty then
+              local colored, was_colored = colorize_tool_line(line)
+              if was_colored then
+                io.stderr:write(string.format("%s%s%s\n", indent, colored, ""))
+              else
+                io.stderr:write(string.format("%s%s%s%s\n", DIM, indent, line, RESET))
+              end
             else
               io.stderr:write(string.format("%s%s%s%s\n", DIM, indent, line, RESET))
             end
-          elseif is_tty then
-            local colored, was_colored = colorize_tool_line(line)
-            if was_colored then
-              io.stderr:write(string.format("%s%s%s\n", indent, colored, ""))
-            else
-              io.stderr:write(string.format("%s%s%s%s\n", DIM, indent, line, RESET))
-            end
-          else
-            io.stderr:write(string.format("%s%s%s%s\n", DIM, indent, line, RESET))
           end
-        end
-        if #lines > max_lines then
-          io.stderr:write(string.format("%s%s... (%d more lines)%s\n", DIM, indent, #lines - max_lines, RESET))
+          if #lines > max_lines then
+            io.stderr:write(string.format("%s%s... (%d more lines)%s\n", DIM, indent, #lines - max_lines, RESET))
+          end
         end
       end
 
@@ -241,4 +380,8 @@ return {
   colorize_diff_line = colorize_diff_line,
   colorize_tool_line = colorize_tool_line,
   make_cli_handler = make_cli_handler,
+  find_difftool = find_difftool,
+  run_difftool = run_difftool,
+  to_unified_diff = to_unified_diff,
+  reset_difftool_cache = reset_difftool_cache,
 }

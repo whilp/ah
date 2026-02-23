@@ -228,4 +228,122 @@ local function test_make_cli_handler_agent_end_no_tokens_no_output()
 end
 test_make_cli_handler_agent_end_no_tokens_no_output()
 
+-- find_difftool tests
+
+local function test_find_difftool_env_var()
+  cli.reset_difftool_cache()
+  -- Save and set env var
+  local old = os.getenv("AH_DIFFTOOL")
+  -- We can't unset easily in Lua, but we can use a trick:
+  -- set via the C-level isn't available, so just test the logic with a temp var
+  -- by checking what happens when we call find_difftool after reset.
+  -- The env var test requires the env to be set at test startup via shell.
+  -- Skip if AH_DIFFTOOL is not set in the env (can't set env from Lua).
+  if old then
+    local result = cli.find_difftool()
+    assert(result == old, "find_difftool should return AH_DIFFTOOL env var value, got: " .. tostring(result))
+  end
+  cli.reset_difftool_cache()
+end
+test_find_difftool_env_var()
+
+local function test_find_difftool_returns_string_or_nil()
+  cli.reset_difftool_cache()
+  local result = cli.find_difftool()
+  assert(result == nil or type(result) == "string", "find_difftool should return string or nil, got: " .. type(result))
+  cli.reset_difftool_cache()
+end
+test_find_difftool_returns_string_or_nil()
+
+local function test_find_difftool_cached()
+  cli.reset_difftool_cache()
+  local result1 = cli.find_difftool()
+  local result2 = cli.find_difftool()
+  assert(result1 == result2, "find_difftool should return same cached result")
+  cli.reset_difftool_cache()
+end
+test_find_difftool_cached()
+
+-- run_difftool tests
+
+local function test_run_difftool_cat_passthrough()
+  local input = "- old line\n+ new line"
+  local result = cli.run_difftool("cat", input)
+  assert(result ~= nil, "run_difftool with cat should succeed")
+  assert(result:find("old line") ~= nil, "output should contain input text, got: " .. tostring(result))
+end
+test_run_difftool_cat_passthrough()
+
+local function test_run_difftool_preserves_multiline_diff()
+  local input = "--- a/foo.tl\n+++ b/foo.tl\n@@ -1,3 +1,3 @@\n line1\n-old\n+new\n line3\n"
+  local result = cli.run_difftool("cat", input)
+  assert(result ~= nil, "run_difftool should succeed with multiline diff")
+  assert(result == input, "run_difftool should preserve diff content exactly, got: " .. tostring(result))
+end
+test_run_difftool_preserves_multiline_diff()
+
+local function test_run_difftool_invalid_tool()
+  local result = cli.run_difftool("/nonexistent/tool/xyz", "- old\n+ new")
+  assert(result == nil, "run_difftool with nonexistent tool should return nil, got: " .. tostring(result))
+end
+test_run_difftool_invalid_tool()
+
+local function test_run_difftool_empty_input()
+  local result = cli.run_difftool("cat", "")
+  assert(result == nil, "run_difftool with empty input should return nil")
+end
+test_run_difftool_empty_input()
+
+local function test_run_difftool_nil_tool()
+  local result = cli.run_difftool(nil, "- old\n+ new")
+  assert(result == nil, "run_difftool with nil tool should return nil")
+end
+test_run_difftool_nil_tool()
+
+-- to_unified_diff tests
+
+local function test_to_unified_diff_basic()
+  local pseudo = "- old line\n+ new line"
+  local result = cli.to_unified_diff(pseudo, "lib/ah/cli.tl")
+  assert(result ~= nil, "to_unified_diff should succeed")
+  assert(result:find("--- a/lib/ah/cli.tl") ~= nil, "should have --- header")
+  assert(result:find("%+%+%+ b/lib/ah/cli.tl") ~= nil, "should have +++ header")
+  assert(result:find("@@ %-1,1 %+1,1 @@") ~= nil, "should have @@ hunk header")
+  assert(result:find("%-old line") ~= nil, "should have -old line")
+  assert(result:find("%+new line") ~= nil, "should have +new line")
+end
+test_to_unified_diff_basic()
+
+local function test_to_unified_diff_multiline()
+  local pseudo = "- old1\n- old2\n+ new1\n+ new2\n+ new3"
+  local result = cli.to_unified_diff(pseudo, "foo.tl")
+  assert(result ~= nil, "to_unified_diff should succeed with multiline")
+  assert(result:find("@@ %-1,2 %+1,3 @@") ~= nil, "should count old/new lines correctly, got: " .. tostring(result))
+end
+test_to_unified_diff_multiline()
+
+local function test_to_unified_diff_nil_inputs()
+  assert(cli.to_unified_diff(nil, "foo.tl") == nil, "nil pseudo_diff should return nil")
+  assert(cli.to_unified_diff("", "foo.tl") == nil, "empty pseudo_diff should return nil")
+  assert(cli.to_unified_diff("- old\n+ new", nil) == nil, "nil path should return nil")
+  assert(cli.to_unified_diff("- old\n+ new", "") == nil, "empty path should return nil")
+end
+test_to_unified_diff_nil_inputs()
+
+local function test_to_unified_diff_non_diff_input()
+  local result = cli.to_unified_diff("edited lib/ah/cli.tl", "lib/ah/cli.tl")
+  assert(result == nil, "non-diff input should return nil")
+end
+test_to_unified_diff_non_diff_input()
+
+local function test_to_unified_diff_roundtrip_with_cat()
+  local pseudo = "- local y = 2\n+ local y = 42"
+  local unified = cli.to_unified_diff(pseudo, "lib/ah/cli.tl")
+  assert(unified ~= nil, "should produce unified diff")
+  local result = cli.run_difftool("cat", unified)
+  assert(result ~= nil, "cat should succeed")
+  assert(result == unified, "cat roundtrip should preserve content exactly")
+end
+test_to_unified_diff_roundtrip_with_cat()
+
 print("all cli tests passed")
