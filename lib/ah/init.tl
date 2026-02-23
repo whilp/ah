@@ -428,7 +428,7 @@ local function main(args: {string}): integer, string
     end)
 
   local effective_model = api.resolve_model(model or os.getenv("AH_MODEL"))
-  local on_event = cli_mod.make_cli_handler(parsed.skill)
+  local on_event = cli_mod.make_cli_handler(parsed.skill, session_ulid)
   local agent_opts: loop.AgentOpts = {}
   if max_tokens then agent_opts.max_tokens = max_tokens end
   if parsed.max_turn_tokens then agent_opts.max_turn_tokens = parsed.max_turn_tokens end

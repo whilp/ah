@@ -165,7 +165,7 @@ local function capture_stderr(fn: function()): string
 end
 
 local function test_make_cli_handler_agent_end_shows_percentage()
-  local handler = cli.make_cli_handler(nil)
+  local handler = cli.make_cli_handler(nil, nil)
   local output = capture_stderr(function()
       handler({event_type = "agent_start", model = "claude-opus-4-5-20251101"} as events.EventData)
       handler({
@@ -182,7 +182,7 @@ end
 test_make_cli_handler_agent_end_shows_percentage()
 
 local function test_make_cli_handler_budget_exceeded_shows_percentage()
-  local handler = cli.make_cli_handler(nil)
+  local handler = cli.make_cli_handler(nil, nil)
   local output = capture_stderr(function()
       handler({event_type = "agent_start", model = "claude-opus-4-5-20251101"} as events.EventData)
       handler({
@@ -199,7 +199,7 @@ end
 test_make_cli_handler_budget_exceeded_shows_percentage()
 
 local function test_make_cli_handler_agent_end_nil_model_uses_default()
-  local handler = cli.make_cli_handler(nil)
+  local handler = cli.make_cli_handler(nil, nil)
   local output = capture_stderr(function()
       handler({
           event_type = "agent_end",
@@ -214,7 +214,7 @@ end
 test_make_cli_handler_agent_end_nil_model_uses_default()
 
 local function test_make_cli_handler_agent_end_no_tokens_no_output()
-  local handler = cli.make_cli_handler(nil)
+  local handler = cli.make_cli_handler(nil, nil)
   local output = capture_stderr(function()
       handler({
           event_type = "agent_end",
@@ -227,6 +227,39 @@ local function test_make_cli_handler_agent_end_no_tokens_no_output()
   assert(not output:match("total"), "zero tokens should produce no total line, got: " .. output)
 end
 test_make_cli_handler_agent_end_no_tokens_no_output()
+
+local function test_make_cli_handler_agent_end_nil_session_id()
+  local handler = cli.make_cli_handler(nil, nil)
+  local output = capture_stderr(function()
+      handler({event_type = "agent_start", model = "claude-opus-4-5-20251101"} as events.EventData)
+      handler({
+          event_type = "agent_end",
+          total_input_tokens = 100000,
+          total_output_tokens = 0,
+          total_cache_read_tokens = 0,
+        } as events.EventData)
+    end)
+  assert(not output:match("%["), "nil session_ulid should not show brackets, got: " .. output)
+end
+test_make_cli_handler_agent_end_nil_session_id()
+
+local function test_make_cli_handler_agent_end_shows_short_session_id()
+  local test_ulid = "01JMPGQRSTA3F7C2E1XY5678"
+  local handler = cli.make_cli_handler(nil, test_ulid)
+  local output = capture_stderr(function()
+      handler({event_type = "agent_start", model = "claude-opus-4-5-20251101"} as events.EventData)
+      handler({
+          event_type = "agent_end",
+          total_input_tokens = 100000,
+          total_output_tokens = 0,
+          total_cache_read_tokens = 0,
+        } as events.EventData)
+    end)
+  local expected_short = test_ulid:sub(-8)
+  assert(output:match("%[" .. expected_short .. "%]"),
+    "agent_end output should contain [" .. expected_short .. "], got: " .. output)
+end
+test_make_cli_handler_agent_end_shows_short_session_id()
 
 -- find_difftool tests
 
