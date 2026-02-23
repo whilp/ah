@@ -174,6 +174,7 @@ local function main(args: {string}): integer, string
     sbox.env_set(run_env, "https_proxy", proxy_url)
     sbox.env_set(run_env, "HTTPS_PROXY", proxy_url)
     sbox.env_set(run_env, "AH_SANDBOX", "1")
+    sbox.env_set(run_env, "AH_COSMIC", sbox.ah_exe())
 
     if #parsed.allow_hosts > 0 then
       sbox.env_set(run_env, "AH_ALLOW_HOSTS", table.concat(parsed.allow_hosts, ","))
