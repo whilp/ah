@@ -17,16 +17,6 @@ end
 
 local DEFAULT_FILE_LINES < const > = 500
 
-local FILE_LINES: {string: integer} = {
-  ["lib/ah/db.tl"] = 549,
-  ["lib/ah/init.tl"] = 1389,
-  ["lib/ah/loop.tl"] = 952,
-  ["lib/ah/test_db.tl"] = 506,
-  ["lib/ah/test_init.tl"] = 846,
-  ["lib/ah/test_tools.tl"] = 1610,
-  ["lib/ah/tools.tl"] = 734,
-}
-
 -- rules ---
 
 local function count_lines(path: string): integer
@@ -60,7 +50,7 @@ end
 local function lint_file(path: string): {Diagnostic}
   local diags: {Diagnostic} = {}
   local n = count_lines(path)
-  local max = FILE_LINES[path] or DEFAULT_FILE_LINES
+  local max = DEFAULT_FILE_LINES
   for _, d in ipairs(check_file_length(path, n, max)) do
     table.insert(diags, d)
   end
