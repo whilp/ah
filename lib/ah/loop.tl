@@ -18,6 +18,9 @@ global interrupted: boolean
 local LOOP_WARN_THRESHOLD = 3
 local LOOP_BREAK_THRESHOLD = 5
 
+-- Payload size threshold: warn when outgoing API payload exceeds this many bytes
+local PAYLOAD_WARN_BYTES = 800000
+
 -- Emit an event through the callback, silently ignoring if no callback
 local function emit(on_event: events.EventCallback, event: events.EventData)
   if on_event then
@@ -33,6 +36,12 @@ local function transition_state(d: db.DB, on_event: events.EventCallback, to_sta
     emit(on_event, events.state_change(from_state, to_state))
     db.log_event(d, "state_change", nil, events.to_json(events.state_change(from_state, to_state)))
   end
+end
+
+-- Measure the byte size of the API messages payload by JSON-encoding it
+local function measure_payload_bytes(api_messages: {any}): integer
+  local encoded = json.encode(api_messages)
+  return #encoded
 end
 
 -- Options for run_agent
@@ -198,7 +207,12 @@ local function run_agent(d: db.DB, qdb: queue.QueueDB, system_prompt: string, mo
       end
     end
 
-    emit(on_event, events.api_call_start())
+    local payload_bytes = measure_payload_bytes(api_messages)
+    if payload_bytes > PAYLOAD_WARN_BYTES then
+      emit(on_event, events.payload_warn(payload_bytes, PAYLOAD_WARN_BYTES))
+      db.log_event(d, "payload_warn", nil, events.to_json(events.payload_warn(payload_bytes, PAYLOAD_WARN_BYTES)))
+    end
+    emit(on_event, events.api_call_start(payload_bytes))
 
     -- Cache breakpoint
     local cache_msg_idx: integer = nil
@@ -463,4 +477,6 @@ return {
   check_loop = looputil.check_loop,
   LOOP_WARN_THRESHOLD = LOOP_WARN_THRESHOLD,
   LOOP_BREAK_THRESHOLD = LOOP_BREAK_THRESHOLD,
+  measure_payload_bytes = measure_payload_bytes,
+  PAYLOAD_WARN_BYTES = PAYLOAD_WARN_BYTES,
 }

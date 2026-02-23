@@ -55,9 +55,10 @@ test_agent_end_with_error()
 
 -- Test api_call_start constructor
 local function test_api_call_start()
-  local e = events.api_call_start()
+  local e = events.api_call_start(12345)
   assert(e.event_type == "api_call_start", "event_type should be api_call_start")
   assert(e.timestamp, "should have timestamp")
+  assert(e.payload_bytes == 12345, "payload_bytes should be set")
 end
 test_api_call_start()
 
@@ -344,5 +345,25 @@ local function test_compaction_complete_json()
   assert(parsed.output_tokens == 3000, "output_tokens should survive round-trip")
 end
 test_compaction_complete_json()
+
+-- Test payload_warn constructor
+local function test_payload_warn()
+  local e = events.payload_warn(900000, 800000)
+  assert(e.event_type == "payload_warn", "event_type should be payload_warn")
+  assert(e.payload_bytes == 900000, "payload_bytes mismatch")
+  assert(e.threshold == 800000, "threshold mismatch")
+end
+test_payload_warn()
+
+-- Test payload_warn serialization
+local function test_payload_warn_json()
+  local e = events.payload_warn(1024000, 800000)
+  local json_str = events.to_json(e)
+  local parsed = json.decode(json_str) as {string: any}
+  assert(parsed.event_type == "payload_warn", "event_type should survive round-trip")
+  assert(parsed.payload_bytes == 1024000, "payload_bytes should survive round-trip")
+  assert(parsed.threshold == 800000, "threshold should survive round-trip")
+end
+test_payload_warn_json()
 
 print("all events tests passed")

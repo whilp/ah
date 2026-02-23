@@ -141,6 +141,11 @@ local function make_cli_handler(skill_name: string): events.EventCallback
     elseif t == "compaction_triggered" then
       io.stderr:write(string.format("\n%scompacting conversation (%d/%d tokens)...%s\n", DIM, event.input_tokens, event.context_limit, RESET))
 
+    elseif t == "payload_warn" then
+      local kb = math.floor((event.payload_bytes or 0) / 1024)
+      local threshold_kb = math.floor((event.threshold or 0) / 1024)
+      io.stderr:write(string.format("\n\27[1;33m⚠ payload size %d KB exceeds %d KB threshold — context may be too large\27[0m\n", kb, threshold_kb))
+
     elseif t == "compaction_complete" then
       io.stderr:write(string.format("%scompaction complete (summary: %d tokens)%s\n\n", DIM, event.output_tokens, RESET))
 
