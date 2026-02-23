@@ -31,5 +31,10 @@ options:
   --timeout N         wall-clock timeout in seconds
   --allow-host H:P    allow egress to host:port (repeatable, default: api.anthropic.com:443)
   --unveil PATH:PERM  set filesystem visibility (repeatable, perms: r/w/x/c)
+  --debug             enable debug logging (sets AH_LOG_LEVEL=debug)
+
+environment:
+  AH_LOG_LEVEL        log verbosity: debug, warn, info (default: warn; info in CI)
+  AH_MODEL            default model name or alias
 
 models:

@@ -22,6 +22,7 @@ local record ParsedArgs
   must_produce: string
   tool_overrides: {string}
   cd_path: string
+  debug: boolean
   remaining: {string}
 end
 
@@ -68,6 +69,7 @@ local function parse_args(args: {string}): ParsedArgs, string
   local result: ParsedArgs = {
     new_session = false,
     sandbox = false,
+    debug = false,
     allow_hosts = {},
     unveil_dirs = {},
     tool_overrides = {},
@@ -96,6 +98,7 @@ local function parse_args(args: {string}): ParsedArgs, string
     {name = "must-produce", has_arg = "required"},
     {name = "tool", has_arg = "required", short = "t"},
     {name = "cd", has_arg = "required"},
+    {name = "debug", has_arg = "none"},
   }
 
   -- Use + prefix for POSIX mode: stop parsing options at first non-option arg.
@@ -149,6 +152,8 @@ local function parse_args(args: {string}): ParsedArgs, string
       table.insert(result.tool_overrides, optarg)
     elseif opt == "cd" then
       result.cd_path = optarg
+    elseif opt == "debug" then
+      result.debug = true
     elseif opt == "?" then
       return nil, "unknown"
     end

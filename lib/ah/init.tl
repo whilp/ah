@@ -134,6 +134,11 @@ local function main(args: {string}): integer, string
     end
   end
 
+  -- Apply --debug flag early so all subsequent debug() calls are visible
+  if parsed.debug then
+    util.log_level = "debug"
+  end
+
   local cwd = fs.getcwd()
   local model = parsed.model
   local db_path = parsed.db_path

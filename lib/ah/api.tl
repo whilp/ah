@@ -3,6 +3,7 @@ local json = require("cosmic.json")
 local fetch = require("cosmic.fetch")
 local time = require("cosmic.time")
 local auth = require("ah.auth")
+local util = require("ah.util")
 
 -- Detect proxy from environment (set by work.tl for sandboxed processes).
 -- Resolved lazily so envd.load() has time to set vars before first use.
@@ -15,7 +16,7 @@ local function get_proxy_url(): string
     if url then
       return url
     else
-      io.stderr:write("[api] warning: invalid proxy url: " .. (err or "unknown") .. "\n")
+      util.warn("[api] warning: invalid proxy url: " .. (err or "unknown"))
     end
   end
   return nil
