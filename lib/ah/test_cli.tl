@@ -346,4 +346,80 @@ local function test_to_unified_diff_roundtrip_with_cat()
 end
 test_to_unified_diff_roundtrip_with_cat()
 
+-- find_pager tests
+
+local function test_find_pager_env_var()
+  cli.reset_pager_cache()
+  local old = os.getenv("AH_PAGER")
+  if old then
+    local result = cli.find_pager()
+    assert(result == old, "find_pager should return AH_PAGER env var value, got: " .. tostring(result))
+  end
+  cli.reset_pager_cache()
+end
+test_find_pager_env_var()
+
+local function test_find_pager_returns_string_or_nil()
+  cli.reset_pager_cache()
+  local result = cli.find_pager()
+  assert(result == nil or type(result) == "string", "find_pager should return string or nil, got: " .. type(result))
+  cli.reset_pager_cache()
+end
+test_find_pager_returns_string_or_nil()
+
+local function test_find_pager_cached()
+  cli.reset_pager_cache()
+  local result1 = cli.find_pager()
+  local result2 = cli.find_pager()
+  assert(result1 == result2, "find_pager should return same cached result")
+  cli.reset_pager_cache()
+end
+test_find_pager_cached()
+
+local function test_reset_pager_cache()
+  cli.reset_pager_cache()
+  -- after reset, find_pager should work without error
+  local result = cli.find_pager()
+  assert(result == nil or type(result) == "string", "after reset, find_pager should return string or nil")
+  cli.reset_pager_cache()
+end
+test_reset_pager_cache()
+
+-- run_pager tests
+
+local function test_run_pager_cat_passthrough()
+  local content = "1\thello world\n2\tlocal x = 1\n"
+  -- Use empty file_path so cat just reads stdin without unknown flags
+  local result = cli.run_pager("cat", content, "")
+  assert(result ~= nil, "run_pager with cat should succeed")
+  assert(result:find("hello world") ~= nil, "output should contain input text, got: " .. tostring(result))
+end
+test_run_pager_cat_passthrough()
+
+local function test_run_pager_without_file_path()
+  local content = "1\tsome content\n"
+  local result = cli.run_pager("cat", content, nil)
+  assert(result ~= nil, "run_pager with cat and nil file_path should succeed")
+  assert(result:find("some content") ~= nil, "output should contain input text, got: " .. tostring(result))
+end
+test_run_pager_without_file_path()
+
+local function test_run_pager_invalid_tool()
+  local result = cli.run_pager("/nonexistent/tool/xyz", "some content", "foo.tl")
+  assert(result == nil, "run_pager with nonexistent tool should return nil, got: " .. tostring(result))
+end
+test_run_pager_invalid_tool()
+
+local function test_run_pager_empty_input()
+  local result = cli.run_pager("cat", "", "foo.tl")
+  assert(result == nil, "run_pager with empty input should return nil")
+end
+test_run_pager_empty_input()
+
+local function test_run_pager_nil_tool()
+  local result = cli.run_pager(nil, "some content", "foo.tl")
+  assert(result == nil, "run_pager with nil tool should return nil")
+end
+test_run_pager_nil_tool()
+
 print("all cli tests passed")
