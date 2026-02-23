@@ -26,7 +26,9 @@ options:
   --max-turn-tokens N     max output tokens per API call
   --skill NAME        invoke a skill by name (prepends /skill:<name> to prompt)
   --must-produce FILE require the agent to write FILE before finishing
-  -t, --tool NAME=CMD register a .tl/.lua tool (repeatable, overrides all tiers)
+  -t, --tool NAME[=CMD] activate a tool (repeatable); NAME enables a built-in,
+                         NAME=path.tl/.lua loads a custom module, NAME= removes a tool.
+                         No tools are active by default.
   --sandbox           run inside network sandbox (proxy + unveil + pledge)
   --timeout N         wall-clock timeout in seconds
   --allow-host H:P    allow egress to host:port (repeatable, default: api.anthropic.com:443)

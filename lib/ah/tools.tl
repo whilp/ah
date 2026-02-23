@@ -162,6 +162,59 @@ local function add_tool_override(name: string, cmd: string)
   table.insert(tools, tool)
 end
 
+-- Activate a single built-in tool by name, loading it from the system tier.
+-- Tries /zip/embed/sys/tools/<name>.lua (embedded), then o/sys/tools/<name>.lua (dev).
+-- Returns true if the tool was found and added, false otherwise.
+local function activate_builtin_tool(name: string): boolean
+  local paths = {
+    "/zip/embed/sys/tools/" .. name .. ".lua",
+    "o/sys/tools/" .. name .. ".lua",
+  }
+
+  for _, p in ipairs(paths) do
+    local source = cio.slurp(p)
+    if source then
+      if not toolload.looks_like_tool(source, true) then
+        io.stderr:write(string.format("warning: skipping builtin %s from %s: does not look like a tool module\n", name, p))
+        return false
+      end
+      local load_ok, chunk, load_err = pcall(toolload.load_tool_file, p)
+      if not load_ok then
+        io.stderr:write(string.format("warning: failed to load builtin %s from %s: %s\n", name, p, tostring(chunk)))
+        return false
+      end
+      if not chunk then
+        io.stderr:write(string.format("warning: failed to load builtin %s from %s: %s\n", name, p, tostring(load_err)))
+        return false
+      end
+      local ok, result = pcall(chunk as function(): any)
+      if not ok then
+        io.stderr:write(string.format("warning: failed to execute builtin %s from %s: %s\n", name, p, tostring(result)))
+        return false
+      end
+      if not toolload.is_valid_tool(result) then
+        io.stderr:write(string.format("warning: invalid tool format for builtin %s in %s\n", name, p))
+        return false
+      end
+      local dir = p:match("^(.+)/[^/]+$") or "."
+      toolload.add_to_package_path(dir)
+      local tool = result as Tool
+      -- Override existing or append
+      for i, existing in ipairs(tools) do
+        if existing.name == name then
+          tools[i] = tool
+          return true
+        end
+      end
+      table.insert(tools, tool)
+      return true
+    end
+  end
+
+  io.stderr:write(string.format("warning: builtin tool not found: %s\n", name))
+  return false
+end
+
 -- Remove a tool by name. Returns true if found and removed.
 local function remove_tool(name: string): boolean
   for i, tool in ipairs(tools) do
@@ -404,6 +457,7 @@ return {
   validate_input = validate_input,
   init_custom_tools = init_custom_tools,
   load_skill_tools = load_skill_tools,
+  activate_builtin_tool = activate_builtin_tool,
   add_tool_override = add_tool_override,
   remove_tool = remove_tool,
   load_custom_tools_from_dir = toolload.load_custom_tools_from_dir,

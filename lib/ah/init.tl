@@ -392,16 +392,26 @@ local function main(args: {string}): integer, string
     if was_command then prompt = expanded end
   end
 
-  tools.init_custom_tools(cwd)
+  if #parsed.tool_overrides == 0 then
+    -- No --tool flags: no tools active (empty tool set)
+  else
+    -- Allowlist mode: only load explicitly specified tools
+    for _, spec in ipairs(parsed.tool_overrides) do
+      local name, tcmd = spec:match("^([^=]+)=(.*)")
+      if not name then
+        -- bare "name" with no "=" — activate a builtin by name
+        tools.activate_builtin_tool(spec)
+      elseif tcmd ~= "" then
+        -- --tool name=path.tl/.lua : load custom module
+        tools.add_tool_override(name, tcmd)
+      else
+        -- --tool name= : remove (no-op in allowlist mode since tool wasn't added)
+        tools.remove_tool(name)
+      end
+    end
+  end
   if active_skill_name and loaded_skills[active_skill_name] then
     tools.load_skill_tools(loaded_skills[active_skill_name].base_dir)
-  end
-
-  for _, spec in ipairs(parsed.tool_overrides) do
-    local name, tcmd = spec:match("^([^=]+)=(.*)")
-    if name and tcmd ~= "" then tools.add_tool_override(name, tcmd)
-    elseif name then tools.remove_tool(name)
-    else io.stderr:write("warning: invalid --tool spec (expected name=cmd): " .. spec .. "\n") end
   end
 
   local effective_system = prompt_mod.load_system_prompt(cwd)

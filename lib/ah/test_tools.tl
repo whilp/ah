@@ -431,4 +431,82 @@ return { name = "ovr_tool", description = "Override tool with require",
 end
 test_add_tool_override_require()
 
+-- activate_builtin_tool tests
+
+local function test_activate_builtin_tool_read()
+  -- Reset to empty state, then activate a single builtin
+  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
+  -- remove all tools to simulate empty start
+  local defs = tools.get_tool_definitions()
+  for _, d in ipairs(defs) do
+    local def = d as {string: any}
+    tools.remove_tool(def.name as string)
+  end
+  assert(#tools.get_tool_definitions() == 0, "should start with empty tool set")
+  local ok = tools.activate_builtin_tool("read")
+  assert(ok, "activate_builtin_tool should return true for 'read'")
+  local defs2 = tools.get_tool_definitions()
+  assert(#defs2 == 1, "should have exactly 1 tool: " .. tostring(#defs2))
+  local def = defs2[1] as {string: any}
+  assert(def.name == "read", "should be the read tool")
+  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
+  print("✓ activate_builtin_tool loads a builtin tool by name")
+end
+test_activate_builtin_tool_read()
+
+local function test_activate_builtin_tool_unknown()
+  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
+  local defs_before = #tools.get_tool_definitions()
+  local ok = tools.activate_builtin_tool("nonexistent_tool_xyz")
+  assert(not ok, "should return false for unknown builtin")
+  assert(#tools.get_tool_definitions() == defs_before, "tool count should be unchanged")
+  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
+  print("✓ activate_builtin_tool returns false for unknown tool")
+end
+test_activate_builtin_tool_unknown()
+
+local function test_empty_toolset_when_no_overrides()
+  -- Simulate the new init.tl behavior: no --tool flags → empty tool set
+  -- The tools table starts empty (module level), init_custom_tools populates it.
+  -- With new behavior, if no overrides, we skip init_custom_tools.
+  -- We test this by resetting tools to empty and verifying get_tool_definitions returns [].
+  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
+  -- Remove all tools to simulate "no --tool flags" path
+  local defs = tools.get_tool_definitions()
+  for _, d in ipairs(defs) do
+    local def = d as {string: any}
+    tools.remove_tool(def.name as string)
+  end
+  local empty_defs = tools.get_tool_definitions()
+  assert(#empty_defs == 0, "empty tool set should have 0 definitions")
+  local prompt = tools.format_tools_for_prompt()
+  assert(prompt == "", "format_tools_for_prompt should return empty string when no tools")
+  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
+  print("✓ empty tool set produces empty definitions and prompt")
+end
+test_empty_toolset_when_no_overrides()
+
+local function test_activate_builtin_tool_bash()
+  -- Reset and activate only bash
+  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
+  local defs = tools.get_tool_definitions()
+  for _, d in ipairs(defs) do
+    local def = d as {string: any}
+    tools.remove_tool(def.name as string)
+  end
+  local ok = tools.activate_builtin_tool("bash")
+  assert(ok, "should activate bash builtin")
+  local defs2 = tools.get_tool_definitions()
+  assert(#defs2 == 1, "should have exactly 1 tool")
+  local def = defs2[1] as {string: any}
+  assert(def.name == "bash", "should be bash tool")
+  -- Verify it actually works
+  local result, is_error = tools.execute_tool("bash", {command = "echo activated"})
+  assert(not is_error, "activated bash should work: " .. tostring(result))
+  assert(result:match("activated"), "should execute command")
+  tools.init_custom_tools(fs.join(TEST_TMPDIR, "nonexistent"))
+  print("✓ activate_builtin_tool works for bash tool")
+end
+test_activate_builtin_tool_bash()
+
 print("\nAll tools tests passed!")
