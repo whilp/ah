@@ -57,17 +57,28 @@ local function find_difftool(): string
 end
 
 -- Run diff text through a difftool subprocess.
+-- Writes diff_text to a temp file and pipes it to the difftool,
+-- avoiding shell quoting issues with Lua's %q format.
 -- Returns rendered output string, or nil on failure.
 local function run_difftool(difftool: string, diff_text: string): string
   if not difftool or diff_text == "" then
     return nil
   end
-  local handle = io.popen("echo " .. string.format("%q", diff_text) .. " | " .. difftool .. " 2>/dev/null")
+  local tmp = os.tmpname()
+  local f = io.open(tmp, "w")
+  if not f then
+    return nil
+  end
+  f:write(diff_text)
+  f:close()
+  local handle = io.popen(difftool .. " < " .. tmp .. " 2>/dev/null")
   if not handle then
+    os.remove(tmp)
     return nil
   end
   local output = handle:read("*a")
   local ok = handle:close()
+  os.remove(tmp)
   if not ok or not output or output == "" then
     return nil
   end

@@ -274,6 +274,14 @@ local function test_run_difftool_cat_passthrough()
 end
 test_run_difftool_cat_passthrough()
 
+local function test_run_difftool_preserves_multiline_diff()
+  local input = "--- a/foo.tl\n+++ b/foo.tl\n@@ -1,3 +1,3 @@\n line1\n-old\n+new\n line3\n"
+  local result = cli.run_difftool("cat", input)
+  assert(result ~= nil, "run_difftool should succeed with multiline diff")
+  assert(result == input, "run_difftool should preserve diff content exactly, got: " .. tostring(result))
+end
+test_run_difftool_preserves_multiline_diff()
+
 local function test_run_difftool_invalid_tool()
   local result = cli.run_difftool("/nonexistent/tool/xyz", "- old\n+ new")
   assert(result == nil, "run_difftool with nonexistent tool should return nil, got: " .. tostring(result))
