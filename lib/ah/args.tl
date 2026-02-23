@@ -15,6 +15,7 @@ local record ParsedArgs
   max_session_tokens: integer
   max_turn_tokens: integer
   sandbox: boolean
+  pledge: boolean
   timeout: integer
   allow_hosts: {string}
   unveil_dirs: {string}
@@ -68,6 +69,7 @@ local function parse_args(args: {string}): ParsedArgs, string
   local result: ParsedArgs = {
     new_session = false,
     sandbox = false,
+    pledge = false,
     allow_hosts = {},
     unveil_dirs = {},
     tool_overrides = {},
@@ -89,6 +91,7 @@ local function parse_args(args: {string}): ParsedArgs, string
     {name = "max-session-tokens", has_arg = "required"},
     {name = "max-turn-tokens", has_arg = "required"},
     {name = "sandbox", has_arg = "none"},
+    {name = "pledge", has_arg = "none"},
     {name = "timeout", has_arg = "required"},
     {name = "allow-host", has_arg = "required"},
     {name = "unveil", has_arg = "required"},
@@ -135,6 +138,8 @@ local function parse_args(args: {string}): ParsedArgs, string
       result.max_turn_tokens = tonumber(optarg) as integer
     elseif opt == "sandbox" then
       result.sandbox = true
+    elseif opt == "pledge" then
+      result.pledge = true
     elseif opt == "timeout" then
       result.timeout = tonumber(optarg) as integer
     elseif opt == "allow-host" then
@@ -158,9 +163,6 @@ local function parse_args(args: {string}): ParsedArgs, string
 
   -- Validate sandbox sub-options require --sandbox
   if not result.sandbox then
-    if #result.unveil_dirs > 0 then
-      return nil, "error: --unveil requires --sandbox"
-    end
     if #result.allow_hosts > 0 then
       return nil, "error: --allow-host requires --sandbox"
     end

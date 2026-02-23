@@ -224,7 +224,7 @@ local function test_usage_text_contains_all_options()
   local defined_options = {
     "help", "new", "session", "name", "db", "model", "output", "cd",
     "steer", "followup", "max-tokens", "max-session-tokens", "max-turn-tokens",
-    "sandbox", "timeout", "allow-host", "unveil", "skill", "must-produce",
+    "sandbox", "pledge", "timeout", "allow-host", "unveil", "skill", "must-produce",
   }
   for _, opt in ipairs(defined_options) do
     assert(help:find("--" .. opt, 1, true), "help text missing option: --" .. opt)
@@ -254,8 +254,9 @@ test_parse_args_tool()
 
 local function test_parse_args_unveil_without_sandbox()
   local parsed, err = args_mod.parse_args({"--unveil", "/tmp:r", "hello"})
-  assert(not parsed, "--unveil without --sandbox should fail")
-  assert(err == "error: --unveil requires --sandbox", "err mismatch: " .. tostring(err))
+  assert(parsed, "--unveil without --sandbox should now succeed, got err: " .. tostring(err))
+  assert(#parsed.unveil_dirs == 1, "should have 1 unveil dir")
+  assert(parsed.unveil_dirs[1] == "/tmp:r", "unveil dir mismatch")
 end
 test_parse_args_unveil_without_sandbox()
 
@@ -391,5 +392,46 @@ local function test_parse_args_both_max_token_flags()
   assert(parsed.max_turn_tokens == 2000, "max_turn_tokens should be 2000, got: " .. tostring(parsed.max_turn_tokens))
 end
 test_parse_args_both_max_token_flags()
+
+-- --pledge flag tests
+
+local function test_parse_args_pledge()
+  local parsed, err = args_mod.parse_args({"--pledge", "hello"})
+  assert(parsed, "--pledge should succeed, got err: " .. tostring(err))
+  assert(parsed.pledge == true, "pledge should be true")
+end
+test_parse_args_pledge()
+
+local function test_parse_args_pledge_without_sandbox()
+  local parsed, err = args_mod.parse_args({"--pledge", "hello"})
+  assert(parsed, "--pledge without --sandbox should succeed")
+  assert(parsed.pledge == true, "pledge should be true")
+  assert(not parsed.sandbox, "sandbox should be false")
+end
+test_parse_args_pledge_without_sandbox()
+
+local function test_parse_args_sandbox_and_pledge()
+  local parsed, err = args_mod.parse_args({"--sandbox", "--pledge", "hello"})
+  assert(parsed, "--sandbox --pledge should succeed, got err: " .. tostring(err))
+  assert(parsed.sandbox == true, "sandbox should be true")
+  assert(parsed.pledge == true, "pledge should be true")
+end
+test_parse_args_sandbox_and_pledge()
+
+local function test_parse_args_pledge_default_false()
+  local parsed = args_mod.parse_args({"hello"})
+  assert(parsed, "should parse successfully")
+  assert(not parsed.pledge, "pledge should be false by default")
+end
+test_parse_args_pledge_default_false()
+
+local function test_parse_args_unveil_and_pledge_without_sandbox()
+  local parsed, err = args_mod.parse_args({"--unveil", "/tmp:r", "--pledge", "hello"})
+  assert(parsed, "--unveil --pledge without --sandbox should succeed, got err: " .. tostring(err))
+  assert(#parsed.unveil_dirs == 1, "should have 1 unveil dir")
+  assert(parsed.pledge == true, "pledge should be true")
+  assert(not parsed.sandbox, "sandbox should be false")
+end
+test_parse_args_unveil_and_pledge_without_sandbox()
 
 print("all args tests passed")

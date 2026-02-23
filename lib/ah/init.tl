@@ -69,8 +69,8 @@ local function main(args: {string}): integer, string
   -- Enable core dumps for crash debugging
   proc.setrlimit(4, -1, -1)
 
-  -- Sandbox mode: when AH_SANDBOX=1, restrict capabilities
-  if os.getenv("AH_SANDBOX") then
+  -- Sandbox mode: when AH_SANDBOX=1 or AH_UNVEIL is set, restrict filesystem visibility
+  if os.getenv("AH_SANDBOX") or os.getenv("AH_UNVEIL") then
     local cwd_for_unveil = fs.getcwd()
     sandbox.unveil(cwd_for_unveil, "rwxc")
     local protect = args_mod.parse_protect_dirs(os.getenv("AH_PROTECT_DIRS"))
@@ -103,7 +103,10 @@ local function main(args: {string}): integer, string
       sandbox.unveil(home, "r")
     end
     sandbox.unveil(nil, nil)
+  end
 
+  -- Apply pledge when AH_SANDBOX=1 or AH_PLEDGE=1
+  if os.getenv("AH_SANDBOX") or os.getenv("AH_PLEDGE") then
     local PLEDGE_PENALTY_RETURN_EPERM = 2
     local promises = "stdio rpath wpath cpath flock tty proc exec execnative unix prot_exec"
     sandbox.pledge(promises, promises, PLEDGE_PENALTY_RETURN_EPERM)
@@ -146,44 +149,89 @@ local function main(args: {string}): integer, string
   local max_tokens = parsed.max_session_tokens
   local remaining = parsed.remaining
 
-  -- Supervisor mode: --sandbox starts proxy, re-execs as sandboxed child
-  if parsed.sandbox then
-    local sbox = require("ah.sandbox") as SandboxMod
-    local fetch = require("cosmic.fetch") as FetchMod
-
-    local ctx, sbox_err = sbox.start_sandbox()
-    if not ctx then
-      io.stderr:write("error: sandbox failed to start: " .. (sbox_err or "unknown") .. "\n")
-      return 1
-    end
-    util.debug("[sandbox] proxy started on " .. ctx.socket_path)
-
+  -- Supervisor mode: --sandbox, --unveil, or --pledge triggers child re-exec
+  local needs_supervisor = parsed.sandbox or #parsed.unveil_dirs > 0 or parsed.pledge
+  if needs_supervisor then
     local unix = require("cosmo.unix")
     local run_env: {string} = unix.environ() as {string}
-    sbox.setup_git_env(run_env)
-    sbox.env_set(run_env, "TMPDIR", ctx.tmpdir)
 
-    local proxy_url, proxy_err = fetch.unix_proxy(ctx.socket_path)
-    if not proxy_url then
-      io.stderr:write("[sandbox] invalid proxy path: " .. (proxy_err or "unknown") .. "\n")
-      sbox.stop_sandbox(ctx)
-      return 1
-    end
-    sbox.env_set(run_env, "http_proxy", proxy_url)
-    sbox.env_set(run_env, "HTTP_PROXY", proxy_url)
-    sbox.env_set(run_env, "https_proxy", proxy_url)
-    sbox.env_set(run_env, "HTTPS_PROXY", proxy_url)
-    sbox.env_set(run_env, "AH_SANDBOX", "1")
+    local sbox: SandboxMod
+    local ctx: SandboxCtx
 
-    if #parsed.allow_hosts > 0 then
-      sbox.env_set(run_env, "AH_ALLOW_HOSTS", table.concat(parsed.allow_hosts, ","))
+    if parsed.sandbox then
+      sbox = require("ah.sandbox") as SandboxMod
+      local fetch = require("cosmic.fetch") as FetchMod
+
+      local sbox_err: string
+      ctx, sbox_err = sbox.start_sandbox()
+      if not ctx then
+        io.stderr:write("error: sandbox failed to start: " .. (sbox_err or "unknown") .. "\n")
+        return 1
+      end
+      util.debug("[sandbox] proxy started on " .. ctx.socket_path)
+
+      sbox.setup_git_env(run_env)
+      sbox.env_set(run_env, "TMPDIR", ctx.tmpdir)
+
+      local proxy_url, proxy_err = fetch.unix_proxy(ctx.socket_path)
+      if not proxy_url then
+        io.stderr:write("[sandbox] invalid proxy path: " .. (proxy_err or "unknown") .. "\n")
+        sbox.stop_sandbox(ctx)
+        return 1
+      end
+      sbox.env_set(run_env, "http_proxy", proxy_url)
+      sbox.env_set(run_env, "HTTP_PROXY", proxy_url)
+      sbox.env_set(run_env, "https_proxy", proxy_url)
+      sbox.env_set(run_env, "HTTPS_PROXY", proxy_url)
+      sbox.env_set(run_env, "AH_SANDBOX", "1")
+
+      if #parsed.allow_hosts > 0 then
+        sbox.env_set(run_env, "AH_ALLOW_HOSTS", table.concat(parsed.allow_hosts, ","))
+      end
     end
+
     if #parsed.unveil_dirs > 0 then
-      sbox.env_set(run_env, "AH_UNVEIL", table.concat(parsed.unveil_dirs, ","))
+      -- Set AH_UNVEIL env var for the child (used by child mode unveil logic)
+      -- When not using --sandbox, we still need to set AH_UNVEIL so the child applies it
+      local env_set_fn: function({string}, string, string)
+      if sbox then
+        env_set_fn = sbox.env_set
+      else
+        -- Inline env_set when sandbox module not loaded
+        env_set_fn = function(env: {string}, key: string, val: string)
+          for i, entry in ipairs(env) do
+            if entry:sub(1, #key + 1) == key .. "=" then
+              env[i] = key .. "=" .. val
+              return
+            end
+          end
+          table.insert(env, key .. "=" .. val)
+        end
+      end
+      env_set_fn(run_env, "AH_UNVEIL", table.concat(parsed.unveil_dirs, ","))
     end
 
+    if parsed.pledge then
+      local env_set_fn: function({string}, string, string)
+      if sbox then
+        env_set_fn = sbox.env_set
+      else
+        env_set_fn = function(env: {string}, key: string, val: string)
+          for i, entry in ipairs(env) do
+            if entry:sub(1, #key + 1) == key .. "=" then
+              env[i] = key .. "=" .. val
+              return
+            end
+          end
+          table.insert(env, key .. "=" .. val)
+        end
+      end
+      env_set_fn(run_env, "AH_PLEDGE", "1")
+    end
+
+    local sbox_for_exe: SandboxMod = sbox or (require("ah.sandbox") as SandboxMod)
     local child_args: {string} = {}
-    local exe = sbox.ah_exe()
+    local exe = sbox_for_exe.ah_exe()
     if parsed.timeout and parsed.timeout > 0 then
       table.insert(child_args, "timeout")
       table.insert(child_args, tostring(parsed.timeout))
@@ -195,6 +243,8 @@ local function main(args: {string}): integer, string
       local a = args[i]
       if a == "--sandbox" then
         -- skip
+      elseif a == "--pledge" then
+        -- skip
       elseif a == "--timeout" then i = i + 1
       elseif a == "--allow-host" then i = i + 1
       elseif a == "--unveil" then i = i + 1
@@ -202,13 +252,13 @@ local function main(args: {string}): integer, string
       i = i + 1
     end
 
-    local parent_stdin = sbox.prepare_child_stdin()
+    local parent_stdin = sbox_for_exe.prepare_child_stdin()
     local child_mod = require("cosmic.child") as ChildMod
     util.debug("[sandbox] spawning child: " .. table.concat(child_args, " "))
     local handle, spawn_err = child_mod.spawn(child_args, {env = run_env, stdin = parent_stdin})
     if not handle then
       io.stderr:write("error: failed to spawn sandboxed child: " .. (spawn_err or "unknown") .. "\n")
-      sbox.stop_sandbox(ctx)
+      if ctx then sbox.stop_sandbox(ctx) end
       return 1
     end
 
@@ -218,7 +268,7 @@ local function main(args: {string}): integer, string
     if stderr_out and stderr_out ~= "" then io.stderr:write(stderr_out) end
     if stdout and stdout ~= "" then io.write(stdout) end
     util.debug("[sandbox] child exited: " .. tostring(exit_code))
-    sbox.stop_sandbox(ctx)
+    if ctx then sbox.stop_sandbox(ctx) end
     if not ok or exit_code ~= 0 then return exit_code ~= 0 and exit_code or 1 end
     return 0
   end
