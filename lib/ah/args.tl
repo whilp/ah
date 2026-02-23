@@ -12,7 +12,8 @@ local record ParsedArgs
   session_name: string
   steer_msg: string
   followup_msg: string
-  max_tokens: integer
+  max_session_tokens: integer
+  max_turn_tokens: integer
   sandbox: boolean
   timeout: integer
   allow_hosts: {string}
@@ -85,6 +86,8 @@ local function parse_args(args: {string}): ParsedArgs, string
     {name = "steer", has_arg = "required"},
     {name = "followup", has_arg = "required"},
     {name = "max-tokens", has_arg = "required"},
+    {name = "max-session-tokens", has_arg = "required"},
+    {name = "max-turn-tokens", has_arg = "required"},
     {name = "sandbox", has_arg = "none"},
     {name = "timeout", has_arg = "required"},
     {name = "allow-host", has_arg = "required"},
@@ -125,7 +128,11 @@ local function parse_args(args: {string}): ParsedArgs, string
     elseif opt == "followup" then
       result.followup_msg = optarg
     elseif opt == "max-tokens" then
-      result.max_tokens = tonumber(optarg) as integer
+      result.max_session_tokens = tonumber(optarg) as integer
+    elseif opt == "max-session-tokens" then
+      result.max_session_tokens = tonumber(optarg) as integer
+    elseif opt == "max-turn-tokens" then
+      result.max_turn_tokens = tonumber(optarg) as integer
     elseif opt == "sandbox" then
       result.sandbox = true
     elseif opt == "timeout" then

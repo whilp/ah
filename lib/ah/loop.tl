@@ -38,6 +38,7 @@ end
 -- Options for run_agent
 local record AgentOpts
   max_tokens: integer
+  max_turn_tokens: integer
   must_produce: string
 end
 
@@ -216,6 +217,7 @@ local function run_agent(d: db.DB, qdb: queue.QueueDB, system_prompt: string, mo
 
     local response, err = api.stream(api_messages, {
         system = system_prompt, model = model, tools = tools.get_tool_definitions(),
+        max_tokens = opts.max_turn_tokens,
       }, function(event: {string: any})
         if event.type == "content_block_delta" and event.delta then
           local delta = event.delta as {string: any}

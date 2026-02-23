@@ -21,7 +21,9 @@ options:
   --cd PATH           change working directory before other operations
   --steer MSG         send steering message to running session
   --followup MSG      queue followup message for after session completes
-  --max-tokens N      stop when cumulative tokens exceed N
+  --max-session-tokens N  stop when cumulative tokens exceed N
+  --max-tokens N          alias for --max-session-tokens (deprecated)
+  --max-turn-tokens N     max output tokens per API call
   --skill NAME        invoke a skill by name (prepends /skill:<name> to prompt)
   --must-produce FILE require the agent to write FILE before finishing
   -t, --tool NAME=CMD register a .tl/.lua tool (repeatable, overrides all tiers)
