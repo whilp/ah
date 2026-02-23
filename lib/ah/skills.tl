@@ -138,7 +138,7 @@ end
 -- Later sources override earlier ones by name:
 --   1. system (built-in)
 --   2. embed (zip overlay)
---   3. project (cwd/skills/)
+--   3. project (cwd/skills/, cwd/.ah/skills/, cwd/.agents/skills/ — all scanned, later wins)
 local function load_skills(cwd?: string): {string: Skill}
   cwd = cwd or fs.getcwd()
   local skills: {string: Skill} = {}
@@ -155,20 +155,16 @@ local function load_skills(cwd?: string): {string: Skill}
     skills[skill.name] = skill
   end
 
-  -- Project skills: .ah/skills wins over skills/ if present
-  local dot_ah_skills = fs.join(cwd, ".ah", "skills")
-  local bare_skills = fs.join(cwd, "skills")
-  local dh_check = fs.opendir(dot_ah_skills)
-  local project_dir: string
-  if dh_check then
-    dh_check:close()
-    project_dir = dot_ah_skills
-  else
-    project_dir = bare_skills
-  end
-  local project_skills = load_skills_from_dir(project_dir)
-  for _, skill in ipairs(project_skills) do
-    skills[skill.name] = skill
+  -- Project skills (override embed and system): scan all, later wins
+  local project_dirs = {
+    fs.join(cwd, "skills"),
+    fs.join(cwd, ".ah", "skills"),
+    fs.join(cwd, ".agents", "skills"),
+  }
+  for _, dir in ipairs(project_dirs) do
+    for _, skill in ipairs(load_skills_from_dir(dir)) do
+      skills[skill.name] = skill
+    end
   end
 
   return skills

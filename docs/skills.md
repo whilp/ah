@@ -23,18 +23,23 @@ name must be lowercase alphanumeric with hyphens, max 64 chars.
 
 ## loading
 
-skills are loaded from three locations (in order). later sources override
+skills are loaded from multiple locations (in order). later sources override
 earlier ones by name:
 
 1. `/zip/embed/sys/skills/` — built-in skills embedded in the executable.
 2. `/zip/embed/skills/` — embed overlay (zip packaging).
-3. `cwd/.ah/skills/` or `cwd/skills/` — project-local skills.
-   `.ah/skills/` takes precedence if it exists; otherwise `skills/` is used.
+3. `cwd/skills/` — project-local skills (lowest project priority).
+4. `cwd/.ah/skills/` — project-local skills (overrides `skills/`).
+5. `cwd/.agents/skills/` — project-local skills (highest project priority).
+
+all three project directories are scanned and merged; later entries win on
+name collision. this means `.agents/skills/` overrides `.ah/skills/` which
+overrides `skills/`.
 
 project skills let repositories ship custom skills that override or extend
 built-in ones. place `.md` files directly in the skills directory or use
-subdirectories with `SKILL.md` files. using `.ah/skills/` avoids conflicts
-with unrelated `skills/` directories in the project.
+subdirectories with `SKILL.md` files. using `.ah/skills/` or `.agents/skills/`
+avoids conflicts with unrelated `skills/` directories in the project.
 
 ## skill tool directories
 
