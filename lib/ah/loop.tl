@@ -214,18 +214,46 @@ local function run_agent(d: db.DB, qdb: queue.QueueDB, system_prompt: string, mo
     end
     emit(on_event, events.api_call_start(payload_bytes))
 
-    -- Cache breakpoint
-    local cache_msg_idx: integer = nil
-    local cache_block_idx: integer = nil
-    for i = #api_messages, 1, -1 do
-      local msg = api_messages[i] as {string: any}
-      local content = msg.content as {any}
-      if content and #content > 0 then
-        cache_msg_idx = i
-        cache_block_idx = #content
-        local block = content[cache_block_idx] as {string: any}
+    -- Cache breakpoints: place up to 2 breakpoints on message history
+    -- (2 total from messages; system + tools = 2 → total = 4)
+    -- Strategy: pick the message at ~1/2 of history and the last message.
+    local cache_points: {{string: any}} = {}
+    do
+      -- Collect indices of non-empty messages
+      local nonempty: {integer} = {}
+      for i = 1, #api_messages do
+        local msg = api_messages[i] as {string: any}
+        local content = msg.content as {any}
+        if content and #content > 0 then
+          table.insert(nonempty, i)
+        end
+      end
+      local n = #nonempty
+      if n >= 2 then
+        -- Pick indices at ~1/2 (middle) and last; deduplicate
+        local i1 = nonempty[math.max(1, math.floor(n / 2))]
+        local i2 = nonempty[n]
+        local seen: {integer: boolean} = {}
+        for _, idx in ipairs({i1, i2}) do
+          if not seen[idx] then
+            seen[idx] = true
+            local msg = api_messages[idx] as {string: any}
+            local content = msg.content as {any}
+            local block_idx = #content
+            local block = content[block_idx] as {string: any}
+            block.cache_control = {type = "ephemeral"}
+            table.insert(cache_points, {msg_idx = idx, block_idx = block_idx})
+          end
+        end
+      elseif n > 0 then
+        -- Only one non-empty message; cache it
+        local idx = nonempty[1]
+        local msg = api_messages[idx] as {string: any}
+        local content = msg.content as {any}
+        local block_idx = #content
+        local block = content[block_idx] as {string: any}
         block.cache_control = {type = "ephemeral"}
-        break
+        table.insert(cache_points, {msg_idx = idx, block_idx = block_idx})
       end
     end
 
@@ -241,10 +269,11 @@ local function run_agent(d: db.DB, qdb: queue.QueueDB, system_prompt: string, mo
         end
       end, is_interrupted)
 
-    if cache_msg_idx and cache_block_idx then
-      local msg = api_messages[cache_msg_idx] as {string: any}
+    -- Clean up all cache breakpoints
+    for _, cp in ipairs(cache_points) do
+      local msg = api_messages[cp.msg_idx as integer] as {string: any}
       local content = msg.content as {any}
-      local block = content[cache_block_idx] as {string: any}
+      local block = content[cp.block_idx as integer] as {string: any}
       block.cache_control = nil
     end
 

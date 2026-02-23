@@ -277,6 +277,64 @@ local function test_build_request_non_oauth_tool_names()
 end
 test_build_request_non_oauth_tool_names()
 
+local function test_build_request_tools_cache_control()
+  -- Last tool should have cache_control set; others should not
+  local tools_list = {
+    {name = "read", description = "Read a file", input_schema = {type = "object"}},
+    {name = "bash", description = "Run command", input_schema = {type = "object"}},
+  }
+  local req = api.build_request({}, {tools = tools_list}, false)
+  local req_tools = req.tools as {{string: any}}
+  assert(#req_tools == 2, "should have 2 tools")
+  assert(req_tools[1].cache_control == nil, "first tool should not have cache_control")
+  assert(req_tools[2].cache_control ~= nil, "last tool should have cache_control")
+  local cc = req_tools[2].cache_control as {string: any}
+  assert(cc.type == "ephemeral", "cache_control type should be ephemeral")
+end
+test_build_request_tools_cache_control()
+
+local function test_build_request_tools_cache_control_single()
+  -- Single tool should still get cache_control
+  local tools_list = {
+    {name = "read", description = "Read a file", input_schema = {type = "object"}},
+  }
+  local req = api.build_request({}, {tools = tools_list}, false)
+  local req_tools = req.tools as {{string: any}}
+  assert(#req_tools == 1, "should have 1 tool")
+  assert(req_tools[1].cache_control ~= nil, "single tool should have cache_control")
+  local cc = req_tools[1].cache_control as {string: any}
+  assert(cc.type == "ephemeral", "cache_control type should be ephemeral")
+end
+test_build_request_tools_cache_control_single()
+
+local function test_build_request_tools_cache_control_no_mutation()
+  -- Non-OAuth path should not mutate opts.tools in-place
+  local tools_list = {
+    {name = "read", description = "Read a file", input_schema = {type = "object"}},
+  }
+  api.build_request({}, {tools = tools_list}, false)
+  -- Original tools_list should be unmodified
+  local first = tools_list[1] as {string: any}
+  assert(first.cache_control == nil, "build_request should not mutate original tools list")
+end
+test_build_request_tools_cache_control_no_mutation()
+
+local function test_build_request_oauth_tools_cache_control()
+  -- OAuth mode last tool should also have cache_control
+  local tools_list = {
+    {name = "read", description = "Read a file", input_schema = {type = "object"}},
+    {name = "bash", description = "Run command", input_schema = {type = "object"}},
+  }
+  local req = api.build_request({}, {tools = tools_list}, true)
+  local req_tools = req.tools as {{string: any}}
+  assert(#req_tools == 2, "should have 2 tools")
+  assert(req_tools[1].cache_control == nil, "first tool should not have cache_control")
+  assert(req_tools[2].cache_control ~= nil, "last tool should have cache_control in OAuth mode")
+  local cc = req_tools[2].cache_control as {string: any}
+  assert(cc.type == "ephemeral", "cache_control type should be ephemeral in OAuth mode")
+end
+test_build_request_oauth_tools_cache_control()
+
 -- Tests for lazy API URL resolution
 local env = require("cosmic.env")
 

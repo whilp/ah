@@ -200,6 +200,7 @@ local function build_request(messages: {any}, opts: {string: any}, is_oauth: boo
 
   -- Only include tools if provided (allows testing without tools)
   if opts.tools and #(opts.tools as {any}) > 0 then
+    local tools_arr: {{string: any}}
     if is_oauth then
       -- Remap tool names to Claude Code format for OAuth
       local remapped: {{string: any}} = {}
@@ -210,10 +211,26 @@ local function build_request(messages: {any}, opts: {string: any}, is_oauth: boo
             input_schema = tool.input_schema,
           })
       end
-      req.tools = remapped
+      tools_arr = remapped
     else
-      req.tools = opts.tools
+      -- Shallow-copy each tool to avoid mutating opts.tools entries in-place
+      local copied: {{string: any}} = {}
+      for _, tool in ipairs(opts.tools as {{string: any}}) do
+        local t: {string: any} = {}
+        for k, v in pairs(tool as {string: any}) do
+          t[k] = v
+        end
+        table.insert(copied, t)
+      end
+      tools_arr = copied
     end
+    -- Cache the last tool: tools list is identical every call within a session
+    -- This is breakpoint #2 (system = #1, tools = #2)
+    if #tools_arr > 0 then
+      local last_tool = tools_arr[#tools_arr]
+      last_tool.cache_control = {type = "ephemeral"}
+    end
+    req.tools = tools_arr
   end
   return req
 end
