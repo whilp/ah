@@ -300,4 +300,50 @@ local function test_run_difftool_nil_tool()
 end
 test_run_difftool_nil_tool()
 
+-- to_unified_diff tests
+
+local function test_to_unified_diff_basic()
+  local pseudo = "- old line\n+ new line"
+  local result = cli.to_unified_diff(pseudo, "lib/ah/cli.tl")
+  assert(result ~= nil, "to_unified_diff should succeed")
+  assert(result:find("--- a/lib/ah/cli.tl") ~= nil, "should have --- header")
+  assert(result:find("%+%+%+ b/lib/ah/cli.tl") ~= nil, "should have +++ header")
+  assert(result:find("@@ %-1,1 %+1,1 @@") ~= nil, "should have @@ hunk header")
+  assert(result:find("%-old line") ~= nil, "should have -old line")
+  assert(result:find("%+new line") ~= nil, "should have +new line")
+end
+test_to_unified_diff_basic()
+
+local function test_to_unified_diff_multiline()
+  local pseudo = "- old1\n- old2\n+ new1\n+ new2\n+ new3"
+  local result = cli.to_unified_diff(pseudo, "foo.tl")
+  assert(result ~= nil, "to_unified_diff should succeed with multiline")
+  assert(result:find("@@ %-1,2 %+1,3 @@") ~= nil, "should count old/new lines correctly, got: " .. tostring(result))
+end
+test_to_unified_diff_multiline()
+
+local function test_to_unified_diff_nil_inputs()
+  assert(cli.to_unified_diff(nil, "foo.tl") == nil, "nil pseudo_diff should return nil")
+  assert(cli.to_unified_diff("", "foo.tl") == nil, "empty pseudo_diff should return nil")
+  assert(cli.to_unified_diff("- old\n+ new", nil) == nil, "nil path should return nil")
+  assert(cli.to_unified_diff("- old\n+ new", "") == nil, "empty path should return nil")
+end
+test_to_unified_diff_nil_inputs()
+
+local function test_to_unified_diff_non_diff_input()
+  local result = cli.to_unified_diff("edited lib/ah/cli.tl", "lib/ah/cli.tl")
+  assert(result == nil, "non-diff input should return nil")
+end
+test_to_unified_diff_non_diff_input()
+
+local function test_to_unified_diff_roundtrip_with_cat()
+  local pseudo = "- local y = 2\n+ local y = 42"
+  local unified = cli.to_unified_diff(pseudo, "lib/ah/cli.tl")
+  assert(unified ~= nil, "should produce unified diff")
+  local result = cli.run_difftool("cat", unified)
+  assert(result ~= nil, "cat should succeed")
+  assert(result == unified, "cat roundtrip should preserve content exactly")
+end
+test_to_unified_diff_roundtrip_with_cat()
+
 print("all cli tests passed")

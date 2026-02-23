@@ -85,6 +85,43 @@ local function run_difftool(difftool: string, diff_text: string): string
   return output
 end
 
+-- Convert the edit tool's pseudo-diff ("- "/"+ " prefixed lines) to unified diff format.
+-- Adds --- a/path, +++ b/path, and @@ hunk headers so tools like delta can parse
+-- and syntax-highlight the output.
+-- Returns nil if the input doesn't look like edit tool output.
+local function to_unified_diff(pseudo_diff: string, file_path: string): string
+  if not pseudo_diff or pseudo_diff == "" or not file_path or file_path == "" then
+    return nil
+  end
+
+  local old_count = 0
+  local new_count = 0
+  local unified_lines: {string} = {}
+
+  for line in pseudo_diff:gmatch("([^\n]*)\n?") do
+    if line:sub(1, 2) == "- " then
+      old_count = old_count + 1
+      table.insert(unified_lines, "-" .. line:sub(3))
+    elseif line:sub(1, 2) == "+ " then
+      new_count = new_count + 1
+      table.insert(unified_lines, "+" .. line:sub(3))
+    elseif line ~= "" then
+      -- Not a pseudo-diff line; bail out
+      return nil
+    end
+  end
+
+  if old_count == 0 and new_count == 0 then
+    return nil
+  end
+
+  local header = "--- a/" .. file_path .. "\n"
+    .. "+++ b/" .. file_path .. "\n"
+    .. "@@ -1," .. old_count .. " +1," .. new_count .. " @@\n"
+
+  return header .. table.concat(unified_lines, "\n") .. "\n"
+end
+
 -- Reset the difftool cache (for testing).
 local function reset_difftool_cache()
   _difftool_cache = nil
@@ -274,7 +311,9 @@ local function make_cli_handler(skill_name: string): events.EventCallback
         if is_tty and event.tool_name == "edit" then
           local difftool = find_difftool()
           if difftool then
-            local rendered = run_difftool(difftool, result)
+            local file_path = key ~= "" and key or nil
+            local unified = to_unified_diff(result, file_path)
+            local rendered = run_difftool(difftool, unified or result)
             if rendered then
               io.stderr:write(rendered)
               difftool_rendered = true
@@ -338,5 +377,6 @@ return {
   make_cli_handler = make_cli_handler,
   find_difftool = find_difftool,
   run_difftool = run_difftool,
+  to_unified_diff = to_unified_diff,
   reset_difftool_cache = reset_difftool_cache,
 }
