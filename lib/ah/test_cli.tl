@@ -346,4 +346,80 @@ local function test_to_unified_diff_roundtrip_with_cat()
 end
 test_to_unified_diff_roundtrip_with_cat()
 
+-- make_cli_handler: multi-line bash command display tests
+
+local function test_cli_handler_multiline_bash_shows_first_line()
+  -- A multi-line bash command should display only the first line + " ..."
+  local handler = cli.make_cli_handler(nil)
+  local output = capture_stderr(function()
+      handler({event_type = "agent_start", model = "claude-opus-4-5-20251101"} as events.EventData)
+      handler({
+          event_type = "tool_call_start",
+          tool_index = 1,
+          tool_name = "bash",
+        } as events.EventData)
+      handler({
+          event_type = "tool_call_end",
+          tool_name = "bash",
+          tool_key = "echo hello\necho world\necho done",
+          tool_output = "",
+          duration_ms = 100,
+        } as events.EventData)
+    end)
+  -- Should show "$ echo hello ..." (first line with " ..." suffix)
+  assert(output:find("echo hello %.%.%."), "should show first line with '...', got: " .. output)
+  -- Should NOT show second or third lines
+  assert(not output:find("echo world"), "should not show second line, got: " .. output)
+  assert(not output:find("echo done"), "should not show third line, got: " .. output)
+end
+test_cli_handler_multiline_bash_shows_first_line()
+
+local function test_cli_handler_singleline_bash_unchanged()
+  -- A single-line bash command should display as-is (no " ..." suffix)
+  local handler = cli.make_cli_handler(nil)
+  local output = capture_stderr(function()
+      handler({event_type = "agent_start", model = "claude-opus-4-5-20251101"} as events.EventData)
+      handler({
+          event_type = "tool_call_start",
+          tool_index = 1,
+          tool_name = "bash",
+        } as events.EventData)
+      handler({
+          event_type = "tool_call_end",
+          tool_name = "bash",
+          tool_key = "ls -la",
+          tool_output = "",
+          duration_ms = 50,
+        } as events.EventData)
+    end)
+  -- Should show "$ ls -la" (no " ..." suffix for single-line)
+  assert(output:find("ls %-la"), "should show command, got: " .. output)
+  assert(not output:find("ls %-la %.%.%."), "single-line should not have '...', got: " .. output)
+end
+test_cli_handler_singleline_bash_unchanged()
+
+local function test_cli_handler_multiline_bash_first_line_content()
+  -- Verify the exact first line is used, not a truncation
+  local handler = cli.make_cli_handler(nil)
+  local output = capture_stderr(function()
+      handler({event_type = "agent_start", model = "claude-opus-4-5-20251101"} as events.EventData)
+      handler({
+          event_type = "tool_call_start",
+          tool_index = 1,
+          tool_name = "bash",
+        } as events.EventData)
+      handler({
+          event_type = "tool_call_end",
+          tool_name = "bash",
+          tool_key = "git log --oneline -1 origin/work/241-some-branch\necho done",
+          tool_output = "",
+          duration_ms = 200,
+        } as events.EventData)
+    end)
+  -- First line should appear intact
+  assert(output:find("git log"), "should contain first line command, got: " .. output)
+  assert(output:find("%.%.%."), "should have '...' suffix, got: " .. output)
+end
+test_cli_handler_multiline_bash_first_line_content()
+
 print("all cli tests passed")
