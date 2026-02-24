@@ -66,6 +66,55 @@ local function test_load_both_claude_and_agents_md()
 end
 test_load_both_claude_and_agents_md()
 
+local function test_load_claude_md_ancestor()
+  -- Parent has CLAUDE.md, cwd has none → content found from ancestor.
+  local base = fs.join(TEST_TMPDIR, "ancestor_test")
+  local parent_dir = fs.join(base, "parent")
+  local cwd = fs.join(parent_dir, "child")
+  fs.makedirs(cwd)
+  cio.barf(fs.join(parent_dir, "CLAUDE.md"), "parent context")
+
+  local content = prompt_mod.load_claude_md(cwd)
+  assert(content:match("Project Context"), "should have Project Context header from ancestor")
+  assert(content:match("parent context"), "should include ancestor CLAUDE.md content")
+end
+test_load_claude_md_ancestor()
+
+local function test_load_claude_md_both_levels()
+  -- Parent has AGENTS.md, cwd has CLAUDE.md → both appear, cwd content last.
+  local base = fs.join(TEST_TMPDIR, "both_levels_test")
+  local parent_dir = fs.join(base, "root")
+  local cwd = fs.join(parent_dir, "sub")
+  fs.makedirs(cwd)
+  cio.barf(fs.join(parent_dir, "AGENTS.md"), "root agents context")
+  cio.barf(fs.join(cwd, "CLAUDE.md"), "cwd claude context")
+
+  local content = prompt_mod.load_claude_md(cwd)
+  assert(content:match("Agent Context"), "should have Agent Context header from parent")
+  assert(content:match("root agents context"), "should include parent AGENTS.md content")
+  assert(content:match("Project Context"), "should have Project Context header from cwd")
+  assert(content:match("cwd claude context"), "should include cwd CLAUDE.md content")
+
+  -- cwd content should appear after parent content.
+  local parent_pos = content:find("root agents context")
+  local cwd_pos = content:find("cwd claude context")
+  assert(parent_pos and cwd_pos and parent_pos < cwd_pos, "parent content should come before cwd content")
+end
+test_load_claude_md_both_levels()
+
+local function test_load_claude_md_cwd_supersedes_same_dir()
+  -- Same dir: CLAUDE.md and AGENTS.md — CLAUDE.md wins, AGENTS.md is skipped.
+  local cwd = fs.join(TEST_TMPDIR, "same_dir_both2")
+  fs.makedirs(cwd)
+  cio.barf(fs.join(cwd, "CLAUDE.md"), "claude wins")
+  cio.barf(fs.join(cwd, "AGENTS.md"), "agents loses")
+
+  local content = prompt_mod.load_claude_md(cwd)
+  assert(content:match("claude wins"), "CLAUDE.md content should be present")
+  assert(not content:match("agents loses"), "AGENTS.md content should NOT appear when CLAUDE.md exists")
+end
+test_load_claude_md_cwd_supersedes_same_dir()
+
 local function test_load_system_prompt_with_claude_md()
   local cwd = fs.join(TEST_TMPDIR, "cwd_with_claude")
   fs.makedirs(cwd)

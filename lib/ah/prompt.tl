@@ -3,25 +3,6 @@ local fs = require("cosmic.fs")
 local cio = require("cosmic.io")
 local child = require("cosmic.child")
 
--- Load CLAUDE.md with embedded base prepended
-local function load_claude_md(cwd: string): string
-  cwd = cwd or fs.getcwd()
-
-  -- CLAUDE.md supersedes AGENTS.md when both exist.
-  -- Projects should pick one file; CLAUDE.md is the conventional name.
-  local project_claude = cio.slurp(fs.join(cwd, "CLAUDE.md"))
-  if project_claude then
-    return "\n\n# Project Context\n\n" .. project_claude
-  end
-
-  local agents_md = cio.slurp(fs.join(cwd, "AGENTS.md"))
-  if agents_md then
-    return "\n\n# Agent Context\n\n" .. agents_md
-  end
-
-  return ""
-end
-
 -- Run a git command in cwd with a 2s timeout. Returns trimmed stdout or nil.
 -- Never throws. Any failure (not a repo, git missing, timeout, bad exit) returns nil.
 local function git_cmd(cwd: string, ...: string): string
@@ -39,6 +20,66 @@ local function git_cmd(cwd: string, ...: string): string
       return (out:gsub("%s+$", ""))
     end)
   if not ok then return nil end
+  return result
+end
+
+-- Load CLAUDE.md with embedded base prepended.
+-- Walks from cwd up to the git root (or filesystem root), collecting
+-- CLAUDE.md and AGENTS.md from each ancestor directory. Files are
+-- concatenated from most general (root) to most specific (cwd).
+-- In each directory, CLAUDE.md supersedes AGENTS.md when both exist.
+local function load_claude_md(cwd: string): string
+  cwd = cwd or fs.getcwd()
+
+  -- Find the stop boundary: git toplevel, or "/" if not in a git repo.
+  local git_root = git_cmd(cwd, "rev-parse", "--show-toplevel")
+  local stop = git_root or "/"
+
+  -- Walk upward from cwd, collecting directories (inclusive on both ends).
+  -- Build list in reverse (cwd first), then reverse it so root comes first.
+  local dirs: {string} = {}
+  local dir = cwd
+  while true do
+    dirs[#dirs + 1] = dir
+    if dir == stop or dir == "/" then
+      break
+    end
+    local parent = fs.dirname(dir)
+    if parent == dir then
+      -- Already at filesystem root; avoid infinite loop.
+      break
+    end
+    dir = parent
+  end
+
+  -- Reverse so we go from most general (root) to most specific (cwd).
+  local lo = 1
+  local hi = #dirs
+  while lo < hi do
+    dirs[lo], dirs[hi] = dirs[hi], dirs[lo]
+    lo = lo + 1
+    hi = hi - 1
+  end
+
+  -- Collect context sections from each directory.
+  local sections: {string} = {}
+  for _, d in ipairs(dirs) do
+    -- CLAUDE.md supersedes AGENTS.md when both exist.
+    local claude = cio.slurp(fs.join(d, "CLAUDE.md"))
+    if claude then
+      sections[#sections + 1] = "\n\n# Project Context\n\n" .. claude
+    else
+      local agents = cio.slurp(fs.join(d, "AGENTS.md"))
+      if agents then
+        sections[#sections + 1] = "\n\n# Agent Context\n\n" .. agents
+      end
+    end
+  end
+
+  local result = ""
+  for _, s in ipairs(sections) do
+    result = result .. s
+  end
   return result
 end
 
