@@ -17,6 +17,21 @@ local function test_tool_key_param_bash_no_truncate()
 end
 test_tool_key_param_bash_no_truncate()
 
+local function test_tool_key_param_bash_multiline()
+  local cmd = "git log --oneline -1 origin/work/241\ngit diff HEAD~1"
+  local key = loop.tool_key_param("bash", '{"command":"git log --oneline -1 origin/work/241\\ngit diff HEAD~1"}', nil)
+  assert(key == "git log --oneline -1 origin/work/241...", "should return first line + ...: got " .. key)
+end
+test_tool_key_param_bash_multiline()
+
+local function test_tool_key_param_bash_single_line_unchanged()
+  local cmd = "gh issue edit 241 --remove-label \"doing\" --add-label \"todo\" 2>&1"
+  local json_input = '{"command":"gh issue edit 241 --remove-label \\"doing\\" --add-label \\"todo\\" 2>&1"}'
+  local key = loop.tool_key_param("bash", json_input, nil)
+  assert(key == cmd, "single-line command should be unchanged: got " .. key)
+end
+test_tool_key_param_bash_single_line_unchanged()
+
 local function test_tool_key_param_read()
   local key = loop.tool_key_param("read", '{"path":"/tmp/foo.txt"}', nil)
   assert(key == "/tmp/foo.txt", "should extract read path")
@@ -75,6 +90,14 @@ local function test_tool_key_param_details_bash_no_truncate()
   assert(key == long_cmd, "should return full command from details without truncation: got " .. #key .. " chars")
 end
 test_tool_key_param_details_bash_no_truncate()
+
+local function test_tool_key_param_details_bash_multiline()
+  local multiline_cmd = "echo hello\necho world\necho done"
+  local details = json.encode({command = multiline_cmd, exit_code = 0})
+  local key = loop.tool_key_param("bash", '{"command":"x"}', details)
+  assert(key == "echo hello...", "should return first line + ... from details: got " .. key)
+end
+test_tool_key_param_details_bash_multiline()
 
 local function test_tool_key_param_details_edit()
   local details = json.encode({path = "/tmp/file.lua", old_lines = 5, new_lines = 7})
