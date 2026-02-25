@@ -371,6 +371,48 @@ local function test_wrap_command_comment_no_false_positive()
 end
 test_wrap_command_comment_no_false_positive()
 
+local function test_wrap_command_multiline_two_lines()
+  -- Multi-line command: should show first line + continuation marker
+  local cmd = "git log --oneline -1 origin/work/241-c4\ngit status"
+  local result = loop.wrap_command(cmd, 80, "    ")
+  assert(not result:find("\n"), "result should not contain newlines: " .. result)
+  assert(result:find("↩"), "should contain continuation marker: " .. result)
+  assert(result:find("1 more line"), "should say 1 more line: " .. result)
+  -- First line content should be preserved
+  assert(result:sub(1, #"git log --oneline -1 origin/work/241-c4") == "git log --oneline -1 origin/work/241-c4",
+    "first line should be preserved: " .. result)
+end
+test_wrap_command_multiline_two_lines()
+
+local function test_wrap_command_multiline_many_lines()
+  -- Multi-line command with many lines
+  local cmd = "line1\nline2\nline3\nline4"
+  local result = loop.wrap_command(cmd, 80, "    ")
+  assert(not result:find("\n"), "result should not contain newlines: " .. result)
+  assert(result:find("↩"), "should contain continuation marker: " .. result)
+  assert(result:find("3 more lines"), "should say 3 more lines: " .. result)
+  assert(result:sub(1, 5) == "line1", "should start with first line: " .. result)
+end
+test_wrap_command_multiline_many_lines()
+
+local function test_wrap_command_multiline_trailing_newline()
+  -- Multi-line command with only a trailing newline (no extra content)
+  local cmd = "git status\n"
+  local result = loop.wrap_command(cmd, 80, "    ")
+  -- No extra non-empty lines, so just return first line
+  assert(result == "git status", "trailing newline only: should return first line: " .. result)
+end
+test_wrap_command_multiline_trailing_newline()
+
+local function test_wrap_command_multiline_preserves_first_line()
+  -- Ensures the first line is not modified when it's already short
+  local cmd = "echo hello\nrm -rf /\nwhoami"
+  local result = loop.wrap_command(cmd, 80, "    ")
+  assert(result:sub(1, 10) == "echo hello", "first line should be exact: " .. result)
+  assert(result:find("2 more lines"), "should report 2 more lines: " .. result)
+end
+test_wrap_command_multiline_preserves_first_line()
+
 -- Tests for measure_payload_bytes
 local function test_measure_payload_bytes_empty()
   local result = loop.measure_payload_bytes({})
