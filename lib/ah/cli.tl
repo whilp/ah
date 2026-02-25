@@ -171,6 +171,18 @@ local function colorize_tool_line(line: string): string, boolean
   return line, false
 end
 
+-- Extract the first line of a string.
+-- If the string contains newlines, returns the first line with "..." suffix.
+-- Otherwise returns the string unchanged.
+local function first_line(s: string): string
+  if not s then return s end
+  local nl = s:find("\n")
+  if nl then
+    return s:sub(1, nl - 1) .. "..."
+  end
+  return s
+end
+
 -- CLI display handler: renders structured events to stderr/stdout for terminal use.
 -- This is the application-layer implementation of the event callback.
 -- Other handlers (JSON logging, web UI, etc.) can be substituted.
@@ -299,6 +311,8 @@ local function make_cli_handler(skill_name: string): events.EventCallback
       if key ~= "" then
         local cmd_prefix = event.tool_name == "bash" and "$ " or ""
         if event.tool_name == "bash" then
+          -- For multi-line commands, show only the first line with ... suffix
+          key = first_line(key)
           local term_width = 80
           local ws = tty.winsize(2)
           if ws then term_width = ws.cols as integer end
@@ -384,4 +398,5 @@ return {
   run_difftool = run_difftool,
   to_unified_diff = to_unified_diff,
   reset_difftool_cache = reset_difftool_cache,
+  first_line = first_line,
 }

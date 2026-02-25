@@ -346,4 +346,37 @@ local function test_to_unified_diff_roundtrip_with_cat()
 end
 test_to_unified_diff_roundtrip_with_cat()
 
+-- first_line tests
+
+local function test_first_line_single_line()
+  local result = cli.first_line("git status")
+  assert(result == "git status", "single-line should be unchanged, got: " .. tostring(result))
+end
+test_first_line_single_line()
+
+local function test_first_line_multi_line()
+  local result = cli.first_line("git log --oneline -1 origin/work/241-c4\necho done")
+  assert(result == "git log --oneline -1 origin/work/241-c4...", "multi-line should show first line with ..., got: " .. tostring(result))
+end
+test_first_line_multi_line()
+
+local function test_first_line_three_lines()
+  local result = cli.first_line("line1\nline2\nline3")
+  assert(result == "line1...", "three-line should show only first line with ..., got: " .. tostring(result))
+end
+test_first_line_three_lines()
+
+local function test_first_line_trailing_newline()
+  -- a string ending in newline has an empty second "line"; still treat as multi-line
+  local result = cli.first_line("git status\n")
+  assert(result == "git status...", "trailing newline should add ..., got: " .. tostring(result))
+end
+test_first_line_trailing_newline()
+
+local function test_first_line_empty_string()
+  local result = cli.first_line("")
+  assert(result == "", "empty string should be unchanged, got: " .. tostring(result))
+end
+test_first_line_empty_string()
+
 print("all cli tests passed")
