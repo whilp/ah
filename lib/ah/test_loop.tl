@@ -76,6 +76,22 @@ local function test_tool_key_param_details_bash_no_truncate()
 end
 test_tool_key_param_details_bash_no_truncate()
 
+local function test_tool_key_param_bash_multiline()
+  local multiline_cmd = "git log --oneline -1 origin/work/241\necho done"
+  local input_json = json.encode({command = multiline_cmd})
+  local key = loop.tool_key_param("bash", input_json, nil)
+  assert(key == "git log --oneline -1 origin/work/241...", "should show first line with ... for multi-line bash: got " .. key)
+end
+test_tool_key_param_bash_multiline()
+
+local function test_tool_key_param_details_bash_multiline()
+  local multiline_cmd = "git log --oneline -1 origin/work/241\necho done"
+  local details = json.encode({command = multiline_cmd, exit_code = 0})
+  local key = loop.tool_key_param("bash", '{"command":"x"}', details)
+  assert(key == "git log --oneline -1 origin/work/241...", "should show first line with ... for multi-line bash in details: got " .. key)
+end
+test_tool_key_param_details_bash_multiline()
+
 local function test_tool_key_param_details_edit()
   local details = json.encode({path = "/tmp/file.lua", old_lines = 5, new_lines = 7})
   local key = loop.tool_key_param("edit", '{"path":"/tmp/file.lua","old_string":"x","new_string":"y"}', details)

@@ -32,7 +32,12 @@ local function tool_key_param(tool_name: string, tool_input: string, details_jso
       elseif details.path then
         return shorten_path(details.path as string)
       elseif details.command then
-        return details.command as string
+        local cmd = details.command as string
+        local newline = cmd:find("\n")
+        if newline then
+          cmd = cmd:sub(1, newline - 1) .. "..."
+        end
+        return cmd
       end
     end
   end
@@ -45,7 +50,12 @@ local function tool_key_param(tool_name: string, tool_input: string, details_jso
   if tool_name == "read" or tool_name == "write" or tool_name == "edit" then
     return shorten_path((input.path or "") as string)
   elseif tool_name == "bash" then
-    return (input.command or "") as string
+    local cmd = (input.command or "") as string
+    local newline = cmd:find("\n")
+    if newline then
+      cmd = cmd:sub(1, newline - 1) .. "..."
+    end
+    return cmd
   end
   return ""
 end
