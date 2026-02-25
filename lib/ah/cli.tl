@@ -299,6 +299,11 @@ local function make_cli_handler(skill_name: string): events.EventCallback
       if key ~= "" then
         local cmd_prefix = event.tool_name == "bash" and "$ " or ""
         if event.tool_name == "bash" then
+          -- For multi-line bash commands, show only the first line with "..." suffix
+          if key:find("\n") then
+            local first = key:match("^([^\n]+)")
+            key = (first or key) .. " ..."
+          end
           local term_width = 80
           local ws = tty.winsize(2)
           if ws then term_width = ws.cols as integer end

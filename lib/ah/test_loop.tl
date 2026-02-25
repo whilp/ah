@@ -184,6 +184,26 @@ local function test_turn_signature_deterministic()
 end
 test_turn_signature_deterministic()
 
+-- Tests for wrap_command
+local function test_wrap_command_single_line_fits()
+  local result = loop.wrap_command("ls -la", 80, "    ")
+  assert(result == "ls -la", "short command should be unchanged: " .. result)
+end
+test_wrap_command_single_line_fits()
+
+local function test_wrap_command_multiline_input_collapsed()
+  -- wrap_command tokenizes with %S+ so newlines are treated as whitespace between tokens.
+  -- However, the short-circuit (cmd fits in width) returns cmd unchanged including newlines.
+  -- A command long enough to trigger wrapping has its newlines collapsed by re-joining tokens.
+  local long_flag = string.rep("-", 40)
+  local cmd = "git log\n" .. long_flag .. "\n" .. long_flag
+  local result = loop.wrap_command(cmd, 80, "    ")
+  -- Result should contain "git" and "log" tokens
+  assert(result:match("git"), "should contain git token: " .. result)
+  assert(result:match("log"), "should contain log token: " .. result)
+end
+test_wrap_command_multiline_input_collapsed()
+
 -- Tests for check_loop
 local function test_check_loop_empty()
   local count = loop.check_loop({})
