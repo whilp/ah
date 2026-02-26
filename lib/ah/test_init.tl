@@ -66,6 +66,63 @@ local function test_load_both_claude_and_agents_md()
 end
 test_load_both_claude_and_agents_md()
 
+local function test_ancestor_parent_has_claude_md()
+  -- parent has CLAUDE.md, cwd has nothing → parent content included
+  local parent = fs.join(TEST_TMPDIR, "ancestor_parent")
+  local cwd = fs.join(parent, "child")
+  fs.makedirs(cwd)
+  cio.barf(fs.join(parent, "CLAUDE.md"), "parent context")
+
+  local content = prompt_mod.load_claude_md(cwd)
+  assert(content:match("Project Context"), "should have Project Context header from parent")
+  assert(content:match("parent context"), "should include parent CLAUDE.md content")
+end
+test_ancestor_parent_has_claude_md()
+
+local function test_ancestor_both_levels_have_claude_md()
+  -- parent has CLAUDE.md, cwd also has CLAUDE.md → both included, parent first
+  local parent = fs.join(TEST_TMPDIR, "ancestor_both")
+  local cwd = fs.join(parent, "child")
+  fs.makedirs(cwd)
+  cio.barf(fs.join(parent, "CLAUDE.md"), "parent context")
+  cio.barf(fs.join(cwd, "CLAUDE.md"), "child context")
+
+  local content = prompt_mod.load_claude_md(cwd)
+  assert(content:match("parent context"), "should include parent CLAUDE.md")
+  assert(content:match("child context"), "should include child CLAUDE.md")
+  -- parent must appear before child
+  local parent_pos = content:find("parent context")
+  local child_pos = content:find("child context")
+  assert(parent_pos < child_pos, "parent context must appear before child context")
+end
+test_ancestor_both_levels_have_claude_md()
+
+local function test_ancestor_claude_supersedes_agents_in_same_dir()
+  -- within the same dir CLAUDE.md takes precedence over AGENTS.md
+  local cwd = fs.join(TEST_TMPDIR, "ancestor_precedence")
+  fs.makedirs(cwd)
+  cio.barf(fs.join(cwd, "CLAUDE.md"), "claude wins")
+  cio.barf(fs.join(cwd, "AGENTS.md"), "agents loses")
+
+  local content = prompt_mod.load_claude_md(cwd)
+  assert(content:match("claude wins"), "CLAUDE.md content should be present")
+  assert(not content:match("agents loses"), "AGENTS.md content should be absent")
+end
+test_ancestor_claude_supersedes_agents_in_same_dir()
+
+local function test_ancestor_parent_has_agents_md()
+  -- parent has AGENTS.md, cwd has nothing → parent content included
+  local parent = fs.join(TEST_TMPDIR, "ancestor_agents_parent")
+  local cwd = fs.join(parent, "child")
+  fs.makedirs(cwd)
+  cio.barf(fs.join(parent, "AGENTS.md"), "parent agents context")
+
+  local content = prompt_mod.load_claude_md(cwd)
+  assert(content:match("Agent Context"), "should have Agent Context header from parent")
+  assert(content:match("parent agents context"), "should include parent AGENTS.md content")
+end
+test_ancestor_parent_has_agents_md()
+
 local function test_load_system_prompt_with_claude_md()
   local cwd = fs.join(TEST_TMPDIR, "cwd_with_claude")
   fs.makedirs(cwd)
