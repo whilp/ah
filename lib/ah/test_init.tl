@@ -66,6 +66,66 @@ local function test_load_both_claude_and_agents_md()
 end
 test_load_both_claude_and_agents_md()
 
+-- Ancestor walking tests
+
+local function test_load_claude_md_ancestor_claude()
+  -- parent has CLAUDE.md, cwd has none; should load ancestor
+  local parent = fs.join(TEST_TMPDIR, "ancestor_parent")
+  local cwd = fs.join(parent, "child")
+  fs.makedirs(cwd)
+  cio.barf(fs.join(parent, "CLAUDE.md"), "parent context")
+
+  local content = prompt_mod.load_claude_md(cwd)
+  assert(content:match("Project Context"), "should have Project Context header from ancestor")
+  assert(content:match("parent context"), "should include ancestor CLAUDE.md content")
+end
+test_load_claude_md_ancestor_claude()
+
+local function test_load_claude_md_ancestor_and_cwd()
+  -- parent has CLAUDE.md, cwd also has CLAUDE.md; both should appear, ancestor first
+  local parent = fs.join(TEST_TMPDIR, "both_parent")
+  local cwd = fs.join(parent, "child")
+  fs.makedirs(cwd)
+  cio.barf(fs.join(parent, "CLAUDE.md"), "parent context")
+  cio.barf(fs.join(cwd, "CLAUDE.md"), "child context")
+
+  local content = prompt_mod.load_claude_md(cwd)
+  assert(content:match("parent context"), "should include parent CLAUDE.md")
+  assert(content:match("child context"), "should include child CLAUDE.md")
+  -- parent context should appear before child context
+  local pi = content:find("parent context")
+  local ci = content:find("child context")
+  assert(pi and ci and pi < ci, "ancestor context should appear before cwd context")
+end
+test_load_claude_md_ancestor_and_cwd()
+
+local function test_load_claude_md_ancestor_agents_cwd_claude()
+  -- parent has AGENTS.md, cwd has CLAUDE.md; both should appear
+  local parent = fs.join(TEST_TMPDIR, "mixed_parent")
+  local cwd = fs.join(parent, "child")
+  fs.makedirs(cwd)
+  cio.barf(fs.join(parent, "AGENTS.md"), "parent agents")
+  cio.barf(fs.join(cwd, "CLAUDE.md"), "child claude")
+
+  local content = prompt_mod.load_claude_md(cwd)
+  assert(content:match("Agent Context"), "should have Agent Context from ancestor")
+  assert(content:match("parent agents"), "should include ancestor AGENTS.md content")
+  assert(content:match("Project Context"), "should have Project Context from cwd")
+  assert(content:match("child claude"), "should include cwd CLAUDE.md content")
+end
+test_load_claude_md_ancestor_agents_cwd_claude()
+
+local function test_load_claude_md_empty_still_empty()
+  -- no context files anywhere along the path; should still return ""
+  local parent = fs.join(TEST_TMPDIR, "empty_ancestor_parent")
+  local cwd = fs.join(parent, "child")
+  fs.makedirs(cwd)
+
+  local content = prompt_mod.load_claude_md(cwd)
+  assert(content == "", "should return empty string when no context files found")
+end
+test_load_claude_md_empty_still_empty()
+
 local function test_load_system_prompt_with_claude_md()
   local cwd = fs.join(TEST_TMPDIR, "cwd_with_claude")
   fs.makedirs(cwd)
