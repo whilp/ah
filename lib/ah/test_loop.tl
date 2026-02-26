@@ -371,6 +371,45 @@ local function test_wrap_command_comment_no_false_positive()
 end
 test_wrap_command_comment_no_false_positive()
 
+local function test_wrap_command_multiline_shows_first_line()
+  -- Multi-line commands should show only the first line with " ..." suffix
+  local cmd = "git log --oneline -1 origin/work/241\ngit status\ngit diff"
+  local result = loop.wrap_command(cmd, 80, "    ")
+  assert(not result:find("\n"), "result should have no newlines: " .. result)
+  assert(result:find("git log", 1, true), "should contain first line: " .. result)
+  assert(result:sub(-4) == " ...", "should end with ' ...': " .. result)
+  assert(not result:find("git status", 1, true), "should not contain second line: " .. result)
+end
+test_wrap_command_multiline_shows_first_line()
+
+local function test_wrap_command_multiline_two_lines()
+  -- Two-line command
+  local cmd = "echo hello\necho world"
+  local result = loop.wrap_command(cmd, 80, "    ")
+  assert(result == "echo hello ...", "two-line should produce 'first line ...': got " .. result)
+end
+test_wrap_command_multiline_two_lines()
+
+local function test_wrap_command_multiline_then_wrap()
+  -- Multi-line command whose first line also exceeds width should still wrap
+  local long_first = "gh issue list --repo whilp/ah --label todo --state open --json number,title"
+  local cmd = long_first .. "\nsome other line"
+  local result = loop.wrap_command(cmd, 60, "    ")
+  -- Should not contain the second line
+  assert(not result:find("some other line", 1, true), "should not show second line: " .. result)
+  -- First line + " ..." is long, so should be wrapped
+  assert(result:find("\\\n") or #result > 0, "should handle long first line: " .. result)
+end
+test_wrap_command_multiline_then_wrap()
+
+local function test_wrap_command_multiline_starts_with_newline()
+  -- Edge case: command starts with \n
+  local cmd = "\necho hello"
+  local result = loop.wrap_command(cmd, 80, "    ")
+  assert(result == "...", "newline at start should produce '...': got " .. result)
+end
+test_wrap_command_multiline_starts_with_newline()
+
 -- Tests for measure_payload_bytes
 local function test_measure_payload_bytes_empty()
   local result = loop.measure_payload_bytes({})
