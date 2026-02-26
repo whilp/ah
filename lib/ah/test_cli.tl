@@ -346,4 +346,64 @@ local function test_to_unified_diff_roundtrip_with_cat()
 end
 test_to_unified_diff_roundtrip_with_cat()
 
+-- make_cli_handler: multi-line bash key display tests
+
+local function test_tool_call_end_singleline_bash_key()
+  local handler = cli.make_cli_handler(nil)
+  local output = capture_stderr(function()
+      handler({
+          event_type = "tool_call_end",
+          tool_name = "bash",
+          tool_key = "git status",
+          tool_output = "",
+          duration_ms = 100,
+          tool_index = 1,
+          is_error = false,
+        } as events.EventData)
+    end)
+  assert(output:find("git status", 1, true) ~= nil, "single-line key should appear unchanged, got: " .. output)
+  assert(output:find("\\n...", 1, true) == nil, "single-line key should not have multiline suffix, got: " .. output)
+end
+test_tool_call_end_singleline_bash_key()
+
+local function test_tool_call_end_multiline_bash_key()
+  local handler = cli.make_cli_handler(nil)
+  local output = capture_stderr(function()
+      handler({
+          event_type = "tool_call_end",
+          tool_name = "bash",
+          tool_key = "git log --oneline -1\norigin/main",
+          tool_output = "",
+          duration_ms = 100,
+          tool_index = 1,
+          is_error = false,
+        } as events.EventData)
+    end)
+  assert(output:find("git log", 1, true) ~= nil, "first line of multi-line key should appear, got: " .. output)
+  assert(output:find("-1", 1, true) ~= nil, "first line content should appear, got: " .. output)
+  assert(output:find("\\n...", 1, true) ~= nil, "multi-line key should have \\n... suffix, got: " .. output)
+  assert(output:find("origin/main", 1, true) == nil, "second line of multi-line key should not appear, got: " .. output)
+end
+test_tool_call_end_multiline_bash_key()
+
+local function test_tool_call_end_multiline_bash_key_many_lines()
+  local handler = cli.make_cli_handler(nil)
+  local output = capture_stderr(function()
+      handler({
+          event_type = "tool_call_end",
+          tool_name = "bash",
+          tool_key = "line one\nline two\nline three",
+          tool_output = "",
+          duration_ms = 50,
+          tool_index = 1,
+          is_error = false,
+        } as events.EventData)
+    end)
+  assert(output:find("line one", 1, true) ~= nil, "first line should appear, got: " .. output)
+  assert(output:find("\\n...", 1, true) ~= nil, "should have \\n... suffix, got: " .. output)
+  assert(output:find("line two", 1, true) == nil, "second line should not appear, got: " .. output)
+  assert(output:find("line three", 1, true) == nil, "third line should not appear, got: " .. output)
+end
+test_tool_call_end_multiline_bash_key_many_lines()
+
 print("all cli tests passed")
