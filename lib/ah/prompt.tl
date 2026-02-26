@@ -3,25 +3,6 @@ local fs = require("cosmic.fs")
 local cio = require("cosmic.io")
 local child = require("cosmic.child")
 
--- Load CLAUDE.md with embedded base prepended
-local function load_claude_md(cwd: string): string
-  cwd = cwd or fs.getcwd()
-
-  -- CLAUDE.md supersedes AGENTS.md when both exist.
-  -- Projects should pick one file; CLAUDE.md is the conventional name.
-  local project_claude = cio.slurp(fs.join(cwd, "CLAUDE.md"))
-  if project_claude then
-    return "\n\n# Project Context\n\n" .. project_claude
-  end
-
-  local agents_md = cio.slurp(fs.join(cwd, "AGENTS.md"))
-  if agents_md then
-    return "\n\n# Agent Context\n\n" .. agents_md
-  end
-
-  return ""
-end
-
 -- Run a git command in cwd with a 2s timeout. Returns trimmed stdout or nil.
 -- Never throws. Any failure (not a repo, git missing, timeout, bad exit) returns nil.
 local function git_cmd(cwd: string, ...: string): string
@@ -50,6 +31,62 @@ local function git_context(cwd: string): {string: string}
     commit = git_cmd(cwd, "rev-parse", "--short", "HEAD"),
     remote = git_cmd(cwd, "remote", "get-url", "origin"),
   }
+end
+
+-- Collect one context snippet for a single directory.
+-- Prefers CLAUDE.md over AGENTS.md. Returns nil when neither exists.
+local function load_context_for_dir(dir: string): string
+  local project_claude = cio.slurp(fs.join(dir, "CLAUDE.md"))
+  if project_claude then
+    return "\n\n# Project Context\n\n" .. project_claude
+  end
+  local agents_md = cio.slurp(fs.join(dir, "AGENTS.md"))
+  if agents_md then
+    return "\n\n# Agent Context\n\n" .. agents_md
+  end
+  return nil
+end
+
+-- Load CLAUDE.md / AGENTS.md from cwd and all ancestor directories up to the
+-- git toplevel (or filesystem root). Results are concatenated from most general
+-- (root) to most specific (cwd), so cwd content appears last and can override.
+local function load_claude_md(cwd: string): string
+  cwd = cwd or fs.getcwd()
+
+  -- Determine the stop directory: git toplevel if available, else "/".
+  local stop_dir = git_cmd(cwd, "rev-parse", "--show-toplevel") or "/"
+
+  -- Walk from cwd up to stop_dir (inclusive), collecting dirs.
+  local dirs: {string} = {}
+  local dir = cwd
+  local max_steps = 64 -- safety limit
+  for _ = 1, max_steps do
+    dirs[#dirs + 1] = dir
+    if dir == stop_dir then break end
+    local parent = fs.dirname(dir)
+    if parent == dir then break end -- reached filesystem root
+    dir = parent
+  end
+
+  -- Reverse so root comes first (most general → most specific).
+  local lo = 1
+  local hi = #dirs
+  while lo < hi do
+    dirs[lo], dirs[hi] = dirs[hi], dirs[lo]
+    lo = lo + 1
+    hi = hi - 1
+  end
+
+  -- Collect context snippets.
+  local parts: {string} = {}
+  for _, d in ipairs(dirs) do
+    local snippet = load_context_for_dir(d)
+    if snippet then
+      parts[#parts + 1] = snippet
+    end
+  end
+
+  return table.concat(parts, "")
 end
 
 -- Load system prompt with precedence:

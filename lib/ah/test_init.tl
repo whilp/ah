@@ -66,6 +66,80 @@ local function test_load_both_claude_and_agents_md()
 end
 test_load_both_claude_and_agents_md()
 
+-- Ancestor directory walking tests
+
+local function test_load_claude_md_ancestor()
+  -- Parent has CLAUDE.md; cwd has nothing.
+  local base = fs.join(TEST_TMPDIR, "ancestor_test1")
+  local parent = base
+  local cwd = fs.join(base, "child")
+  fs.makedirs(cwd)
+  cio.barf(fs.join(parent, "CLAUDE.md"), "ancestor context")
+
+  local content = prompt_mod.load_claude_md(cwd)
+  assert(content:match("ancestor context"), "ancestor CLAUDE.md should be included")
+  assert(content:match("Project Context"), "should have Project Context header")
+end
+test_load_claude_md_ancestor()
+
+local function test_load_claude_md_agents_ancestor()
+  -- Parent has AGENTS.md; cwd has nothing.
+  local base = fs.join(TEST_TMPDIR, "ancestor_test2")
+  local parent = base
+  local cwd = fs.join(base, "child")
+  fs.makedirs(cwd)
+  cio.barf(fs.join(parent, "AGENTS.md"), "ancestor agents context")
+
+  local content = prompt_mod.load_claude_md(cwd)
+  assert(content:match("ancestor agents context"), "ancestor AGENTS.md should be included")
+  assert(content:match("Agent Context"), "should have Agent Context header")
+end
+test_load_claude_md_agents_ancestor()
+
+local function test_load_claude_md_both_levels()
+  -- Parent has CLAUDE.md, cwd also has CLAUDE.md. Both included, parent first.
+  local base = fs.join(TEST_TMPDIR, "ancestor_test3")
+  local parent = base
+  local cwd = fs.join(base, "child")
+  fs.makedirs(cwd)
+  cio.barf(fs.join(parent, "CLAUDE.md"), "root context")
+  cio.barf(fs.join(cwd, "CLAUDE.md"), "leaf context")
+
+  local content = prompt_mod.load_claude_md(cwd)
+  assert(content:match("root context"), "parent CLAUDE.md should be included")
+  assert(content:match("leaf context"), "cwd CLAUDE.md should be included")
+  -- root should appear before leaf
+  local root_pos = content:find("root context")
+  local leaf_pos = content:find("leaf context")
+  assert(root_pos < leaf_pos, "root context should appear before leaf context")
+end
+test_load_claude_md_both_levels()
+
+local function test_load_claude_md_skips_empty_intermediates()
+  -- Grandparent has CLAUDE.md, parent has nothing, cwd has nothing.
+  local base = fs.join(TEST_TMPDIR, "ancestor_test4")
+  local grandparent = base
+  local parent = fs.join(base, "middle")
+  local cwd = fs.join(parent, "leaf")
+  fs.makedirs(cwd)
+  cio.barf(fs.join(grandparent, "CLAUDE.md"), "grandparent context")
+
+  local content = prompt_mod.load_claude_md(cwd)
+  assert(content:match("grandparent context"), "grandparent CLAUDE.md should be included")
+end
+test_load_claude_md_skips_empty_intermediates()
+
+local function test_load_claude_md_stops_at_root()
+  -- cwd with no context files at or above it (within tmpdir). No crash.
+  local sub = fs.join(TEST_TMPDIR, "ancestor_nocontext", "a", "b", "c")
+  fs.makedirs(sub)
+
+  -- Should not crash and return a string (empty or not).
+  local content = prompt_mod.load_claude_md(sub)
+  assert(type(content) == "string", "should return a string")
+end
+test_load_claude_md_stops_at_root()
+
 local function test_load_system_prompt_with_claude_md()
   local cwd = fs.join(TEST_TMPDIR, "cwd_with_claude")
   fs.makedirs(cwd)
