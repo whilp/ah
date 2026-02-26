@@ -17,6 +17,18 @@ local function test_tool_key_param_bash_no_truncate()
 end
 test_tool_key_param_bash_no_truncate()
 
+local function test_tool_key_param_bash_multiline()
+  local key = loop.tool_key_param("bash", '{"command":"git log --oneline -1\\necho done"}', nil)
+  assert(key == "git log --oneline -1...", "should return first line + ... for multiline: " .. key)
+end
+test_tool_key_param_bash_multiline()
+
+local function test_tool_key_param_bash_singleline_unchanged()
+  local key = loop.tool_key_param("bash", '{"command":"git log --oneline -1"}', nil)
+  assert(key == "git log --oneline -1", "single-line command should be unchanged: " .. key)
+end
+test_tool_key_param_bash_singleline_unchanged()
+
 local function test_tool_key_param_read()
   local key = loop.tool_key_param("read", '{"path":"/tmp/foo.txt"}', nil)
   assert(key == "/tmp/foo.txt", "should extract read path")
@@ -75,6 +87,13 @@ local function test_tool_key_param_details_bash_no_truncate()
   assert(key == long_cmd, "should return full command from details without truncation: got " .. #key .. " chars")
 end
 test_tool_key_param_details_bash_no_truncate()
+
+local function test_tool_key_param_details_bash_multiline()
+  local details = json.encode({command = "git log --oneline -1\necho done", exit_code = 0})
+  local key = loop.tool_key_param("bash", '{"command":"x"}', details)
+  assert(key == "git log --oneline -1...", "should return first line + ... for multiline from details: " .. key)
+end
+test_tool_key_param_details_bash_multiline()
 
 local function test_tool_key_param_details_edit()
   local details = json.encode({path = "/tmp/file.lua", old_lines = 5, new_lines = 7})
