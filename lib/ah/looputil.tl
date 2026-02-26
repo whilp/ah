@@ -54,9 +54,16 @@ end
 -- Returns cmd unchanged if it fits within width.
 -- Otherwise splits at spaces before -- or - flags, joining with \<newline> + indent.
 -- Falls back to splitting at any space if no flag boundaries found.
+-- Multi-line commands (containing literal newlines) are collapsed to the first
+-- line with a " ..." suffix before wrapping.
 local function wrap_command(cmd: string, width: integer, indent: string): string
   width = width or 80
   indent = indent or "    "
+  -- Handle multi-line commands: show only first line with "..." suffix
+  if cmd:find("\n", 1, true) then
+    local first_line = cmd:match("^([^\n]+)") or cmd
+    cmd = first_line .. " ..."
+  end
   if #cmd <= width and not cmd:find(" #") then
     return cmd
   end

@@ -371,6 +371,49 @@ local function test_wrap_command_comment_no_false_positive()
 end
 test_wrap_command_comment_no_false_positive()
 
+-- Tests for multi-line command handling in wrap_command
+local function test_wrap_command_multiline()
+  local cmd = "git log --oneline -1 origin/work/241-abc\ngit status"
+  local result = loop.wrap_command(cmd, 80, "    ")
+  -- Should not contain literal newline from original command
+  assert(not result:find("\ngit status"), "should not include second line")
+  -- Should contain "..." suffix
+  assert(result:find("%.%.%.", 1), "should contain ... suffix: " .. result)
+end
+test_wrap_command_multiline()
+
+local function test_wrap_command_multiline_first_line_preserved()
+  local cmd = "git log --oneline -1\ngit status\ngit diff"
+  local result = loop.wrap_command(cmd, 80, "    ")
+  -- First line content should be preserved
+  assert(result:find("git log", 1, true), "should preserve first line: " .. result)
+  assert(result:find("--oneline", 1, true), "should preserve first line flags: " .. result)
+  -- Second and third lines must not appear
+  assert(not result:find("git status", 1, true), "should not include second line: " .. result)
+  assert(not result:find("git diff", 1, true), "should not include third line: " .. result)
+end
+test_wrap_command_multiline_first_line_preserved()
+
+local function test_wrap_command_single_line_unchanged()
+  -- Single-line short commands should pass through unmodified
+  local cmd = "echo hello"
+  local result = loop.wrap_command(cmd, 80, "    ")
+  assert(result == cmd, "single-line short command should be unchanged: " .. result)
+end
+test_wrap_command_single_line_unchanged()
+
+local function test_wrap_command_multiline_wraps_if_long()
+  -- When first line + " ..." is still over width, it should wrap
+  local first = "git log " .. string.rep("--very-long-flag ", 4):gsub("%s+$", "")
+  local cmd = first .. "\ngit status"
+  local result = loop.wrap_command(cmd, 40, "    ")
+  -- Should contain the ... suffix from multi-line collapse
+  assert(result:find("%.%.%.", 1), "should contain ... suffix")
+  -- Should also have wrapped continuation
+  assert(result:find("\\\n"), "should wrap long first line: " .. result)
+end
+test_wrap_command_multiline_wraps_if_long()
+
 -- Tests for measure_payload_bytes
 local function test_measure_payload_bytes_empty()
   local result = loop.measure_payload_bytes({})
