@@ -410,3 +410,41 @@ end
 test_payload_warn_threshold_constant()
 
 print("all payload tests passed")
+
+-- Tests for normalize_display_key
+local function test_normalize_single_line_bash()
+  local key = loop.normalize_display_key("bash", "ls -la")
+  assert(key == "ls -la", "single-line bash should be unchanged: " .. key)
+end
+test_normalize_single_line_bash()
+
+local function test_normalize_multi_line_bash()
+  local cmd = "git log --oneline -1\norigin/work/241-abc"
+  local key = loop.normalize_display_key("bash", cmd)
+  assert(key == "git log --oneline -1...", "multi-line bash should show first line + ...: " .. key)
+end
+test_normalize_multi_line_bash()
+
+local function test_normalize_multi_line_non_bash()
+  -- Non-bash tools: multi-line values pass through unchanged
+  local val = "line one\nline two"
+  local key = loop.normalize_display_key("read", val)
+  assert(key == val, "non-bash multi-line should be unchanged: " .. key)
+end
+test_normalize_multi_line_non_bash()
+
+local function test_normalize_empty_bash()
+  local key = loop.normalize_display_key("bash", "")
+  assert(key == "", "empty bash key should be unchanged: '" .. key .. "'")
+end
+test_normalize_empty_bash()
+
+local function test_normalize_bash_first_line_preserved()
+  local cmd = "gh issue edit 241 --remove-label \"doing\" --add-label \"todo\" 2>&1\nsome other line"
+  local key = loop.normalize_display_key("bash", cmd)
+  local expected_prefix = "gh issue edit 241 --remove-label \"doing\" --add-label \"todo\" 2>&1"
+  assert(key == expected_prefix .. "...", "should show full first line + ...: " .. key)
+end
+test_normalize_bash_first_line_preserved()
+
+print("all normalize_display_key tests passed")

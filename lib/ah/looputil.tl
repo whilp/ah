@@ -115,6 +115,17 @@ local function wrap_command(cmd: string, width: integer, indent: string): string
   return cmd
 end
 
+-- Normalize a display key for output: for bash commands with embedded newlines,
+-- return only the first line with a "..." suffix. For other tools, return unchanged.
+-- This is purely a display helper; it does not affect tool_key_param or turn_signature.
+local function normalize_display_key(tool_name: string, key: string): string
+  if tool_name == "bash" and key:find("\n") then
+    local first_line = key:match("^([^\n]+)")
+    return (first_line or key) .. "..."
+  end
+  return key
+end
+
 -- Compute a turn signature from a list of tool calls.
 -- The signature captures the tool names and key parameters to identify
 -- repetitive patterns across turns. For edit operations, includes the full
@@ -157,6 +168,7 @@ end
 return {
   shorten_path = shorten_path,
   tool_key_param = tool_key_param,
+  normalize_display_key = normalize_display_key,
   wrap_command = wrap_command,
   turn_signature = turn_signature,
   check_loop = check_loop,

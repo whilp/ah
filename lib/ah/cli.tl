@@ -297,6 +297,8 @@ local function make_cli_handler(skill_name: string): events.EventCallback
       -- Line 2: command (for bash) or key param
       local key = event.tool_key or ""
       if key ~= "" then
+        -- Normalize multi-line bash commands: show first line + "..." suffix
+        key = loop.normalize_display_key(event.tool_name, key)
         local cmd_prefix = event.tool_name == "bash" and "$ " or ""
         if event.tool_name == "bash" then
           local term_width = 80
