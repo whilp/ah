@@ -105,6 +105,32 @@ local function test_tool_key_param_nil_details_fallback()
 end
 test_tool_key_param_nil_details_fallback()
 
+local function test_tool_key_param_multiline_bash()
+  -- Multi-line command via tool_input should show first line + ...
+  local cmd = "git log --oneline -1\norigin/work/241-c4-abc"
+  local input_json = json.encode({command = cmd})
+  local key = loop.tool_key_param("bash", input_json, nil)
+  assert(key == "git log --oneline -1...", "should show first line + ...: " .. key)
+end
+test_tool_key_param_multiline_bash()
+
+local function test_tool_key_param_multiline_bash_details()
+  -- Multi-line command via details should show first line + ...
+  local cmd = "git log --oneline -1\norigin/work/241-c4-abc"
+  local details = json.encode({command = cmd, exit_code = 0})
+  local key = loop.tool_key_param("bash", '{"command":"x"}', details)
+  assert(key == "git log --oneline -1...", "should show first line + ... from details: " .. key)
+end
+test_tool_key_param_multiline_bash_details()
+
+local function test_tool_key_param_singleline_bash_unchanged()
+  -- Single-line bash command should not get ... appended
+  local cmd = "echo hello world"
+  local key = loop.tool_key_param("bash", '{"command":"' .. cmd .. '"}', nil)
+  assert(key == cmd, "single-line command should be unchanged: " .. key)
+end
+test_tool_key_param_singleline_bash_unchanged()
+
 -- Tests for turn_signature
 local function test_turn_signature_single()
   local tool_calls = {
