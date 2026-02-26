@@ -115,6 +115,33 @@ local function wrap_command(cmd: string, width: integer, indent: string): string
   return cmd
 end
 
+-- Normalize a display key for terminal output.
+-- For bash commands, collapses multi-line commands to first line + suffix.
+-- For other tools, returns key unchanged.
+-- Do NOT use this in turn_signature — it needs the full command.
+local function normalize_display_key(key: string, tool_name: string): string
+  if tool_name ~= "bash" then
+    return key
+  end
+  -- Split on actual newlines
+  local lines: {string} = {}
+  for line in (key .. "\n"):gmatch("([^\n]*)\n") do
+    table.insert(lines, line)
+  end
+  -- Count non-empty trailing lines (ignore empty trailing newline)
+  local count = #lines
+  while count > 0 and lines[count] == "" do
+    count = count - 1
+  end
+  if count <= 1 then
+    -- Single line or empty: return first line (strip trailing empty)
+    return lines[1] or key
+  end
+  local first = lines[1]
+  local extra = count - 1
+  return first .. " ... (+" .. tostring(extra) .. " line" .. (extra == 1 and "" or "s") .. ")"
+end
+
 -- Compute a turn signature from a list of tool calls.
 -- The signature captures the tool names and key parameters to identify
 -- repetitive patterns across turns. For edit operations, includes the full
@@ -157,6 +184,7 @@ end
 return {
   shorten_path = shorten_path,
   tool_key_param = tool_key_param,
+  normalize_display_key = normalize_display_key,
   wrap_command = wrap_command,
   turn_signature = turn_signature,
   check_loop = check_loop,

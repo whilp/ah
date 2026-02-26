@@ -410,3 +410,47 @@ end
 test_payload_warn_threshold_constant()
 
 print("all payload tests passed")
+
+-- Tests for normalize_display_key
+local function test_normalize_display_key_single_line_bash()
+  local key = loop.normalize_display_key("ls -la", "bash")
+  assert(key == "ls -la", "single-line bash command should be unchanged: " .. key)
+end
+test_normalize_display_key_single_line_bash()
+
+local function test_normalize_display_key_multi_line_bash()
+  local cmd = "git log --oneline -1\norigin/work/241"
+  local key = loop.normalize_display_key(cmd, "bash")
+  assert(key == "git log --oneline -1 ... (+1 line)", "multi-line should show first line + suffix: " .. key)
+end
+test_normalize_display_key_multi_line_bash()
+
+local function test_normalize_display_key_three_line_bash()
+  local cmd = "line1\nline2\nline3"
+  local key = loop.normalize_display_key(cmd, "bash")
+  assert(key == "line1 ... (+2 lines)", "three-line command should show +2 lines: " .. key)
+end
+test_normalize_display_key_three_line_bash()
+
+local function test_normalize_display_key_trailing_newline_only()
+  -- Trailing newline only: treat as single line
+  local cmd = "echo hello\n"
+  local key = loop.normalize_display_key(cmd, "bash")
+  assert(key == "echo hello", "trailing newline only should be treated as single line: " .. key)
+end
+test_normalize_display_key_trailing_newline_only()
+
+local function test_normalize_display_key_non_bash_unchanged()
+  -- Non-bash tools should not be normalized
+  local key = loop.normalize_display_key("line1\nline2", "read")
+  assert(key == "line1\nline2", "non-bash tool key should be unchanged: " .. key)
+end
+test_normalize_display_key_non_bash_unchanged()
+
+local function test_normalize_display_key_empty_bash()
+  local key = loop.normalize_display_key("", "bash")
+  assert(key == "", "empty bash command should be unchanged: '" .. key .. "'")
+end
+test_normalize_display_key_empty_bash()
+
+print("all normalize_display_key tests passed")

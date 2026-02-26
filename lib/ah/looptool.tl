@@ -67,7 +67,8 @@ local function execute_tool_calls(
     if interrupted then
       tools.abort_running_tools()
       local elapsed_ms = math.floor(elapsed * 1000) as integer
-      emit(on_event, events.tool_call_end(tc.name as string, result, is_error, elapsed_ms, key, i, tool_count))
+      local display_key = looputil.normalize_display_key(key, tc.name as string)
+      emit(on_event, events.tool_call_end(tc.name as string, result, is_error, elapsed_ms, display_key, i, tool_count))
       db.log_event(d, "tool_call_end", assistant_msg_id, events.to_json(events.tool_call_end(tc.name as string, "", is_error, elapsed_ms, key, i, tool_count)))
 
       local int_details_json: string = nil
@@ -110,7 +111,8 @@ local function execute_tool_calls(
     -- Recompute key with details for richer display
     key = looputil.tool_key_param(tc.name as string, input_json, details_json)
 
-    emit(on_event, events.tool_call_end(tc.name as string, result, is_error, elapsed_ms, key, i, tool_count))
+    local display_key = looputil.normalize_display_key(key, tc.name as string)
+    emit(on_event, events.tool_call_end(tc.name as string, result, is_error, elapsed_ms, display_key, i, tool_count))
     db.log_event(d, "tool_call_end", assistant_msg_id, events.to_json(events.tool_call_end(tc.name as string, "", is_error, elapsed_ms, key, i, tool_count)))
 
     -- Truncate output for the API (full output preserved in DB and events)
