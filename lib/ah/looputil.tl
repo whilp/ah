@@ -19,6 +19,15 @@ local function shorten_path(p: string): string
   return p
 end
 
+-- Return the first line of a command, appending "..." if more lines exist.
+local function first_line(cmd: string): string
+  local nl = cmd:find("\n", 1, true)
+  if nl then
+    return cmd:sub(1, nl - 1) .. "..."
+  end
+  return cmd
+end
+
 -- Extract key parameter from tool details or input for display
 local function tool_key_param(tool_name: string, tool_input: string, details_json: string): string
   -- Try details first (structured data from tool execution)
@@ -32,7 +41,7 @@ local function tool_key_param(tool_name: string, tool_input: string, details_jso
       elseif details.path then
         return shorten_path(details.path as string)
       elseif details.command then
-        return details.command as string
+        return first_line(details.command as string)
       end
     end
   end
@@ -45,7 +54,7 @@ local function tool_key_param(tool_name: string, tool_input: string, details_jso
   if tool_name == "read" or tool_name == "write" or tool_name == "edit" then
     return shorten_path((input.path or "") as string)
   elseif tool_name == "bash" then
-    return (input.command or "") as string
+    return first_line((input.command or "") as string)
   end
   return ""
 end

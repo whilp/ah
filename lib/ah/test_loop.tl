@@ -105,6 +105,42 @@ local function test_tool_key_param_nil_details_fallback()
 end
 test_tool_key_param_nil_details_fallback()
 
+-- Tests for multi-line bash command handling in tool_key_param
+local function test_tool_key_param_bash_multiline()
+  local cmd = "line one\nline two\nline three"
+  local key = loop.tool_key_param("bash", '{"command":"' .. cmd:gsub("\n", "\\n") .. '"}', nil)
+  -- JSON \\n is a literal newline when decoded
+  local input_json = require("cosmic.json").encode({command = cmd})
+  key = loop.tool_key_param("bash", input_json, nil)
+  assert(key == "line one...", "should return first line with ...: got " .. key)
+end
+test_tool_key_param_bash_multiline()
+
+local function test_tool_key_param_bash_multiline_details()
+  local cmd = "git log --oneline -1 origin/work/241\ngit diff HEAD"
+  local details = require("cosmic.json").encode({command = cmd, exit_code = 0})
+  local key = loop.tool_key_param("bash", '{"command":"x"}', details)
+  assert(key == "git log --oneline -1 origin/work/241...", "should return first line with ...: got " .. key)
+end
+test_tool_key_param_bash_multiline_details()
+
+local function test_tool_key_param_bash_single_line_unchanged()
+  local cmd = "git log --oneline -1 origin/work/241-c4"
+  local input_json = require("cosmic.json").encode({command = cmd})
+  local key = loop.tool_key_param("bash", input_json, nil)
+  assert(key == cmd, "single-line command should be unchanged: got " .. key)
+end
+test_tool_key_param_bash_single_line_unchanged()
+
+local function test_wrap_command_multiline_already_normalized()
+  -- After tool_key_param normalizes to first line, wrap_command should handle it correctly
+  local cmd = "git log --oneline -1 origin/work/241..."
+  local result = loop.wrap_command(cmd, 80, "    ")
+  -- Command is short enough to not wrap
+  assert(not result:find("\\\n"), "normalized single-line command should not wrap unexpectedly: " .. result)
+end
+test_wrap_command_multiline_already_normalized()
+
 -- Tests for turn_signature
 local function test_turn_signature_single()
   local tool_calls = {
