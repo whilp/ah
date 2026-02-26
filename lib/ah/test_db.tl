@@ -160,7 +160,6 @@ local function test_get_first_user_prompt()
 end
 test_get_first_user_prompt()
 
--- Test orphan cleanup
 local function test_cleanup_orphans()
   local db_path = fs.join(TEST_TMPDIR, "orphan_test.db")
   local d = db.open(db_path)
@@ -184,7 +183,6 @@ local function test_cleanup_orphans()
 end
 test_cleanup_orphans()
 
--- Test that orphan cleanup preserves parent chain
 local function test_cleanup_preserves_chain()
   local db_path = fs.join(TEST_TMPDIR, "orphan_chain.db")
   local d = db.open(db_path)
@@ -214,7 +212,6 @@ local function test_cleanup_preserves_chain()
 end
 test_cleanup_preserves_chain()
 
--- Test transaction support
 local function test_transactions()
   local db_path = fs.join(TEST_TMPDIR, "tx_test.db")
   local d = db.open(db_path)
@@ -242,10 +239,7 @@ local function test_transactions()
 end
 test_transactions()
 
--- Test that demonstrates the empty content serialization bug
--- When a message has no content blocks (e.g., after a segfault during tool execution),
--- the empty content table serializes as {} (object) instead of [] (array),
--- causing API error: "messages.N.content: Input should be a valid list"
+-- test: empty content serializes as [] not {}
 local function test_empty_content_serialization()
   local json = require("cosmic.json")
   local db_path = fs.join(TEST_TMPDIR, "empty_content.db")
