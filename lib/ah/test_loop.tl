@@ -410,3 +410,65 @@ end
 test_payload_warn_threshold_constant()
 
 print("all payload tests passed")
+
+-- Tests for wrap_command with multi-line input
+local function test_wrap_command_multiline_shows_first_line()
+  local cmd = "git log --oneline -1\norigin/work/241-c4f5a6b7"
+  local result = loop.wrap_command(cmd, 80, "    ")
+  -- Should show first line content (use plain text search)
+  assert(result:find("git log", 1, true),
+    "should show first line: " .. result)
+  assert(result:find("--oneline", 1, true),
+    "should show first line flags: " .. result)
+  -- Should not show second line content verbatim
+  assert(not result:find("origin/work/241", 1, true),
+    "should not show second line verbatim: " .. result)
+  -- Should contain the more-lines suffix
+  assert(result:find("more lines", 1, true),
+    "should contain 'more lines' suffix: " .. result)
+end
+test_wrap_command_multiline_shows_first_line()
+
+local function test_wrap_command_multiline_count_suffix()
+  -- Two extra lines -> "(2 more lines)"
+  local cmd = "echo foo\necho bar\necho baz"
+  local result = loop.wrap_command(cmd, 80, "    ")
+  assert(result:find("2 more lines", 1, true),
+    "should show count 2 for 2 extra lines: " .. result)
+end
+test_wrap_command_multiline_count_suffix()
+
+local function test_wrap_command_multiline_single_extra()
+  -- One extra line -> "(1 more lines)"
+  local cmd = "echo hello\necho world"
+  local result = loop.wrap_command(cmd, 80, "    ")
+  assert(result:find("1 more lines", 1, true),
+    "should show count 1 for 1 extra line: " .. result)
+  assert(result:find("echo hello", 1, true),
+    "should show first line: " .. result)
+end
+test_wrap_command_multiline_single_extra()
+
+local function test_wrap_command_singleline_unchanged()
+  -- Single-line commands should not get the suffix
+  local cmd = "ls -la /tmp"
+  local result = loop.wrap_command(cmd, 80, "    ")
+  assert(result == cmd, "single-line command unchanged: " .. result)
+end
+test_wrap_command_singleline_unchanged()
+
+local function test_wrap_command_multiline_wraps_long_first_line()
+  -- Multi-line where first line is itself long enough to wrap
+  local cmd = "gh issue list --repo whilp/ah --label todo --state open --json number,title\necho second line"
+  local result = loop.wrap_command(cmd, 60, "    ")
+  -- Should contain the more-lines suffix
+  assert(result:find("more lines", 1, true),
+    "should contain 'more lines' suffix: " .. result:gsub("\n", "\\n"))
+  -- Should not contain raw newline from original command (only continuation newlines allowed)
+  -- The first line part should have been processed by wrap_command
+  local first_token = result:match("^([^\n\\]+)")
+  assert(first_token, "should have a first token: " .. result:gsub("\n", "\\n"))
+end
+test_wrap_command_multiline_wraps_long_first_line()
+
+print("all multiline wrap_command tests passed")
