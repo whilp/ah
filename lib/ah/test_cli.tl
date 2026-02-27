@@ -346,4 +346,40 @@ local function test_to_unified_diff_roundtrip_with_cat()
 end
 test_to_unified_diff_roundtrip_with_cat()
 
+-- format_bash_key tests
+
+local function test_format_bash_key_single_line_short()
+  local result = cli.format_bash_key("git status", 80, "    ")
+  assert(result == "git status", "short single-line should be unchanged, got: " .. result)
+end
+test_format_bash_key_single_line_short()
+
+local function test_format_bash_key_multiline_shows_first_line()
+  local result = cli.format_bash_key("git log --oneline -1\necho done", 80, "    ")
+  assert(result == "git log --oneline -1 ...", "multiline should show first line + ' ...', got: " .. result)
+end
+test_format_bash_key_multiline_shows_first_line()
+
+local function test_format_bash_key_multiline_many_lines()
+  local result = cli.format_bash_key("line1\nline2\nline3\nline4", 80, "    ")
+  assert(result == "line1 ...", "multiline should show only first line + ' ...', got: " .. result)
+end
+test_format_bash_key_multiline_many_lines()
+
+local function test_format_bash_key_multiline_no_wrap_applied()
+  -- After first-line extraction, the result should be a short line (no wrap needed)
+  local result = cli.format_bash_key("short\nsecond line", 80, "    ")
+  assert(not result:find("\\\n"), "first-line extraction should prevent wrap, got: " .. result)
+end
+test_format_bash_key_multiline_no_wrap_applied()
+
+local function test_format_bash_key_single_line_long_wraps()
+  -- Long single-line commands should still be wrapped by wrap_command
+  local long_cmd = "git commit --message 'some message' --author 'Test User <test@example.com>' --date '2025-01-01'"
+  local result = cli.format_bash_key(long_cmd, 60, "    ")
+  -- Should not raise an error; result should be a string
+  assert(type(result) == "string", "long single-line should return a string")
+end
+test_format_bash_key_single_line_long_wraps()
+
 print("all cli tests passed")

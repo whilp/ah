@@ -171,6 +171,17 @@ local function colorize_tool_line(line: string): string, boolean
   return line, false
 end
 
+-- Format a bash command key for display.
+-- If the key contains newlines (multi-line script), shows only the first line
+-- with " ..." suffix. Then wraps long single-line commands at flag boundaries.
+local function format_bash_key(key: string, term_width: integer, indent: string): string
+  local newline_pos = key:find("\n")
+  if newline_pos then
+    key = key:sub(1, newline_pos - 1) .. " ..."
+  end
+  return loop.wrap_command(key, term_width, indent)
+end
+
 -- CLI display handler: renders structured events to stderr/stdout for terminal use.
 -- This is the application-layer implementation of the event callback.
 -- Other handlers (JSON logging, web UI, etc.) can be substituted.
@@ -303,7 +314,7 @@ local function make_cli_handler(skill_name: string): events.EventCallback
           local ws = tty.winsize(2)
           if ws then term_width = ws.cols as integer end
           local wrap_indent = indent .. "  "
-          key = loop.wrap_command(key, term_width - #indent - #cmd_prefix, wrap_indent)
+          key = format_bash_key(key, term_width - #indent - #cmd_prefix, wrap_indent)
         end
         io.stderr:write(string.format("%s%s%s%s%s\n", DIM, indent, cmd_prefix, key, RESET))
       end
@@ -377,6 +388,7 @@ end
 
 return {
   format_tokens = format_tokens,
+  format_bash_key = format_bash_key,
   colorize_diff_line = colorize_diff_line,
   colorize_tool_line = colorize_tool_line,
   make_cli_handler = make_cli_handler,
