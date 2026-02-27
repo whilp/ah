@@ -50,6 +50,18 @@ local function tool_key_param(tool_name: string, tool_input: string, details_jso
   return ""
 end
 
+-- Return only the first line of a key for display purposes.
+-- If the key contains newlines (e.g. a multi-line bash script), appends "..."
+-- to the first line. Single-line keys are returned unchanged.
+local function display_key(key: string): string
+  if not key or key == "" then return key end
+  local first = key:match("^([^\n]*)")
+  if first and first ~= key then
+    return first .. "..."
+  end
+  return key
+end
+
 -- Wrap a long command at flag boundaries with \ continuations.
 -- Returns cmd unchanged if it fits within width.
 -- Otherwise splits at spaces before -- or - flags, joining with \<newline> + indent.
@@ -157,6 +169,7 @@ end
 return {
   shorten_path = shorten_path,
   tool_key_param = tool_key_param,
+  display_key = display_key,
   wrap_command = wrap_command,
   turn_signature = turn_signature,
   check_loop = check_loop,

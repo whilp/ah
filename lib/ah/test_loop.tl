@@ -410,3 +410,36 @@ end
 test_payload_warn_threshold_constant()
 
 print("all payload tests passed")
+
+-- Tests for display_key
+local function test_display_key_single_line()
+  local key = loop.display_key("echo hello")
+  assert(key == "echo hello", "single-line key should be unchanged: " .. key)
+end
+test_display_key_single_line()
+
+local function test_display_key_multi_line()
+  local key = loop.display_key("echo foo\necho bar")
+  assert(key == "echo foo...", "multi-line key should show first line + '...': " .. key)
+end
+test_display_key_multi_line()
+
+local function test_display_key_empty()
+  local key = loop.display_key("")
+  assert(key == "", "empty key should return empty string")
+end
+test_display_key_empty()
+
+local function test_display_key_only_newline()
+  local key = loop.display_key("\necho bar")
+  assert(key == "...", "key starting with newline should return '...': " .. key)
+end
+test_display_key_only_newline()
+
+local function test_display_key_many_lines()
+  local key = loop.display_key("line1\nline2\nline3\nline4")
+  assert(key == "line1...", "many-line key should show first line + '...': " .. key)
+end
+test_display_key_many_lines()
+
+print("all display_key tests passed")
