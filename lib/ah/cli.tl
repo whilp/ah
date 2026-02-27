@@ -299,6 +299,7 @@ local function make_cli_handler(skill_name: string): events.EventCallback
       if key ~= "" then
         local cmd_prefix = event.tool_name == "bash" and "$ " or ""
         if event.tool_name == "bash" then
+          key = loop.format_command_for_display(key)
           local term_width = 80
           local ws = tty.winsize(2)
           if ws then term_width = ws.cols as integer end

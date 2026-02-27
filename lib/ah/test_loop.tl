@@ -410,3 +410,49 @@ end
 test_payload_warn_threshold_constant()
 
 print("all payload tests passed")
+
+-- Tests for format_command_for_display
+local function test_format_command_single_line()
+  local cmd = "ls -la /tmp"
+  local result = loop.format_command_for_display(cmd)
+  assert(result == cmd, "single-line command should be unchanged: " .. result)
+end
+test_format_command_single_line()
+
+local function test_format_command_empty()
+  local result = loop.format_command_for_display("")
+  assert(result == "", "empty string should be unchanged: " .. result)
+end
+test_format_command_empty()
+
+local function test_format_command_trailing_newline_only()
+  local cmd = "ls -la\n"
+  local result = loop.format_command_for_display(cmd)
+  assert(result == cmd, "single-line with trailing newline should be unchanged: " .. result)
+end
+test_format_command_trailing_newline_only()
+
+local function test_format_command_two_lines()
+  local cmd = "git log --oneline -1\nsome more stuff"
+  local result = loop.format_command_for_display(cmd)
+  assert(result == "git log --oneline -1 (1 more lines)", "two-line command should show first line + count: " .. result)
+end
+test_format_command_two_lines()
+
+local function test_format_command_three_lines()
+  local cmd = "cmd line one\nline two\nline three"
+  local result = loop.format_command_for_display(cmd)
+  assert(result == "cmd line one (2 more lines)", "three-line command should show first line + 2: " .. result)
+end
+test_format_command_three_lines()
+
+local function test_format_command_preserves_first_line()
+  local first = "git log --oneline -1 origin/work/241-c4"
+  local cmd = first .. "\necho done\necho also done"
+  local result = loop.format_command_for_display(cmd)
+  assert(result:match("^" .. first:gsub("%-", "%%-"):gsub("%.", "%%."):gsub("%+", "%%+")), "should preserve first line verbatim")
+  assert(result:find("2 more lines"), "should show 2 more lines: " .. result)
+end
+test_format_command_preserves_first_line()
+
+print("all format_command_for_display tests passed")

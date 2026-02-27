@@ -138,6 +138,21 @@ local function turn_signature(tool_calls: {any}): string
   return table.concat(parts, "|")
 end
 
+-- Format a command for display by collapsing multi-line commands to first line + suffix.
+-- Single-line commands are returned unchanged.
+-- Multi-line commands show the first line followed by "(N more lines)".
+local function format_command_for_display(cmd: string): string
+  local first_line = cmd:match("^([^\n]*)")
+  local rest = cmd:sub(#first_line + 1)
+  if rest == "" or rest == "\n" then
+    return cmd
+  end
+  -- Count additional lines
+  local extra = 0
+  for _ in rest:gmatch("\n[^\n]*") do extra = extra + 1 end
+  return first_line .. string.format(" (%d more lines)", extra)
+end
+
 -- Check for consecutive identical signatures at the end of the history.
 -- Returns the count of consecutive identical entries (1 = no repetition).
 local function check_loop(history: {string}): integer
@@ -158,6 +173,7 @@ return {
   shorten_path = shorten_path,
   tool_key_param = tool_key_param,
   wrap_command = wrap_command,
+  format_command_for_display = format_command_for_display,
   turn_signature = turn_signature,
   check_loop = check_loop,
 }
