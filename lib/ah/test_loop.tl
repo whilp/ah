@@ -371,6 +371,26 @@ local function test_wrap_command_comment_no_false_positive()
 end
 test_wrap_command_comment_no_false_positive()
 
+local function test_wrap_command_multiline()
+  local cmd = "echo hello\necho world\necho three"
+  local result = loop.wrap_command(cmd, 80, "    ")
+  -- Should show only the first line with " ..." suffix
+  assert(result:find("^echo hello %.%.%.", 1), "should start with first line and ...: " .. result)
+  -- Should not contain the raw embedded newline from the original command
+  -- (wrapping may produce \\\n continuation lines, but those come from wrap logic, not cmd content)
+  assert(not result:find("echo world"), "should not contain second line content: " .. result)
+  assert(not result:find("echo three"), "should not contain third line content: " .. result)
+end
+test_wrap_command_multiline()
+
+local function test_wrap_command_multiline_short_first_line()
+  -- When first line is short, result should just be "firstline ..."
+  local cmd = "git commit\n--message 'foo'"
+  local result = loop.wrap_command(cmd, 80, "    ")
+  assert(result == "git commit ...", "short first line should produce 'firstline ...': " .. result)
+end
+test_wrap_command_multiline_short_first_line()
+
 -- Tests for measure_payload_bytes
 local function test_measure_payload_bytes_empty()
   local result = loop.measure_payload_bytes({})

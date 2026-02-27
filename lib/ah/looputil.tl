@@ -57,6 +57,13 @@ end
 local function wrap_command(cmd: string, width: integer, indent: string): string
   width = width or 80
   indent = indent or "    "
+
+  -- Multi-line commands: show only the first line with " ..." suffix
+  local newline_pos = cmd:find("\n")
+  if newline_pos then
+    cmd = cmd:sub(1, newline_pos - 1) .. " ..."
+  end
+
   if #cmd <= width and not cmd:find(" #") then
     return cmd
   end
