@@ -105,6 +105,62 @@ local function test_tool_key_param_nil_details_fallback()
 end
 test_tool_key_param_nil_details_fallback()
 
+-- Tests for tool_key_display (display-only, multi-line bash handling)
+local function test_tool_key_display_bash_single_line()
+  local key = loop.tool_key_display("bash", '{"command":"ls -la"}', nil)
+  assert(key == "ls -la", "single-line bash should be unchanged: " .. key)
+end
+test_tool_key_display_bash_single_line()
+
+local function test_tool_key_display_bash_multiline()
+  local json = require("cosmic.json")
+  local input = json.encode({command = "git log --oneline -1\ngit status"})
+  local key = loop.tool_key_display("bash", input, nil)
+  assert(key == "git log --oneline -1...", "multi-line bash should show first line + ...: " .. key)
+end
+test_tool_key_display_bash_multiline()
+
+local function test_tool_key_display_bash_multiline_three_lines()
+  local json = require("cosmic.json")
+  local input = json.encode({command = "cmd1\ncmd2\ncmd3"})
+  local key = loop.tool_key_display("bash", input, nil)
+  assert(key == "cmd1...", "only first line shown for multi-line commands: " .. key)
+end
+test_tool_key_display_bash_multiline_three_lines()
+
+local function test_tool_key_display_non_bash_unchanged()
+  -- Non-bash tools should not be affected
+  local key = loop.tool_key_display("read", '{"path":"/tmp/foo.txt"}', nil)
+  assert(key == "/tmp/foo.txt", "non-bash tool should be unchanged: " .. key)
+end
+test_tool_key_display_non_bash_unchanged()
+
+local function test_tool_key_display_bash_no_truncate_single_line()
+  -- Single-line long commands should not be altered by tool_key_display
+  local long_cmd = string.rep("x", 100)
+  local key = loop.tool_key_display("bash", '{"command":"' .. long_cmd .. '"}', nil)
+  assert(key == long_cmd, "single-line long command unchanged: got " .. #key .. " chars")
+end
+test_tool_key_display_bash_no_truncate_single_line()
+
+local function test_tool_key_display_bash_multiline_with_details()
+  local json = require("cosmic.json")
+  local details = json.encode({command = "step1\nstep2\nstep3", exit_code = 0})
+  local key = loop.tool_key_display("bash", '{"command":"step1"}', details)
+  assert(key == "step1...", "multi-line bash in details should show first line + ...: " .. key)
+end
+test_tool_key_display_bash_multiline_with_details()
+
+-- tool_key_param must NOT truncate multi-line (loop detection relies on full key)
+local function test_tool_key_param_multiline_unchanged()
+  local json = require("cosmic.json")
+  local cmd = "cmd1\ncmd2\ncmd3"
+  local input_json = json.encode({command = cmd})
+  local key = loop.tool_key_param("bash", input_json, nil)
+  assert(key == cmd, "tool_key_param should preserve newlines for loop detection: " .. key)
+end
+test_tool_key_param_multiline_unchanged()
+
 -- Tests for turn_signature
 local function test_turn_signature_single()
   local tool_calls = {

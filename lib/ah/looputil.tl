@@ -50,6 +50,21 @@ local function tool_key_param(tool_name: string, tool_input: string, details_jso
   return ""
 end
 
+-- Display-only variant of tool_key_param.
+-- For multi-line bash commands, shows only the first non-empty line with "..."
+-- appended, preventing garbled output when commands contain embedded newlines.
+-- Use this for display (events, CLI output). Use tool_key_param for loop detection.
+local function tool_key_display(tool_name: string, tool_input: string, details_json: string): string
+  local key = tool_key_param(tool_name, tool_input, details_json)
+  if tool_name == "bash" and key:find("\n") then
+    local first_line = key:match("^([^\n]+)")
+    if first_line then
+      key = first_line .. "..."
+    end
+  end
+  return key
+end
+
 -- Wrap a long command at flag boundaries with \ continuations.
 -- Returns cmd unchanged if it fits within width.
 -- Otherwise splits at spaces before -- or - flags, joining with \<newline> + indent.
@@ -157,6 +172,7 @@ end
 return {
   shorten_path = shorten_path,
   tool_key_param = tool_key_param,
+  tool_key_display = tool_key_display,
   wrap_command = wrap_command,
   turn_signature = turn_signature,
   check_loop = check_loop,

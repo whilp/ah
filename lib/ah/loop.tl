@@ -471,6 +471,7 @@ return {
   run_agent = run_agent,
   AgentOpts = AgentOpts,
   tool_key_param = looputil.tool_key_param,
+  tool_key_display = looputil.tool_key_display,
   wrap_command = looputil.wrap_command,
   shorten_path = looputil.shorten_path,
   turn_signature = looputil.turn_signature,

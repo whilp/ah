@@ -56,7 +56,7 @@ local function execute_tool_calls(
 
     local tc = tool_call as {string: any}
     local input_json = json.encode(tc.input or {})
-    local key = looputil.tool_key_param(tc.name as string, input_json, nil)
+    local key = looputil.tool_key_display(tc.name as string, input_json, nil)
 
     emit(on_event, events.tool_call_start(tc.name as string, input_json, key, i, tool_count))
 
@@ -108,7 +108,7 @@ local function execute_tool_calls(
     end
 
     -- Recompute key with details for richer display
-    key = looputil.tool_key_param(tc.name as string, input_json, details_json)
+    key = looputil.tool_key_display(tc.name as string, input_json, details_json)
 
     emit(on_event, events.tool_call_end(tc.name as string, result, is_error, elapsed_ms, key, i, tool_count))
     db.log_event(d, "tool_call_end", assistant_msg_id, events.to_json(events.tool_call_end(tc.name as string, "", is_error, elapsed_ms, key, i, tool_count)))
