@@ -371,6 +371,43 @@ local function test_wrap_command_comment_no_false_positive()
 end
 test_wrap_command_comment_no_false_positive()
 
+local function test_wrap_command_multiline()
+  -- Multi-line command: only first line shown with ... suffix
+  local cmd = "git log --oneline -1 origin/work/241-c4\ngrep foo"
+  local result = loop.wrap_command(cmd, 80, "    ")
+  assert(result == "git log --oneline -1 origin/work/241-c4 ...", "should show first line with ...: " .. result)
+  assert(not result:find("\n"), "result should not contain newline: " .. result)
+end
+test_wrap_command_multiline()
+
+local function test_wrap_command_multiline_many_lines()
+  -- Three-line command: shows only first line + ...
+  local cmd = "git status\ngit diff\ngit log"
+  local result = loop.wrap_command(cmd, 80, "    ")
+  assert(result == "git status ...", "should show first line only: " .. result)
+  assert(not result:find("\n"), "result should not contain newline: " .. result)
+end
+test_wrap_command_multiline_many_lines()
+
+local function test_wrap_command_multiline_long_first_line()
+  -- Multi-line where first line is long: should wrap with \ continuations
+  local cmd = "gh issue list --repo whilp/ah --label todo --state open --json number,title\necho done"
+  local result = loop.wrap_command(cmd, 60, "    ")
+  -- Result should contain ... (from multi-line detection)
+  assert(result:find("%.%.%.", 1, false), "should contain ... suffix: " .. result)
+  -- Should not contain the second line content
+  assert(not result:find("echo done", 1, true), "should not contain second line: " .. result)
+end
+test_wrap_command_multiline_long_first_line()
+
+local function test_wrap_command_single_line_no_change()
+  -- Single-line command should not be affected by multi-line logic
+  local cmd = "git log --oneline -1"
+  local result = loop.wrap_command(cmd, 80, "    ")
+  assert(result == cmd, "single-line should be unchanged: " .. result)
+end
+test_wrap_command_single_line_no_change()
+
 -- Tests for measure_payload_bytes
 local function test_measure_payload_bytes_empty()
   local result = loop.measure_payload_bytes({})
