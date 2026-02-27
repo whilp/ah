@@ -54,9 +54,34 @@ end
 -- Returns cmd unchanged if it fits within width.
 -- Otherwise splits at spaces before -- or - flags, joining with \<newline> + indent.
 -- Falls back to splitting at any space if no flag boundaries found.
+-- Multi-line commands (containing \n) are truncated to the first line with
+-- a "(+N more lines)" suffix before wrapping.
 local function wrap_command(cmd: string, width: integer, indent: string): string
   width = width or 80
   indent = indent or "    "
+
+  -- Handle multi-line commands: extract first line, count remaining
+  if cmd:find("\n") then
+    local lines: {string} = {}
+    for line in (cmd .. "\n"):gmatch("([^\n]*)\n") do
+      table.insert(lines, line)
+    end
+    -- Collect non-empty lines
+    local non_empty: {string} = {}
+    for _, line in ipairs(lines) do
+      if line:match("%S") then
+        table.insert(non_empty, line)
+      end
+    end
+    local first = non_empty[1] or lines[1] or cmd
+    local remaining = #non_empty > 1 and (#non_empty - 1) or 0
+    if remaining > 0 then
+      cmd = first .. " (+" .. remaining .. " more lines)"
+    else
+      cmd = first
+    end
+  end
+
   if #cmd <= width and not cmd:find(" #") then
     return cmd
   end

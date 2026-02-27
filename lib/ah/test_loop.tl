@@ -371,6 +371,45 @@ local function test_wrap_command_comment_no_false_positive()
 end
 test_wrap_command_comment_no_false_positive()
 
+local function test_wrap_command_multiline_two_lines()
+  -- Two-line command: first line shown, (+1 more lines) suffix
+  local cmd = "git log --oneline -1\norigin/work/241-c4..."
+  local result = loop.wrap_command(cmd, 80, "    ")
+  assert(not result:find("\n"), "result should not contain embedded newlines: " .. result)
+  assert(result:find("git log", 1, true), "should start with first line: " .. result)
+  assert(result:find("(+1 more lines)", 1, true), "should show (+1 more lines) suffix: " .. result)
+end
+test_wrap_command_multiline_two_lines()
+
+local function test_wrap_command_multiline_many_lines()
+  -- Multi-line script: first line + count of remaining non-empty lines
+  local cmd = "git log --oneline -5\nfoo\nbar\nbaz"
+  local result = loop.wrap_command(cmd, 80, "    ")
+  assert(not result:find("\n"), "result should not contain embedded newlines: " .. result)
+  assert(result:find("git log", 1, true), "should start with first line: " .. result)
+  assert(result:find("(+3 more lines)", 1, true), "should show (+3 more lines) suffix: " .. result)
+end
+test_wrap_command_multiline_many_lines()
+
+local function test_wrap_command_multiline_single_nonempty()
+  -- Multi-line with only one non-empty line (blank lines) → no suffix
+  local cmd = "ls -la\n\n"
+  local result = loop.wrap_command(cmd, 80, "    ")
+  assert(not result:find("more lines", 1, true), "single non-empty line should have no suffix: " .. result)
+  assert(result:find("ls -la", 1, true), "should contain the command: " .. result)
+end
+test_wrap_command_multiline_single_nonempty()
+
+local function test_wrap_command_multiline_long_first_line()
+  -- Multi-line where first line itself exceeds width → wraps after extracting first line
+  local cmd = "gh issue list --repo whilp/ah --label todo --state open --json number,title\necho done"
+  local result = loop.wrap_command(cmd, 60, "    ")
+  -- Should include (+1 more lines) and be wrapped
+  assert(result:find("(+1 more lines)", 1, true), "should show suffix: " .. result)
+  assert(result:find("\\\n"), "long first line should still wrap: " .. result)
+end
+test_wrap_command_multiline_long_first_line()
+
 -- Tests for measure_payload_bytes
 local function test_measure_payload_bytes_empty()
   local result = loop.measure_payload_bytes({})
