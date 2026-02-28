@@ -253,9 +253,7 @@ local function test_empty_content_serialization()
 
   -- Simulate a segfault scenario: message created but no content blocks added
   local msg = db.create_message(d, "user")
-  -- Intentionally NOT adding any content blocks
 
-  -- Build API message like init.tl does (lines 287-324)
   local blocks = db.get_content_blocks(d, msg.id)
   local content: {any} = {}
   for _, block in ipairs(blocks) do
@@ -268,17 +266,10 @@ local function test_empty_content_serialization()
   -- This is the bug: empty Lua table {} serializes as JSON object {}, not array []
   local encoded = json.encode(api_message)
 
-  -- The API expects: {"role":"user","content":[]}
-  -- But we get:      {"role":"user","content":{}}
-  local expected_array = '"content":[]'
   local actual_object = '"content":{}'
 
   assert(encoded:find(actual_object),
     "bug demonstration: empty content should serialize as {} (showing the bug exists)")
-
-  -- This assertion would fail, demonstrating the bug
-  -- assert(encoded:find(expected_array),
-  --   "empty content should serialize as [] (array), not {} (object)")
 
   print("  (confirmed: empty content serializes as {} not [])")
 
