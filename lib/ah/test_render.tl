@@ -5,6 +5,7 @@ local record Render
   render_markdown: function(text: string): string
   apply_inline: function(line: string): string
   colorize_diff_line: function(line: string): string
+  render_table: function(lines: {string}): {string}
 end
 
 local render = require("ah.render") as Render
@@ -169,6 +170,131 @@ local function test_no_bold_in_fence()
   print("PASS: no bold formatting inside code fence")
 end
 
+-- test: basic table renders with box-drawing chars and aligned columns
+local function test_basic_table()
+  local input = "| Name | Age |\n|------|-----|\n| Alice | 30 |\n| Bob | 25 |\n"
+  local result = render.render_markdown(input)
+  assert(result:find("┌", 1, true), "table should have top-left corner, got: " .. result)
+  assert(result:find("┐", 1, true), "table should have top-right corner, got: " .. result)
+  assert(result:find("└", 1, true), "table should have bottom-left corner, got: " .. result)
+  assert(result:find("┘", 1, true), "table should have bottom-right corner, got: " .. result)
+  assert(result:find("│", 1, true), "table should have vertical borders, got: " .. result)
+  assert(result:find("─", 1, true), "table should have horizontal borders, got: " .. result)
+  -- Header should be bold
+  assert(result:find(BOLD .. " Name", 1, true), "header Name should be bold, got: " .. result)
+  assert(result:find(BOLD .. " Age", 1, true), "header Age should be bold, got: " .. result)
+  -- Body cells present
+  assert(result:find("Alice", 1, true), "body should contain Alice, got: " .. result)
+  assert(result:find("Bob", 1, true), "body should contain Bob, got: " .. result)
+  print("PASS: basic table renders with box-drawing chars and aligned columns")
+end
+
+-- test: separator row is consumed (not shown as-is)
+local function test_separator_consumed()
+  local input = "| H1 | H2 |\n|----|----|  \n| a | b |\n"
+  local result = render.render_markdown(input)
+  assert(not result:find("|----", 1, true), "separator row should be consumed, got: " .. result)
+  assert(result:find("├", 1, true), "should have header separator border, got: " .. result)
+  assert(result:find("┼", 1, true), "should have header separator cross, got: " .. result)
+  assert(result:find("┤", 1, true), "should have header separator right, got: " .. result)
+  print("PASS: separator row is consumed")
+end
+
+-- test: header cells are bold
+local function test_header_bold()
+  local input = "| X | Y |\n|---|---|\n| 1 | 2 |\n"
+  local result = render.render_markdown(input)
+  assert(result:find(BOLD, 1, true), "header cells should be bold, got: " .. result)
+  print("PASS: header cells are bold")
+end
+
+-- test: table with no separator row treats all rows as body
+local function test_no_separator()
+  local input = "| a | b |\n| c | d |\n"
+  local result = render.render_markdown(input)
+  assert(result:find("┌", 1, true), "no-sep table should have borders, got: " .. result)
+  assert(not result:find("├", 1, true), "no-sep table should not have header sep, got: " .. result)
+  assert(not result:find(BOLD, 1, true), "no-sep table should not have bold, got: " .. result)
+  print("PASS: table with no separator row treats all as body")
+end
+
+-- test: table with varying cell widths aligns correctly
+local function test_varying_widths()
+  local input = "| Short | Very Long Header |\n|-------|------------------|\n| x | y |\n"
+  local result = render.render_markdown(input)
+  assert(result:find("┌", 1, true), "varying widths should render, got: " .. result)
+  assert(result:find("Short", 1, true), "should contain Short, got: " .. result)
+  assert(result:find("Very Long Header", 1, true), "should contain long header, got: " .. result)
+  print("PASS: table with varying cell widths aligns correctly")
+end
+
+-- test: table surrounded by other markdown renders correctly
+local function test_table_with_context()
+  local input = "# Title\n\nSome text.\n\n| A | B |\n|---|---|\n| 1 | 2 |\n\nMore text.\n"
+  local result = render.render_markdown(input)
+  assert(result:find(BOLD .. "# Title" .. RESET, 1, true), "heading should render")
+  assert(result:find("┌", 1, true), "table should render in context, got: " .. result)
+  assert(result:find("Some text.", 1, true), "text before table should be present")
+  assert(result:find("More text.", 1, true), "text after table should be present")
+  print("PASS: table surrounded by other markdown renders correctly")
+end
+
+-- test: table inside code fence is NOT formatted
+local function test_table_in_code_fence()
+  local input = "```\n| A | B |\n|---|---|\n| 1 | 2 |\n```\n"
+  local result = render.render_markdown(input)
+  assert(not result:find("┌", 1, true), "table in fence should not have box chars, got: " .. result)
+  assert(result:find("| A | B |", 1, true), "table in fence should pass through raw, got: " .. result)
+  print("PASS: table inside code fence is NOT formatted")
+end
+
+-- test: single-row table
+local function test_single_row_table()
+  local input = "| only | row |\n"
+  local result = render.render_markdown(input)
+  assert(result:find("┌", 1, true), "single-row table should have borders, got: " .. result)
+  assert(result:find("└", 1, true), "single-row table should have bottom border, got: " .. result)
+  assert(result:find("only", 1, true), "single-row should contain 'only', got: " .. result)
+  print("PASS: single-row table")
+end
+
+-- test: cells with inline formatting (bold, code)
+local function test_inline_formatting_in_cells()
+  local input = "| **bold** | `code` |\n|----------|--------|\n| normal | text |\n"
+  local result = render.render_markdown(input)
+  assert(result:find("normal", 1, true), "body should contain normal, got: " .. result)
+  print("PASS: cells with inline formatting")
+end
+
+-- test: empty cells
+local function test_empty_cells()
+  local input = "| A | B |\n|---|---|\n|  |  |\n"
+  local result = render.render_markdown(input)
+  assert(result:find("┌", 1, true), "empty cell table should render, got: " .. result)
+  assert(result:find("└", 1, true), "empty cell table should have bottom, got: " .. result)
+  print("PASS: empty cells")
+end
+
+-- test: render_table directly
+local function test_render_table_direct()
+  local lines = {"| H1 | H2 |", "|----|----|", "| a  | b  |"}
+  local out = render.render_table(lines)
+  assert(#out > 0, "render_table should return lines")
+  local joined = table.concat(out, "\n")
+  assert(joined:find("┌", 1, true), "render_table should produce box chars, got: " .. joined)
+  assert(joined:find("H1", 1, true), "render_table should contain H1, got: " .. joined)
+  print("PASS: render_table direct")
+end
+
+-- test: ragged table (rows with different column counts)
+local function test_ragged_table()
+  local input = "| A | B | C |\n|---|---|---|\n| 1 | 2 |\n"
+  local result = render.render_markdown(input)
+  assert(result:find("┌", 1, true), "ragged table should render, got: " .. result)
+  assert(result:find("A", 1, true), "ragged table should contain A, got: " .. result)
+  print("PASS: ragged table")
+end
+
 test_h1_heading()
 test_h2_heading()
 test_h3_heading()
@@ -184,3 +310,15 @@ test_colorize_diff_line()
 test_apply_inline()
 test_hr_variants()
 test_no_bold_in_fence()
+test_basic_table()
+test_separator_consumed()
+test_header_bold()
+test_no_separator()
+test_varying_widths()
+test_table_with_context()
+test_table_in_code_fence()
+test_single_row_table()
+test_inline_formatting_in_cells()
+test_empty_cells()
+test_render_table_direct()
+test_ragged_table()
