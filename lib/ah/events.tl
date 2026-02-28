@@ -49,6 +49,8 @@ local record EventData
   attempt: integer
   delay_ms: integer
   status: integer
+  url: string
+  elapsed_ms: integer
 
   -- state_change
   from_state: string
@@ -170,12 +172,18 @@ local type EventCallback = function(event: EventData)
     return e
   end
 
-  local function retry_event(attempt: integer, delay_ms: integer, status: integer, err: string): EventData
+  local function retry_event(attempt: integer, delay_ms: integer, status: integer, err: string, url: string, elapsed_ms: integer): EventData
     local e = make_event("retry")
     e.attempt = attempt
     e.delay_ms = delay_ms
     e.status = status
     e.error = err
+    if url and url ~= "" then
+      e.url = url
+    end
+    if elapsed_ms and elapsed_ms > 0 then
+      e.elapsed_ms = elapsed_ms
+    end
     return e
   end
 

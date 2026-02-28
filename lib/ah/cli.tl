@@ -256,6 +256,17 @@ local function make_cli_handler(skill_name: string): events.EventCallback
         io.stdout:flush()
       end
 
+    elseif t == "retry" then
+      local attempt = event.attempt or 0
+      local delay_ms = event.delay_ms or 0
+      local err = event.error or "unknown error"
+      local url = event.url or ""
+      local elapsed_ms = event.elapsed_ms or 0
+      local url_part = url ~= "" and (" [" .. url .. "]") or ""
+      local elapsed_part = elapsed_ms > 0 and string.format(", %dms", elapsed_ms) or ""
+      io.stderr:write(string.format("%sretrying API call%s (attempt %d, delay %dms%s): %s%s\n",
+          DIM, url_part, attempt + 1, delay_ms, elapsed_part, err, RESET))
+
     elseif t == "api_call_end" then
       -- Flush buffered agent response text now that the response is complete
       flush_text()

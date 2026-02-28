@@ -331,7 +331,7 @@ local function run_agent(d: db.DB, qdb: queue.QueueDB, system_prompt: string, mo
       for _, retry in ipairs(retries) do
         local retry_json = json.encode(retry)
         db.log_event(d, "retry", assistant_msg.id, retry_json)
-        emit(on_event, events.retry_event((retry.attempt or 0) as integer, (retry.delay_ms or 0) as integer, (retry.status or 0) as integer, (retry.error or "") as string))
+        emit(on_event, events.retry_event((retry.attempt or 0) as integer, (retry.delay_ms or 0) as integer, (retry.status or 0) as integer, (retry.error or "") as string, (retry.url or "") as string, (retry.elapsed_ms or 0) as integer))
       end
     end
     db.commit(d)

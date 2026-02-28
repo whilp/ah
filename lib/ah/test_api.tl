@@ -347,4 +347,14 @@ local function test_get_proxy_url_none()
 end
 test_get_proxy_url_none()
 
+local function test_transport_error_not_retryable_via_is_retryable()
+  -- Transport errors (status 0) are NOT retryable via is_retryable_error().
+  -- The retry loop handles them unconditionally (not stream_result.ok branch).
+  -- Document this: status=0 with a transport error message is not retryable by the helper.
+  assert(not api.is_retryable_error(0, "transport error"), "status 0 not retryable via is_retryable_error (handled by retry loop directly)")
+  assert(not api.is_retryable_error(0, "connection reset"), "status 0 not retryable via is_retryable_error")
+  print("PASS test_transport_error_not_retryable_via_is_retryable")
+end
+test_transport_error_not_retryable_via_is_retryable()
+
 print("all api tests passed")
