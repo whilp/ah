@@ -1,6 +1,6 @@
 ---
 name: cosmic
-description: Quick reference and language essentials for cosmic (Teal/Lua on Cosmopolitan Libc). Covers testing, type checking, formatting, Makefiles, and standard library modules.
+description: Quick reference for cosmic-lua — language essentials, CLI commands, and project conventions
 ---
 
 # cosmic
