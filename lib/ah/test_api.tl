@@ -347,4 +347,49 @@ local function test_get_proxy_url_none()
 end
 test_get_proxy_url_none()
 
+-- Tests for transport error patterns in is_retryable_error
+local function test_is_retryable_error_transport()
+  -- Transport errors arrive via status=0 with error text from fetch
+  -- They should NOT be retried via is_retryable_error (retry loop handles them separately)
+  assert(not api.is_retryable_error(0, "transport error"), "status 0 with transport error text is not retryable via HTTP path")
+  assert(not api.is_retryable_error(0, "connection reset"), "status 0 with connection reset is not retryable via HTTP path")
+  assert(not api.is_retryable_error(0, "EOF"), "status 0 with EOF is not retryable via HTTP path")
+  -- 502/503 are retryable
+  assert(api.is_retryable_error(502, ""), "502 should be retryable")
+  assert(api.is_retryable_error(503, ""), "503 should be retryable")
+  print("PASS test_is_retryable_error_transport")
+end
+test_is_retryable_error_transport()
+
+-- Test that parse_sse_line distinguishes [DONE] from other data lines.
+-- This underpins the stream_done tracking introduced for mid-stream detection.
+local function test_parse_sse_line_done()
+  -- [DONE] is a data line but must be handled separately in the reader loop
+  local kind, data = api.parse_sse_line("data: [DONE]")
+  assert(kind == "data", "parse_sse_line should return 'data' kind for [DONE]")
+  assert(data == "[DONE]", "parse_sse_line should return '[DONE]' as data")
+
+  -- Regular data lines work as before
+  local kind2, data2 = api.parse_sse_line('data: {"type":"message_start"}')
+  assert(kind2 == "data", "regular data line kind")
+  assert(data2 == '{"type":"message_start"}', "regular data line data")
+
+  -- Non-data lines return nil
+  local kind3, data3 = api.parse_sse_line("event: message_start")
+  assert(kind3 == "event", "event line kind")
+  assert(kind3 ~= "data", "event line should not be data")
+
+  -- Empty lines return nil
+  local kind4 = api.parse_sse_line("")
+  assert(kind4 == nil, "empty line returns nil kind")
+
+  print("PASS test_parse_sse_line_done")
+end
+test_parse_sse_line_done()
+
+-- Note: the mid-stream transport error detection (stream_done flag check after
+-- reader:lines() loop) and the debug stderr logging in transport error paths
+-- cannot be unit-tested without mocking fetch.stream() and the Reader interface.
+-- These are covered by integration/system testing (running ah with a proxy).
+
 print("all api tests passed")

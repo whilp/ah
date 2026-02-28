@@ -261,7 +261,10 @@ local function stream(messages: {any}, opts: {string: any}, callback: function({
       } as fetch.Opts)
 
     if not stream_result.ok then
+      local elapsed = now_ms() - start_ms
       last_error = "fetch failed: " .. (stream_result.error or "unknown error")
+      io.stderr:write(string.format("[api] transport error (attempt %d, %dms, url=%s): %s\n",
+          attempt, elapsed, get_api_url(), stream_result.error or "unknown"))
       -- Network errors are retryable
       if attempt < MAX_RETRIES then
         -- Exponential backoff with jitter: base * 2^attempt * (0.5 + rand(0.5))
@@ -302,6 +305,9 @@ local function stream(messages: {any}, opts: {string: any}, callback: function({
           local max_secs = math.ceil(MAX_RETRY_DELAY_MS / 1000)
           return nil, string.format("server requested %ds retry delay (max: %ds). %s", delay_secs, max_secs, last_error)
         end
+        local elapsed = now_ms() - start_ms
+        io.stderr:write(string.format("[api] HTTP %d (attempt %d, %dms, url=%s): %s\n",
+            status, attempt, elapsed, get_api_url(), last_error))
         table.insert(retries, {attempt = attempt, status = status, error = last_error, delay_ms = delay_ms})
         sleep_ms(delay_ms)
       else
@@ -320,6 +326,7 @@ local function stream(messages: {any}, opts: {string: any}, callback: function({
   local block_index: integer = nil
   local content_blocks: {integer: {string: any}} = {}
   local was_interrupted = false
+  local stream_done = false
 
   for line in reader:lines() do
     -- Check for interruption between SSE events
@@ -329,7 +336,10 @@ local function stream(messages: {any}, opts: {string: any}, callback: function({
     end
 
     local kind, data = parse_sse_line(line)
-    if kind == "data" and data ~= "[DONE]" then
+    if kind == "data" and data == "[DONE]" then
+      stream_done = true
+      break
+    elseif kind == "data" then
       local event = json.decode(data) as {string: any}
       if event then
         if callback then
@@ -382,6 +392,17 @@ local function stream(messages: {any}, opts: {string: any}, callback: function({
   end
 
   reader:close()
+
+  -- Detect mid-stream transport failures: SSE protocol always ends with "[DONE]".
+  -- If the loop exited without seeing it and without an intentional interruption,
+  -- the connection dropped mid-stream. Return an explicit error instead of silently
+  -- returning a partial or nil response.
+  if not stream_done and not was_interrupted then
+    local elapsed = now_ms() - start_ms
+    io.stderr:write(string.format("[api] mid-stream transport error (%dms, url=%s): stream ended without [DONE]\n",
+        elapsed, get_api_url()))
+    return nil, "fetch failed: stream ended without [DONE] (transport error)"
+  end
 
   -- On interruption, finalize partial response with accumulated content
   if was_interrupted and response then
@@ -442,6 +463,7 @@ return {
   extract_tool_calls = extract_tool_calls,
   build_request = build_request,
   parse_api_error = parse_api_error,
+  parse_sse_line = parse_sse_line,
   is_retryable_error = is_retryable_error,
   extract_retry_delay = extract_retry_delay,
   resolve_model = resolve_model,
