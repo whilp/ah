@@ -105,6 +105,27 @@ local function test_tool_key_param_nil_details_fallback()
 end
 test_tool_key_param_nil_details_fallback()
 
+-- Tests for tool_key_param with multi-line commands
+local function test_tool_key_param_multiline_command()
+  local key = loop.tool_key_param("bash", "{\"command\":\"git log --oneline -1 origin/work/258\\ngit diff HEAD\"}", nil)
+  assert(key == "git log --oneline -1 origin/work/258…", "multi-line command should collapse to first line + ellipsis: " .. key)
+end
+test_tool_key_param_multiline_command()
+
+local function test_tool_key_param_multiline_details_command()
+  local details = json.encode({command = "echo hello\necho world", exit_code = 0})
+  local key = loop.tool_key_param("bash", '{"command":"x"}', details)
+  assert(key == "echo hello…", "multi-line details command should collapse to first line + ellipsis: " .. key)
+end
+test_tool_key_param_multiline_details_command()
+
+local function test_tool_key_param_singleline_unchanged()
+  local cmd = "gh issue edit 241 --remove-label doing --add-label todo 2>&1"
+  local key = loop.tool_key_param("bash", "{\"command\":\"" .. cmd .. "\"}", nil)
+  assert(key == cmd, "single-line command should be returned unchanged: " .. key)
+end
+test_tool_key_param_singleline_unchanged()
+
 -- Tests for turn_signature
 local function test_turn_signature_single()
   local tool_calls = {
