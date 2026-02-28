@@ -194,4 +194,27 @@ local function test_resolve_session_not_found()
 end
 test_resolve_session_not_found()
 
+-- Sandbox env tests: verify COSMIC is exposed in run_env
+local sbox = require("ah.sandbox")
+
+local function test_cosmic_env_set()
+  local run_env: {string} = {}
+  local exe = sbox.ah_exe()
+  sbox.env_set(run_env, "COSMIC", exe)
+  sbox.env_set(run_env, "AH_COSMIC", exe)
+
+  -- find COSMIC in run_env
+  local found_cosmic: string = nil
+  local found_ah_cosmic: string = nil
+  for _, entry in ipairs(run_env) do
+    if entry:sub(1, 7) == "COSMIC=" then found_cosmic = entry:sub(8) end
+    if entry:sub(1, 10) == "AH_COSMIC=" then found_ah_cosmic = entry:sub(11) end
+  end
+  assert(found_cosmic ~= nil, "COSMIC should be set in run_env")
+  assert(found_ah_cosmic ~= nil, "AH_COSMIC should be set in run_env")
+  assert(found_cosmic == exe, "COSMIC should equal ah_exe()")
+  assert(found_ah_cosmic == exe, "AH_COSMIC should equal ah_exe()")
+end
+test_cosmic_env_set()
+
 print("all init tests passed")

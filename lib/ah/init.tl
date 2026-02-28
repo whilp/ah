@@ -184,6 +184,10 @@ local function main(args: {string}): integer, string
 
     local child_args: {string} = {}
     local exe = sbox.ah_exe()
+
+    -- Expose cosmic binary path so agents can run Lua scripts via $COSMIC
+    sbox.env_set(run_env, "COSMIC", exe)
+    sbox.env_set(run_env, "AH_COSMIC", exe)
     if parsed.timeout and parsed.timeout > 0 then
       table.insert(child_args, "timeout")
       table.insert(child_args, tostring(parsed.timeout))
