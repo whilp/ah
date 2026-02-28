@@ -371,6 +371,42 @@ local function test_wrap_command_comment_no_false_positive()
 end
 test_wrap_command_comment_no_false_positive()
 
+local function test_wrap_command_multiline_shows_first_line()
+  -- Multi-line command: only first line shown with "..." suffix
+  local cmd = "git log --oneline -1 origin/work/241-c4\ngit status\ngit diff"
+  local result = loop.wrap_command(cmd, 80, "    ")
+  assert(not result:find("\n"), "result should not contain newlines: " .. result)
+  assert(result == "git log --oneline -1 origin/work/241-c4 ...", "should show first line + ...: " .. result)
+end
+test_wrap_command_multiline_shows_first_line()
+
+local function test_wrap_command_multiline_trailing_only()
+  -- Multi-line command where remaining lines are empty/whitespace: no suffix
+  local cmd = "ls -la\n\n"
+  local result = loop.wrap_command(cmd, 80, "    ")
+  assert(result == "ls -la", "trailing blank lines should not add suffix: " .. result)
+end
+test_wrap_command_multiline_trailing_only()
+
+local function test_wrap_command_multiline_long_first_line()
+  -- Multi-line command where first line itself is long: wraps after normalization
+  local cmd = "gh issue edit 241 --remove-label \"doing\" --add-label \"todo\" 2>&1\nsome other line"
+  local result = loop.wrap_command(cmd, 40, "    ")
+  -- Should not contain the second line
+  assert(not result:find("some other line"), "should not include second line: " .. result)
+  -- Should end with "..."
+  assert(result:find("%.%.%.$"), "should end with ...: " .. result)
+end
+test_wrap_command_multiline_long_first_line()
+
+local function test_wrap_command_single_line_unchanged()
+  -- Single-line command not affected by multiline normalization
+  local cmd = "echo hello"
+  local result = loop.wrap_command(cmd, 80, "    ")
+  assert(result == cmd, "single-line command unchanged: " .. result)
+end
+test_wrap_command_single_line_unchanged()
+
 -- Tests for measure_payload_bytes
 local function test_measure_payload_bytes_empty()
   local result = loop.measure_payload_bytes({})
