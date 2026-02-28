@@ -252,4 +252,105 @@ local function test_resolve_session_not_found()
 end
 test_resolve_session_not_found()
 
+-- Sandbox context tests
+
+local function test_sandbox_context_absent()
+  -- When AH_SANDBOX is not set, sandbox_context returns ""
+  -- This test assumes AH_SANDBOX is NOT set in the test environment
+  if not os.getenv("AH_SANDBOX") then
+    local result = prompt_mod.sandbox_context("/tmp/test_sandbox")
+    assert(result == "", "sandbox_context should return empty when AH_SANDBOX not set, got: " .. result)
+  end
+end
+test_sandbox_context_absent()
+
+local function test_sandbox_context_present()
+  -- When AH_SANDBOX=1, sandbox_context should return a non-empty string with expected sections.
+  -- Run as a subprocess with AH_SANDBOX=1 to avoid polluting our env.
+  local script = [[
+local prompt_mod = require("ah.prompt")
+local result = prompt_mod.sandbox_context("/fake/cwd")
+assert(result ~= "", "sandbox_context should return non-empty when AH_SANDBOX=1")
+assert(result:match("## Sandbox"), "should have Sandbox heading")
+assert(result:match("### Filesystem %(unveil%)"), "should have Filesystem section")
+assert(result:match("### Network %(proxy allowlist%)"), "should have Network section")
+assert(result:match("### Syscalls %(pledge%)"), "should have Syscalls section")
+assert(result:match("/fake/cwd"), "should include cwd path")
+assert(result:match("api.anthropic.com:443"), "should include default host")
+assert(result:match("stdio"), "should include pledge promises")
+print("ok")
+]]
+  local tmpf = "/tmp/test_sandbox_context.tl"
+  local f = io.open(tmpf, "w")
+  if f then
+    f:write(script)
+    f:close()
+  end
+
+  local cosmic_exe = "o/bin/cosmic"
+  local cmd = "AH_SANDBOX=1 " .. cosmic_exe .. " " .. tmpf .. " 2>&1"
+  local handle = io.popen(cmd)
+  if handle then
+    local out = handle:read("*a")
+    handle:close()
+    assert(out:match("ok"), "sandbox_context subprocess test failed: " .. out)
+  end
+end
+test_sandbox_context_present()
+
+local function test_sandbox_context_extra_hosts()
+  -- Verify AH_ALLOW_HOSTS are included in output
+  local script = [[
+local prompt_mod = require("ah.prompt")
+local result = prompt_mod.sandbox_context("/fake/cwd")
+assert(result:match("github.com:443"), "should include extra host from AH_ALLOW_HOSTS")
+print("ok")
+]]
+  local tmpf = "/tmp/test_sandbox_extra_hosts.tl"
+  local f = io.open(tmpf, "w")
+  if f then
+    f:write(script)
+    f:close()
+  end
+
+  local cosmic_exe = "o/bin/cosmic"
+  local cmd = "AH_SANDBOX=1 AH_ALLOW_HOSTS=github.com:443 " .. cosmic_exe .. " " .. tmpf .. " 2>&1"
+  local handle = io.popen(cmd)
+  if handle then
+    local out = handle:read("*a")
+    handle:close()
+    assert(out:match("ok"), "extra hosts test failed: " .. out)
+  end
+end
+test_sandbox_context_extra_hosts()
+
+local function test_load_system_prompt_sandbox_section()
+  -- Verify load_system_prompt includes sandbox section when AH_SANDBOX=1
+  local script = [[
+local fs = require("cosmic.fs")
+local prompt_mod = require("ah.prompt")
+local cwd = "/tmp/sandbox_prompt_test"
+fs.makedirs(cwd)
+local prompt = prompt_mod.load_system_prompt(cwd)
+assert(prompt:match("## Sandbox"), "system prompt should include Sandbox section when AH_SANDBOX=1: " .. prompt:sub(1, 200))
+print("ok")
+]]
+  local tmpf = "/tmp/test_sandbox_prompt.tl"
+  local f = io.open(tmpf, "w")
+  if f then
+    f:write(script)
+    f:close()
+  end
+
+  local cosmic_exe = "o/bin/cosmic"
+  local cmd = "AH_SANDBOX=1 " .. cosmic_exe .. " " .. tmpf .. " 2>&1"
+  local handle = io.popen(cmd)
+  if handle then
+    local out = handle:read("*a")
+    handle:close()
+    assert(out:match("ok"), "system prompt sandbox test failed: " .. out)
+  end
+end
+test_load_system_prompt_sandbox_section()
+
 print("all init tests passed")

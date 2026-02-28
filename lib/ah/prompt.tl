@@ -2,6 +2,7 @@
 local fs = require("cosmic.fs")
 local cio = require("cosmic.io")
 local child = require("cosmic.child")
+local args_mod = require("ah.args")
 
 -- Run a git command in cwd with a 2s timeout. Returns trimmed stdout or nil.
 -- Never throws. Any failure (not a repo, git missing, timeout, bad exit) returns nil.
@@ -104,6 +105,84 @@ local function load_claude_md(cwd: string): string
   return "\n\n" .. table.concat(parts, "\n\n")
 end
 
+-- Build a sandbox constraints section for the system prompt.
+-- Returns an empty string when AH_SANDBOX is not set.
+-- cwd is used to resolve protected dirs from AH_PROTECT_DIRS.
+-- NOTE: the hardcoded unveil list and pledge string must stay in sync with init.tl.
+local function sandbox_context(cwd: string): string
+  if not os.getenv("AH_SANDBOX") then return "" end
+
+  local lines: {string} = {}
+
+  lines[#lines + 1] = "\n\n## Sandbox"
+  lines[#lines + 1] = "\nThis session runs in a sandbox. Capabilities are restricted."
+
+  -- Filesystem (unveil)
+  lines[#lines + 1] = "\n\n### Filesystem (unveil)"
+
+  -- Hardcoded paths (keep in sync with init.tl sandbox block)
+  local hardcoded: {{string}} = {
+    {cwd, "rwxc"},
+    {"/tmp", "rwxc"},
+    {"/usr", "rx"},
+    {"/bin", "rx"},
+    {"/lib", "rx"},
+    {"/lib64", "rx"},
+    {"/etc/ssl", "r"},
+    {"/etc/resolv.conf", "r"},
+    {"/dev/null", "rw"},
+    {"/dev/tty", "rw"},
+    {"/proc/self", "r"},
+  }
+  local home = os.getenv("HOME")
+  if home then
+    hardcoded[#hardcoded + 1] = {home, "r"}
+  end
+
+  -- Protected dirs (AH_PROTECT_DIRS) → cwd/dir with "r"
+  local protect = args_mod.parse_protect_dirs(os.getenv("AH_PROTECT_DIRS"))
+  for _, dir in ipairs(protect) do
+    hardcoded[#hardcoded + 1] = {cwd .. "/" .. dir, "r"}
+  end
+
+  -- Extra unveil entries from AH_UNVEIL (path:perms, comma-separated)
+  local unveil_env = os.getenv("AH_UNVEIL")
+  if unveil_env then
+    for entry in unveil_env:gmatch("[^,]+") do
+      local u_path, u_perms = args_mod.parse_unveil_entry(entry)
+      if u_path:sub(1, 1) ~= "/" then
+        u_path = cwd .. "/" .. u_path
+      end
+      hardcoded[#hardcoded + 1] = {u_path, u_perms}
+    end
+  end
+
+  for _, pair in ipairs(hardcoded) do
+    lines[#lines + 1] = "\n- `" .. pair[1] .. "` \xe2\x80\x94 " .. pair[2]
+  end
+
+  -- Network (proxy allowlist)
+  lines[#lines + 1] = "\n\n### Network (proxy allowlist)"
+  local hosts: {string} = {"api.anthropic.com:443"}
+  local allow_env = os.getenv("AH_ALLOW_HOSTS")
+  if allow_env then
+    for entry in allow_env:gmatch("[^,]+") do
+      hosts[#hosts + 1] = entry
+    end
+  end
+  for _, h in ipairs(hosts) do
+    lines[#lines + 1] = "\n- `" .. h .. "`"
+  end
+
+  -- Syscalls (pledge)
+  -- NOTE: keep in sync with the promises string in init.tl
+  local promises = "stdio rpath wpath cpath flock tty proc exec execnative unix prot_exec"
+  lines[#lines + 1] = "\n\n### Syscalls (pledge)"
+  lines[#lines + 1] = "\n`" .. promises .. "`"
+
+  return table.concat(lines)
+end
+
 -- Load system prompt with precedence:
 -- 1. /zip/embed/system.md (user override)
 -- 2. /zip/embed/sys/system.md (ah default)
@@ -140,10 +219,16 @@ local function load_system_prompt(cwd: string): string
     base = base .. "\nGit remote: " .. git.remote
   end
 
+  local sandbox = sandbox_context(cwd)
+  if sandbox ~= "" then
+    base = base .. sandbox
+  end
+
   return base
 end
 
 return {
   load_claude_md = load_claude_md,
   load_system_prompt = load_system_prompt,
+  sandbox_context = sandbox_context,
 }
