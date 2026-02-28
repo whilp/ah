@@ -410,3 +410,72 @@ end
 test_payload_warn_threshold_constant()
 
 print("all payload tests passed")
+
+-- Tests for display_command
+local function test_display_command_single_line()
+  local cmd = "ls -la /tmp"
+  local result = loop.display_command(cmd)
+  assert(result == cmd, "single-line command should be unchanged: " .. result)
+end
+test_display_command_single_line()
+
+local function test_display_command_multi_line()
+  local cmd = "git log --oneline -1 origin/work/241-c4\ngit diff HEAD~1"
+  local result = loop.display_command(cmd)
+  assert(result == "git log --oneline -1 origin/work/241-c4 ...", "multi-line should show first line + ' ...': " .. result)
+end
+test_display_command_multi_line()
+
+local function test_display_command_three_lines()
+  local cmd = "line one\nline two\nline three"
+  local result = loop.display_command(cmd)
+  assert(result == "line one ...", "should collapse to first line + ' ...': " .. result)
+end
+test_display_command_three_lines()
+
+local function test_display_command_empty()
+  local result = loop.display_command("")
+  assert(result == "", "empty string should return empty: '" .. result .. "'")
+end
+test_display_command_empty()
+
+local function test_display_command_trailing_newline()
+  local cmd = "echo hello\n"
+  local result = loop.display_command(cmd)
+  -- Single content line with trailing newline counts as multi-line
+  assert(result == "echo hello ...", "trailing newline should trigger suffix: " .. result)
+end
+test_display_command_trailing_newline()
+
+-- Tests for wrap_command with multi-line input
+local function test_wrap_command_multiline_no_garbling()
+  local cmd = "git log --oneline -1 origin/work/241-c4abc\ngit diff HEAD~1 --stat"
+  local result = loop.wrap_command(cmd, 80, "    ")
+  -- Should not contain raw newlines from the original (i.e. multi-line garbling)
+  -- The result may contain backslash-continuation newlines but not bare content newlines
+  local lines_with_content: {string} = {}
+  for line in result:gmatch("[^\n]+") do
+    table.insert(lines_with_content, line)
+  end
+  -- Each line should either end with " \" (continuation) or be the last line
+  for i, line in ipairs(lines_with_content) do
+    if i < #lines_with_content then
+      assert(line:sub(-2) == " \\", "continuation line should end with ' \\': " .. line)
+    end
+  end
+  -- Should not contain "git diff HEAD~1" from the second original line
+  assert(not result:find("git diff HEAD", 1, true), "second line content should not appear: " .. result)
+end
+test_wrap_command_multiline_no_garbling()
+
+local function test_wrap_command_multiline_shows_first_line()
+  local cmd = "gh issue list --repo whilp/ah\n--label todo --state open"
+  local result = loop.wrap_command(cmd, 80, "    ")
+  -- First line content should appear
+  assert(result:find("gh issue list", 1, true), "first line tokens should appear: " .. result)
+  -- Second original line should not appear
+  assert(not result:find("--label todo", 1, true), "second line content should not appear: " .. result)
+end
+test_wrap_command_multiline_shows_first_line()
+
+print("all display_command tests passed")
