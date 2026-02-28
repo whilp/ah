@@ -160,8 +160,10 @@ local function main(args: {string}): integer, string
 
     local unix = require("cosmo.unix")
     local run_env: {string} = unix.environ() as {string}
+    local exe = sbox.ah_exe()
     sbox.setup_git_env(run_env)
     sbox.env_set(run_env, "TMPDIR", ctx.tmpdir)
+    sbox.env_set(run_env, "AH_COSMIC", exe)
 
     local proxy_url, proxy_err = fetch.unix_proxy(ctx.socket_path)
     if not proxy_url then
@@ -183,7 +185,6 @@ local function main(args: {string}): integer, string
     end
 
     local child_args: {string} = {}
-    local exe = sbox.ah_exe()
     if parsed.timeout and parsed.timeout > 0 then
       table.insert(child_args, "timeout")
       table.insert(child_args, tostring(parsed.timeout))
