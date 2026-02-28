@@ -135,6 +135,14 @@ ah_sys_other := $(filter-out %.tl,$(ah_sys_files_raw))
 ah_sys := $(patsubst sys/%.tl,$(o)/embed/embed/sys/%.lua,$(ah_sys_tl)) \
           $(patsubst sys/%,$(o)/embed/embed/sys/%,$(ah_sys_other))
 
+# cosmic skill files: extracted from the cosmic binary at build time
+cosmic_skill_names := SKILL.md checking.md docs.md formatting.md make.md makefile.md modules.md testing.md
+cosmic_skill_files := $(patsubst %,$(o)/embed/embed/sys/skills/cosmic/%,$(cosmic_skill_names))
+
+$(o)/embed/embed/sys/skills/cosmic/%: $(cosmic)
+	@mkdir -p $(@D)
+	@$(cosmic) -e 'io.write(require("cosmic.io").slurp("/zip/skills/cosmic/$(notdir $@)"))' > $@
+
 # embed ci reference files (the actual files this repo uses)
 ah_ci_files := Makefile .github/workflows/test.yml
 ah_ci := $(patsubst %,$(o)/embed/embed/ci/%,$(ah_ci_files))
@@ -143,7 +151,7 @@ $(o)/embed/embed/ci/%: %
 	@mkdir -p $(@D)
 	@cp $< $@
 
-$(o)/bin/ah: $(o)/embed/main.lua $(ah_lib_lua) $(ah_dep_lua) $(ah_version_lua) $(ah_sys) $(ah_ci) $(cosmic)
+$(o)/bin/ah: $(o)/embed/main.lua $(ah_lib_lua) $(ah_dep_lua) $(ah_version_lua) $(ah_sys) $(ah_ci) $(cosmic_skill_files) $(cosmic)
 	@echo "==> embedding ah"
 	@$(cosmic) --embed $(o)/embed --output $@.tmp && mv $@.tmp $@
 
@@ -151,7 +159,7 @@ $(o)/bin/ah: $(o)/embed/main.lua $(ah_lib_lua) $(ah_dep_lua) $(ah_version_lua) $
 ## Build ah executable archive
 ah: $(o)/bin/ah
 
-$(o)/bin/ah-debug: $(o)/embed/main.lua $(ah_lib_lua) $(ah_dep_lua) $(ah_version_lua) $(ah_sys) $(ah_ci) $(cosmic_debug)
+$(o)/bin/ah-debug: $(o)/embed/main.lua $(ah_lib_lua) $(ah_dep_lua) $(ah_version_lua) $(ah_sys) $(ah_ci) $(cosmic_skill_files) $(cosmic_debug)
 	@echo "==> embedding ah-debug"
 	@$(cosmic_debug) --embed $(o)/embed --output $@.tmp && mv $@.tmp $@
 
