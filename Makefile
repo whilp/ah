@@ -57,7 +57,7 @@ ah_version := $(shell \
   echo "$$v")
 ah_version_lua := $(o)/embed/.lua/ah/version.lua
 
-TL_PATH := lib/?.tl;lib/?/init.tl;/zip/.tl/?.tl;/zip/.tl/?/init.tl;/zip/.lua/types/?.d.tl;/zip/.lua/types/?/init.d.tl
+TL_PATH := lib/?.tl;lib/?/init.tl;/zip/.lua/types/?.d.tl;/zip/.lua/types/?/init.d.tl
 
 # compile .tl to .lua
 $(o)/%.lua: %.tl $(cosmic)
