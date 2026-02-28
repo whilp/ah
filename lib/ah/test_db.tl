@@ -41,7 +41,6 @@ local function test_messages()
   db.close(d)
 end
 test_messages()
-
 local function test_content_blocks()
   local db_path = fs.join(TEST_TMPDIR, "test.db")
   local d = db.open(db_path)
@@ -77,7 +76,6 @@ local function test_content_blocks()
   db.close(d)
 end
 test_content_blocks()
-
 local function test_forking()
   local db_path = fs.join(TEST_TMPDIR, "test.db")
   local d = db.open(db_path)
@@ -107,7 +105,6 @@ local function test_forking()
   db.close(d)
 end
 test_forking()
-
 local function test_get_message_count()
   -- Test empty db
   local db_path = fs.join(TEST_TMPDIR, "count_empty.db")
@@ -132,7 +129,6 @@ local function test_get_message_count()
   db.close(d)
 end
 test_get_message_count()
-
 local function test_get_first_user_prompt()
   -- Test empty db
   local db_path = fs.join(TEST_TMPDIR, "prompt_empty.db")
@@ -159,7 +155,6 @@ local function test_get_first_user_prompt()
   db.close(d)
 end
 test_get_first_user_prompt()
-
 -- Test orphan cleanup
 local function test_cleanup_orphans()
   local db_path = fs.join(TEST_TMPDIR, "orphan_test.db")
@@ -183,7 +178,6 @@ local function test_cleanup_orphans()
   db.close(d)
 end
 test_cleanup_orphans()
-
 -- Test that orphan cleanup preserves parent chain
 local function test_cleanup_preserves_chain()
   local db_path = fs.join(TEST_TMPDIR, "orphan_chain.db")
@@ -213,7 +207,6 @@ local function test_cleanup_preserves_chain()
   db.close(d)
 end
 test_cleanup_preserves_chain()
-
 -- Test transaction support
 local function test_transactions()
   local db_path = fs.join(TEST_TMPDIR, "tx_test.db")
