@@ -140,7 +140,7 @@ cosmic_skill_stamp := $(o)/embed/embed/sys/skills/cosmic/.stamp
 
 $(cosmic_skill_stamp): $(cosmic)
 	@mkdir -p $(@D)
-	@$(cosmic) -e 'local io = require("cosmic.io"); local fs = require("cosmic.fs"); local dir = "/zip/skills/cosmic"; local out = "$(dir $@)"; local dh = fs.opendir(dir); while true do local name = dh:read(); if not name then break end; if name ~= "." and name ~= ".." then io.barf(out .. name, io.slurp(dir .. "/" .. name)) end end; dh:close()'
+	@tmp=$$(mktemp -d) && $(cosmic) --extract "$$tmp" >/dev/null && cp "$$tmp"/skills/cosmic/* $(@D)/ && rm -rf "$$tmp"
 	@touch $@
 
 # embed ci reference files (the actual files this repo uses)
