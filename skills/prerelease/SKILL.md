@@ -34,9 +34,22 @@ Capture the run ID of the most recent run.
 
 ### 3. Watch the run
 
+Poll until the run completes, tailing log output each iteration for incremental visibility:
+
 ```bash
-gh run watch <run-id> --exit-status
+while true; do
+  status=$(gh run view <run-id> --json status -q .status)
+  gh run view <run-id> --log 2>/dev/null | tail -20
+  if [ "$status" != "in_progress" ] && [ "$status" != "queued" ]; then
+    break
+  fi
+  sleep 10
+done
+conclusion=$(gh run view <run-id> --json conclusion -q .conclusion)
+echo "Run concluded: $conclusion"
 ```
+
+If `conclusion` is not `success`, treat the run as failed (proceed to step 4).
 
 ### 4. Handle failure
 

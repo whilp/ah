@@ -36,11 +36,22 @@ Capture the run ID of the `in_progress` (or most recent) run.
 
 ### 2. Watch the run
 
+Poll until the run completes, tailing log output each iteration for incremental visibility:
+
 ```bash
-gh run watch <run-id> --exit-status
+while true; do
+  status=$(gh run view <run-id> --json status -q .status)
+  gh run view <run-id> --log 2>/dev/null | tail -20
+  if [ "$status" != "in_progress" ] && [ "$status" != "queued" ]; then
+    break
+  fi
+  sleep 10
+done
+conclusion=$(gh run view <run-id> --json conclusion -q .conclusion)
+echo "Run concluded: $conclusion"
 ```
 
-This blocks until the run completes. Use a generous timeout (10 minutes).
+If `conclusion` is not `success`, treat the run as failed (proceed to step 4).
 
 ### 3. On success
 
@@ -149,10 +160,19 @@ sleep 15
 gh pr checks
 ```
 
-Then watch the run:
+Then poll the run with incremental log output:
 
 ```bash
-gh run watch <run-id> --exit-status
+while true; do
+  status=$(gh run view <run-id> --json status -q .status)
+  gh run view <run-id> --log 2>/dev/null | tail -20
+  if [ "$status" != "in_progress" ] && [ "$status" != "queued" ]; then
+    break
+  fi
+  sleep 10
+done
+conclusion=$(gh run view <run-id> --json conclusion -q .conclusion)
+echo "Run concluded: $conclusion"
 ```
 
 ### 9. Handle CI failure on the PR
@@ -204,4 +224,4 @@ Print a summary:
 - if the failure is an infrastructure/transient issue (e.g., network timeout
   not caused by code), report it and stop — don't create a branch
 - use worktrees for fixes to keep the main working directory clean
-- set generous timeouts when watching runs (10 minutes)
+- poll runs with `gh run view --log | tail -20` in a loop instead of `gh run watch`; this gives incremental log output during long steps
