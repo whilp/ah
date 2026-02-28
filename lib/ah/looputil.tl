@@ -52,13 +52,74 @@ end
 
 -- Wrap a long command at flag boundaries with \ continuations.
 -- Returns cmd unchanged if it fits within width.
+-- If cmd already contains \ continuations, returns it as-is.
+-- If cmd contains &&, splits at && boundaries first, then wraps each part.
 -- Otherwise splits at spaces before -- or - flags, joining with \<newline> + indent.
 -- Falls back to splitting at any space if no flag boundaries found.
 local function wrap_command(cmd: string, width: integer, indent: string): string
   width = width or 80
   indent = indent or "    "
-  if #cmd <= width and not cmd:find(" #") then
+
+  -- Preserve existing \ continuations — the model already formatted it
+  if cmd:find("\\\n") then
     return cmd
+  end
+
+  if #cmd <= width and not cmd:find(" #") and not cmd:find(" && ") then
+    return cmd
+  end
+
+  -- Split on && first, then wrap each sub-command independently
+  if cmd:find(" && ") then
+    local sub_parts: {string} = {}
+    -- Split on " && " boundaries
+    local remaining = cmd
+    while true do
+      local s, e = remaining:find(" && ", 1, true)
+      if not s then
+        table.insert(sub_parts, remaining)
+        break
+      end
+      table.insert(sub_parts, remaining:sub(1, s - 1))
+      remaining = remaining:sub(e + 1)
+    end
+    -- Wrap each sub-command individually and join with && + continuation
+    local wrapped_parts: {string} = {}
+    for _, part in ipairs(sub_parts) do
+      -- Recursively wrap each part (without && splitting to avoid infinite recursion)
+      -- Use a simplified wrap that only does flag/space splitting
+      local wrapped = part
+      if #part > width or part:find(" #") then
+        local tokens: {string} = {}
+        local cur = ""
+        for token in part:gmatch("%S+") do
+          local is_comment = token:sub(1, 1) == "#" and cur ~= ""
+          local is_flag = #tokens > 0 and token:sub(1, 1) == "-" and #cur + 1 + #token > width
+          if is_comment or is_flag then
+            table.insert(tokens, cur)
+            cur = indent .. token
+          elseif cur == "" then
+            cur = token
+          else
+            local candidate = cur .. " " .. token
+            if #candidate > width and #tokens > 0 then
+              table.insert(tokens, cur)
+              cur = indent .. token
+            else
+              cur = candidate
+            end
+          end
+        end
+        if cur ~= "" then
+          table.insert(tokens, cur)
+        end
+        if #tokens > 1 then
+          wrapped = table.concat(tokens, " \\\n")
+        end
+      end
+      table.insert(wrapped_parts, wrapped)
+    end
+    return table.concat(wrapped_parts, " \\\n&& ")
   end
 
   -- Try splitting at comment/flag boundaries

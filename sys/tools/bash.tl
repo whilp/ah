@@ -32,7 +32,7 @@ end
 return {
   name = "bash",
   description = "Execute a bash command",
-  system_prompt = "Use bash for system commands, not for file operations.\nAll tools run in the working directory. Use relative paths for project files.",
+  system_prompt = "Use bash for system commands, not for file operations.\nAll tools run in the working directory. Use relative paths for project files.\nFor multi-step commands, chain them with && on a single line or use \\\\ line continuations for readability.",
   running_processes = running_processes,
   input_schema = {
     type = "object",

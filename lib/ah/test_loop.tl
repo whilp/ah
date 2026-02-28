@@ -371,6 +371,55 @@ local function test_wrap_command_comment_no_false_positive()
 end
 test_wrap_command_comment_no_false_positive()
 
+local function test_wrap_command_ampersand_split()
+  -- Commands with && should split at && boundaries
+  local cmd = "cd /tmp && echo hello && ls -la"
+  local result = loop.wrap_command(cmd, 80, "    ")
+  assert(result:find("\\\n"), "should contain backslash continuation: " .. result)
+  assert(result:find("&&"), "should preserve && operators: " .. result)
+  -- All original tokens should be preserved (strip \ and newlines for checking)
+  local flat = result:gsub(" \\\n", " "):gsub("&&%s+", "&& ")
+  assert(flat:find("cd /tmp"), "should preserve first command: " .. flat)
+  assert(flat:find("echo hello"), "should preserve second command: " .. flat)
+  assert(flat:find("ls %-la"), "should preserve third command: " .. flat)
+end
+test_wrap_command_ampersand_split()
+
+local function test_wrap_command_ampersand_two_parts()
+  -- Two-part && command splits into two lines
+  local cmd = "make build && make test"
+  local result = loop.wrap_command(cmd, 80, "    ")
+  assert(result:find("\\\n"), "should split on &&: " .. result)
+  local line1 = result:match("^([^\n]+)")
+  assert(line1 == "make build \\", "first line should be 'make build \\': " .. line1)
+end
+test_wrap_command_ampersand_two_parts()
+
+local function test_wrap_command_existing_continuation()
+  -- Commands that already have \ continuations should be returned as-is
+  local cmd = "gh pr create \\\n  --base main \\\n  --title \"fix: something\""
+  local result = loop.wrap_command(cmd, 80, "    ")
+  assert(result == cmd, "should preserve existing \\ continuations: " .. result)
+end
+test_wrap_command_existing_continuation()
+
+local function test_wrap_command_existing_continuation_short()
+  -- Even a short command with \ continuation should be returned as-is
+  local cmd = "echo \\\nhello"
+  local result = loop.wrap_command(cmd, 80, "    ")
+  assert(result == cmd, "should preserve existing \\ continuation even when short: " .. result)
+end
+test_wrap_command_existing_continuation_short()
+
+local function test_wrap_command_ampersand_short()
+  -- Short && command (fits on one line) should still split for clarity
+  local cmd = "cd /tmp && ls"
+  local result = loop.wrap_command(cmd, 80, "    ")
+  -- Should split even though it fits (&&-containing commands always split)
+  assert(result:find("\\\n"), "short && command should split for readability: " .. result)
+end
+test_wrap_command_ampersand_short()
+
 -- Tests for measure_payload_bytes
 local function test_measure_payload_bytes_empty()
   local result = loop.measure_payload_bytes({})
