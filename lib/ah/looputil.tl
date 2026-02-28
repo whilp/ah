@@ -50,13 +50,28 @@ local function tool_key_param(tool_name: string, tool_input: string, details_jso
   return ""
 end
 
+-- Normalize a potentially multi-line command for display.
+-- If the command has multiple lines, returns the first line with " ..." appended.
+-- Single-line commands are returned unchanged.
+local function display_command(cmd: string): string
+  if not cmd or cmd == "" then return cmd end
+  local first, rest = cmd:match("^([^\n]*)([\n].*)$")
+  if first and rest then
+    return first .. " ..."
+  end
+  return cmd
+end
+
 -- Wrap a long command at flag boundaries with \ continuations.
+-- Normalizes multi-line commands to a single display line first.
 -- Returns cmd unchanged if it fits within width.
 -- Otherwise splits at spaces before -- or - flags, joining with \<newline> + indent.
 -- Falls back to splitting at any space if no flag boundaries found.
 local function wrap_command(cmd: string, width: integer, indent: string): string
   width = width or 80
   indent = indent or "    "
+  -- Normalize multi-line commands before any length checks or tokenization
+  cmd = display_command(cmd)
   if #cmd <= width and not cmd:find(" #") then
     return cmd
   end
@@ -157,6 +172,7 @@ end
 return {
   shorten_path = shorten_path,
   tool_key_param = tool_key_param,
+  display_command = display_command,
   wrap_command = wrap_command,
   turn_signature = turn_signature,
   check_loop = check_loop,
