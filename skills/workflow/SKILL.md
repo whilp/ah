@@ -36,11 +36,20 @@ Capture the run ID of the `in_progress` (or most recent) run.
 
 ### 2. Watch the run
 
-```bash
-gh run watch <run-id> --exit-status
-```
+`gh run watch` shows no incremental output during long steps. Use a polling
+loop that tails the last 20 lines of log every 10 seconds instead:
 
-This blocks until the run completes. Use a generous timeout (10 minutes).
+```bash
+# poll for incremental output while the run is in progress
+while gh run view <run-id> --json status -q .status | grep -qE "in_progress|queued|waiting"; do
+  gh run view <run-id> --log 2>/dev/null | tail -20
+  sleep 10
+done
+# check final conclusion
+conclusion=$(gh run view <run-id> --json conclusion -q .conclusion)
+echo "Run concluded: $conclusion"
+[ "$conclusion" = "success" ] || exit 1
+```
 
 ### 3. On success
 
@@ -149,10 +158,16 @@ sleep 15
 gh pr checks
 ```
 
-Then watch the run:
+Then watch the run using the polling loop (same as step 2):
 
 ```bash
-gh run watch <run-id> --exit-status
+while gh run view <run-id> --json status -q .status | grep -qE "in_progress|queued|waiting"; do
+  gh run view <run-id> --log 2>/dev/null | tail -20
+  sleep 10
+done
+conclusion=$(gh run view <run-id> --json conclusion -q .conclusion)
+echo "Run concluded: $conclusion"
+[ "$conclusion" = "success" ] || exit 1
 ```
 
 ### 9. Handle CI failure on the PR
