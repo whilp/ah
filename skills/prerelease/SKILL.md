@@ -34,8 +34,19 @@ Capture the run ID of the most recent run.
 
 ### 3. Watch the run
 
+`gh run watch` shows no incremental output during long steps. Use a polling
+loop that tails the last 20 lines of log every 10 seconds instead:
+
 ```bash
-gh run watch <run-id> --exit-status
+# poll for incremental output while the run is in progress
+while gh run view <run-id> --json status -q .status | grep -qE "in_progress|queued|waiting"; do
+  gh run view <run-id> --log 2>/dev/null | tail -20
+  sleep 10
+done
+# check final conclusion
+conclusion=$(gh run view <run-id> --json conclusion -q .conclusion)
+echo "Run concluded: $conclusion"
+[ "$conclusion" = "success" ] || exit 1
 ```
 
 ### 4. Handle failure
