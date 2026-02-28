@@ -25,6 +25,7 @@ local record Tool
   input_schema: {string: any}
   system_prompt: string
   running_processes: {integer: any}
+  on_output: function(chunk: string)
   execute: function(input: {string: any}): string, boolean, ToolDetails
 end
 
@@ -400,6 +401,7 @@ return {
   get_tool_definitions = get_tool_definitions,
   format_tools_for_prompt = format_tools_for_prompt,
   execute_tool = execute_tool,
+  get_tool = get_tool,
   abort_running_tools = abort_running_tools,
   validate_input = validate_input,
   init_custom_tools = init_custom_tools,

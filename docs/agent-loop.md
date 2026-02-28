@@ -84,8 +84,8 @@ exceeded, the loop exits with `budget_exceeded` stop reason.
 
 the loop emits structured events via callback: `agent_start`, `agent_end`,
 `api_call_start`, `api_call_end`, `tool_call_start`, `tool_call_end`,
-`text_delta`, `error`, `retry`, `state_change`, `steering_received`,
-`compaction_triggered`, `compaction_complete`.
+`tool_output_delta`, `text_delta`, `error`, `retry`, `state_change`,
+`steering_received`, `compaction_triggered`, `compaction_complete`.
 
 events are both emitted to the callback (for CLI display) and logged to
 the database events table.

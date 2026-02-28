@@ -60,9 +60,22 @@ local function execute_tool_calls(
 
     emit(on_event, events.tool_call_start(tc.name as string, input_json, key, i, tool_count))
 
+    -- Set up streaming output callback for tools that support it
+    local tool_obj = tools.get_tool(tc.name as string)
+    if tool_obj and on_event then
+      (tool_obj as {string: any}).on_output = function(chunk: string)
+        emit(on_event, events.tool_output_delta(tc.name as string, chunk))
+      end
+    end
+
     local start = now()
     local result, is_error, details = tools.execute_tool(tc.name as string, (tc.input or {}) as {string: any})
     local elapsed = now() - start
+
+    -- Clear the streaming output callback
+    if tool_obj then
+      (tool_obj as {string: any}).on_output = nil
+    end
 
     if interrupted then
       tools.abort_running_tools()

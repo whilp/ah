@@ -4,7 +4,7 @@ local json = require("cosmic.json")
 -- Event types covering the full agent lifecycle:
 --   agent_start, agent_end
 --   api_call_start, api_call_end
---   tool_call_start, tool_call_end
+--   tool_call_start, tool_call_end, tool_output_delta
 --   text_delta (streaming text output)
 --   error, retry
 --   state_change (session state transitions: idle/processing/closed)
@@ -164,6 +164,13 @@ local type EventCallback = function(event: EventData)
     return e
   end
 
+  local function tool_output_delta(tool_name: string, text: string): EventData
+    local e = make_event("tool_output_delta")
+    e.tool_name = tool_name
+    e.text = text
+    return e
+  end
+
   local function error_event(err: string): EventData
     local e = make_event("error")
     e.error = err
@@ -255,6 +262,7 @@ local type EventCallback = function(event: EventData)
     api_call_end = api_call_end,
     tool_call_start = tool_call_start,
     tool_call_end = tool_call_end,
+    tool_output_delta = tool_output_delta,
     text_delta = text_delta,
     error_event = error_event,
     retry_event = retry_event,

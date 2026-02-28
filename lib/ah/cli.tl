@@ -183,6 +183,7 @@ local function make_cli_handler(skill_name: string): events.EventCallback
   local has_text = false
   local text_buffer: {string} = {}
   local captured_model: string = nil
+  local tool_streamed = false  -- tracks whether current tool call streamed output
 
   -- Flush buffered agent response text to stdout
   local function flush_text()
@@ -280,6 +281,13 @@ local function make_cli_handler(skill_name: string): events.EventCallback
         end
         io.stderr:write("\n")
       end
+      tool_streamed = false
+
+    elseif t == "tool_output_delta" then
+      -- Stream tool output chunks to stderr as they arrive
+      tool_streamed = true
+      io.stderr:write(DIM .. (event.text or "") .. RESET)
+      io.stderr:flush()
 
     elseif t == "tool_call_end" then
       local indent = "  "
@@ -309,8 +317,9 @@ local function make_cli_handler(skill_name: string): events.EventCallback
       end
 
       -- Show truncated output (first 3 lines, then count)
+      -- Skip if output was already streamed incrementally
       local result = event.tool_output or ""
-      if result ~= "" and result ~= "(no output)" then
+      if not tool_streamed and result ~= "" and result ~= "(no output)" then
         -- For edit tool on a TTY, try to pipe through a difftool
         local difftool_rendered = false
         if is_tty and event.tool_name == "edit" then
