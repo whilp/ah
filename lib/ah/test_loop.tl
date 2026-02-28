@@ -76,6 +76,36 @@ local function test_tool_key_param_details_bash_no_truncate()
 end
 test_tool_key_param_details_bash_no_truncate()
 
+local function test_tool_key_param_bash_multiline()
+  local cmd = "git log --oneline -1 origin/work/241\necho second line"
+  local key = loop.tool_key_param("bash", '{"command":"' .. cmd:gsub("\n", "\\n") .. '"}', nil)
+  assert(key == "git log --oneline -1 origin/work/241 ...", "should show first line + ...: got " .. key)
+end
+test_tool_key_param_bash_multiline()
+
+local function test_tool_key_param_bash_singleline_unchanged()
+  local cmd = "git log --oneline -1 origin/work/241"
+  local key = loop.tool_key_param("bash", '{"command":"' .. cmd .. '"}', nil)
+  assert(key == cmd, "single-line command should be unchanged: " .. key)
+end
+test_tool_key_param_bash_singleline_unchanged()
+
+local function test_tool_key_param_details_bash_multiline()
+  local cmd = "echo first line\necho second line\necho third line"
+  local details = json.encode({command = cmd, exit_code = 0})
+  local key = loop.tool_key_param("bash", '{"command":"x"}', details)
+  assert(key == "echo first line ...", "should show first line + ... from details: got " .. key)
+end
+test_tool_key_param_details_bash_multiline()
+
+local function test_tool_key_param_details_bash_singleline_unchanged()
+  local cmd = "echo hello world"
+  local details = json.encode({command = cmd, exit_code = 0})
+  local key = loop.tool_key_param("bash", '{"command":"x"}', details)
+  assert(key == cmd, "single-line command from details should be unchanged: got " .. key)
+end
+test_tool_key_param_details_bash_singleline_unchanged()
+
 local function test_tool_key_param_details_edit()
   local details = json.encode({path = "/tmp/file.lua", old_lines = 5, new_lines = 7})
   local key = loop.tool_key_param("edit", '{"path":"/tmp/file.lua","old_string":"x","new_string":"y"}', details)
