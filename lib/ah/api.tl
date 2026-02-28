@@ -247,28 +247,31 @@ local function stream(messages: {any}, opts: {string: any}, callback: function({
   -- Track timing and retries
   local start_ms = now_ms()
   local retries: {{string: any}} = {}
+  local api_url = get_api_url()
 
   -- Retry loop for transient errors
   local reader: fetch.Reader = nil
   local last_error: string = nil
 
   for attempt = 0, MAX_RETRIES do
-    local stream_result = fetch.stream(get_api_url(), {
+    local attempt_start_ms = now_ms()
+    local stream_result = fetch.stream(api_url, {
         method = "POST",
         headers = auth_headers,
         body = body,
         proxy = get_proxy_url(),
       } as fetch.Opts)
+    local elapsed_ms = now_ms() - attempt_start_ms
 
     if not stream_result.ok then
-      last_error = "fetch failed: " .. (stream_result.error or "unknown error")
+      last_error = string.format("fetch failed [%s]: %s", api_url, stream_result.error or "unknown error")
       -- Network errors are retryable
       if attempt < MAX_RETRIES then
         -- Exponential backoff with jitter: base * 2^attempt * (0.5 + rand(0.5))
         local base_delay = BASE_DELAY_MS * (2 ^ attempt)
         local jitter = 0.5 + math.random() * 0.5
         local delay_ms = math.floor(base_delay * jitter) as integer
-        table.insert(retries, {attempt = attempt, error = last_error, delay_ms = delay_ms})
+        table.insert(retries, {attempt = attempt, error = last_error, delay_ms = delay_ms, url = api_url, elapsed_ms = elapsed_ms})
         sleep_ms(delay_ms)
       end
     elseif stream_result.status == 200 then
@@ -302,7 +305,7 @@ local function stream(messages: {any}, opts: {string: any}, callback: function({
           local max_secs = math.ceil(MAX_RETRY_DELAY_MS / 1000)
           return nil, string.format("server requested %ds retry delay (max: %ds). %s", delay_secs, max_secs, last_error)
         end
-        table.insert(retries, {attempt = attempt, status = status, error = last_error, delay_ms = delay_ms})
+        table.insert(retries, {attempt = attempt, status = status, error = last_error, delay_ms = delay_ms, url = api_url, elapsed_ms = elapsed_ms})
         sleep_ms(delay_ms)
       else
         return nil, last_error

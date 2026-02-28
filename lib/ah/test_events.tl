@@ -135,16 +135,39 @@ local function test_error_event()
 end
 test_error_event()
 
--- Test retry_event constructor
+-- Test retry_event constructor (basic, backward-compatible call)
 local function test_retry_event()
-  local e = events.retry_event(2, 2000, 429, "rate limited")
+  local e = events.retry_event(2, 2000, 429, "rate limited", "", 0)
   assert(e.event_type == "retry", "event_type should be retry")
   assert(e.attempt == 2, "attempt mismatch")
   assert(e.delay_ms == 2000, "delay_ms mismatch")
   assert(e.status == 429, "status mismatch")
   assert(e.error == "rate limited", "error mismatch")
+  assert(e.url == nil, "url should be nil for empty string")
+  assert(e.elapsed_ms == nil, "elapsed_ms should be nil for 0")
 end
 test_retry_event()
+
+-- Test retry_event with url and elapsed_ms
+local function test_retry_event_with_debug_fields()
+  local e = events.retry_event(0, 1000, 0, "fetch failed [https://api.anthropic.com/v1/messages]: connection reset", "https://api.anthropic.com/v1/messages", 523)
+  assert(e.event_type == "retry", "event_type should be retry")
+  assert(e.attempt == 0, "attempt should be 0")
+  assert(e.url == "https://api.anthropic.com/v1/messages", "url mismatch")
+  assert(e.elapsed_ms == 523, "elapsed_ms mismatch")
+  assert(e.status == 0, "status should be 0 for transport errors")
+  print("PASS test_retry_event_with_debug_fields")
+end
+test_retry_event_with_debug_fields()
+
+-- Test retry_event omits url/elapsed_ms when empty/zero
+local function test_retry_event_omits_empty_fields()
+  local e = events.retry_event(1, 500, 429, "rate limit", "", 0)
+  assert(e.url == nil, "url should be nil when empty string provided")
+  assert(e.elapsed_ms == nil, "elapsed_ms should be nil when 0 provided")
+  print("PASS test_retry_event_omits_empty_fields")
+end
+test_retry_event_omits_empty_fields()
 
 -- Test to_json serialization
 local function test_to_json()
