@@ -3,25 +3,6 @@ local fs = require("cosmic.fs")
 local cio = require("cosmic.io")
 local child = require("cosmic.child")
 
--- Load CLAUDE.md with embedded base prepended
-local function load_claude_md(cwd: string): string
-  cwd = cwd or fs.getcwd()
-
-  -- CLAUDE.md supersedes AGENTS.md when both exist.
-  -- Projects should pick one file; CLAUDE.md is the conventional name.
-  local project_claude = cio.slurp(fs.join(cwd, "CLAUDE.md"))
-  if project_claude then
-    return "\n\n# Project Context\n\n" .. project_claude
-  end
-
-  local agents_md = cio.slurp(fs.join(cwd, "AGENTS.md"))
-  if agents_md then
-    return "\n\n# Agent Context\n\n" .. agents_md
-  end
-
-  return ""
-end
-
 -- Run a git command in cwd with a 2s timeout. Returns trimmed stdout or nil.
 -- Never throws. Any failure (not a repo, git missing, timeout, bad exit) returns nil.
 local function git_cmd(cwd: string, ...: string): string
@@ -39,6 +20,57 @@ local function git_cmd(cwd: string, ...: string): string
       return (out:gsub("%s+$", ""))
     end)
   if not ok then return nil end
+  return result
+end
+
+-- Collect context file content for a single directory.
+-- CLAUDE.md supersedes AGENTS.md when both exist.
+-- Returns a section string or nil when no context file found.
+local function context_section(dir: string): string
+  local project_claude = cio.slurp(fs.join(dir, "CLAUDE.md"))
+  if project_claude then
+    return "\n\n# Project Context\n\n" .. project_claude
+  end
+  local agents_md = cio.slurp(fs.join(dir, "AGENTS.md"))
+  if agents_md then
+    return "\n\n# Agent Context\n\n" .. agents_md
+  end
+  return nil
+end
+
+-- Walk from cwd up to the git toplevel (or filesystem root), collecting
+-- CLAUDE.md / AGENTS.md files. Returns concatenated sections, most general first.
+local function load_claude_md(cwd: string): string
+  cwd = cwd or fs.getcwd()
+
+  -- Find git root to use as the stop point (nil = not a git repo).
+  local git_root = git_cmd(cwd, "rev-parse", "--show-toplevel")
+
+  -- Walk from cwd up, collecting ancestor directories.
+  local dirs: {string} = {}
+  local dir = cwd
+  while true do
+    dirs[#dirs + 1] = dir
+    -- Stop at git root when available.
+    if git_root and dir == git_root then
+      break
+    end
+    local parent = fs.dirname(dir)
+    -- Stop at filesystem root (dirname returns the same path at root).
+    if parent == dir then
+      break
+    end
+    dir = parent
+  end
+
+  -- Reverse so we go from most general (root/git-root) to most specific (cwd).
+  local result = ""
+  for i = #dirs, 1, -1 do
+    local section = context_section(dirs[i])
+    if section then
+      result = result .. section
+    end
+  end
   return result
 end
 

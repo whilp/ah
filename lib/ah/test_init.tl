@@ -89,7 +89,91 @@ local function test_backward_compat_load_claude_md()
 end
 test_backward_compat_load_claude_md()
 
--- Session management tests
+-- Ancestor directory walking tests
+
+local function test_ancestor_claude_md()
+  -- ancestor has CLAUDE.md, cwd has none → ancestor content included
+  local base = fs.join(TEST_TMPDIR, "anc_parent_only")
+  local cwd = fs.join(base, "child")
+  fs.makedirs(cwd)
+  cio.barf(fs.join(base, "CLAUDE.md"), "root context")
+
+  local content = prompt_mod.load_claude_md(cwd)
+  assert(content:match("root context"), "ancestor CLAUDE.md should be included")
+  assert(content:match("Project Context"), "should have Project Context header")
+end
+test_ancestor_claude_md()
+
+local function test_ancestor_agents_md()
+  -- ancestor has AGENTS.md, cwd has none → ancestor content included
+  local base = fs.join(TEST_TMPDIR, "anc_agents_parent")
+  local cwd = fs.join(base, "child")
+  fs.makedirs(cwd)
+  cio.barf(fs.join(base, "AGENTS.md"), "root agents context")
+
+  local content = prompt_mod.load_claude_md(cwd)
+  assert(content:match("root agents context"), "ancestor AGENTS.md should be included")
+  assert(content:match("Agent Context"), "should have Agent Context header")
+end
+test_ancestor_agents_md()
+
+local function test_ancestor_and_cwd_both_included()
+  -- ancestor has AGENTS.md, cwd has CLAUDE.md → both included, ancestor first
+  local base = fs.join(TEST_TMPDIR, "anc_both")
+  local cwd = fs.join(base, "child")
+  fs.makedirs(cwd)
+  cio.barf(fs.join(base, "AGENTS.md"), "ancestor agents")
+  cio.barf(fs.join(cwd, "CLAUDE.md"), "child claude")
+
+  local content = prompt_mod.load_claude_md(cwd)
+  assert(content:match("ancestor agents"), "ancestor AGENTS.md should be included")
+  assert(content:match("child claude"), "cwd CLAUDE.md should be included")
+  -- ancestor section should appear before cwd section
+  local anc_pos = content:find("ancestor agents")
+  local cwd_pos = content:find("child claude")
+  assert(anc_pos < cwd_pos, "ancestor content should come before cwd content")
+end
+test_ancestor_and_cwd_both_included()
+
+local function test_two_ancestors_with_claude_md()
+  -- parent has CLAUDE.md, cwd has CLAUDE.md → both included, parent first
+  local base = fs.join(TEST_TMPDIR, "anc_two_claude")
+  local cwd = fs.join(base, "child")
+  fs.makedirs(cwd)
+  cio.barf(fs.join(base, "CLAUDE.md"), "parent context")
+  cio.barf(fs.join(cwd, "CLAUDE.md"), "child context")
+
+  local content = prompt_mod.load_claude_md(cwd)
+  assert(content:match("parent context"), "parent CLAUDE.md should be included")
+  assert(content:match("child context"), "child CLAUDE.md should be included")
+  local parent_pos = content:find("parent context")
+  local child_pos = content:find("child context")
+  assert(parent_pos < child_pos, "parent content should come before child content")
+end
+test_two_ancestors_with_claude_md()
+
+local function test_no_context_files_anywhere()
+  -- no context files → returns ""
+  local base = fs.join(TEST_TMPDIR, "anc_none")
+  local cwd = fs.join(base, "child")
+  fs.makedirs(cwd)
+
+  local content = prompt_mod.load_claude_md(cwd)
+  assert(content == "", "should return empty string when no context files found")
+end
+test_no_context_files_anywhere()
+
+local function test_deep_ancestor_walk()
+  -- context file deep in ancestor chain is found
+  local base = fs.join(TEST_TMPDIR, "anc_deep")
+  local cwd = fs.join(base, "a", "b", "c")
+  fs.makedirs(cwd)
+  cio.barf(fs.join(base, "CLAUDE.md"), "deep ancestor context")
+
+  local content = prompt_mod.load_claude_md(cwd)
+  assert(content:match("deep ancestor context"), "deep ancestor CLAUDE.md should be included")
+end
+test_deep_ancestor_walk()
 
 local function test_list_sessions_empty()
   local cwd = fs.join(TEST_TMPDIR, "sessions_empty")
