@@ -409,6 +409,8 @@ local function main(args: {string}): integer, string
   if tools_prompt ~= "" then effective_system = effective_system .. "\n\n" .. tools_prompt end
   local skills_prompt = skills.format_skills_for_prompt(loaded_skills)
   if skills_prompt ~= "" then effective_system = effective_system .. "\n\n" .. skills_prompt end
+  local sandbox_prompt = prompt_mod.sandbox_context(nil)
+  if sandbox_prompt ~= "" then effective_system = effective_system .. "\n\n" .. sandbox_prompt end
   if parsed.must_produce then
     effective_system = effective_system .. "\n\nIMPORTANT: You must write the file `" .. parsed.must_produce .. "` before finishing."
   end
@@ -451,6 +453,7 @@ return {
   parse_subcommand_options = args_mod.parse_subcommand_options,
   load_system_prompt = prompt_mod.load_system_prompt,
   load_claude_md = prompt_mod.load_claude_md,
+  sandbox_context = prompt_mod.sandbox_context,
   list_sessions = sessions_mod.list_sessions,
   resolve_session = sessions_mod.resolve_session,
   parse_protect_dirs = args_mod.parse_protect_dirs,

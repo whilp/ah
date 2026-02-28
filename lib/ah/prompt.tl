@@ -91,7 +91,119 @@ local function load_system_prompt(cwd: string): string
   return base
 end
 
+-- Build a markdown section describing active sandbox restrictions.
+-- Reads AH_SANDBOX, AH_UNVEIL, AH_PROTECT_DIRS, AH_ALLOW_HOSTS env vars.
+-- Accepts optional env override table for testability. When provided,
+-- only the override table is consulted (os.getenv is not called).
+local function sandbox_context(env: {string: string} | nil): string
+  local use_override = env ~= nil
+  local env_table: {string: string} = env or {}
+  local function getenv(key: string): string
+    if use_override then
+      return env_table[key]
+    end
+    return os.getenv(key)
+  end
+
+  if not getenv("AH_SANDBOX") then
+    return ""
+  end
+
+  local lines: {string} = {"## Sandbox"}
+
+  -- Command / argv
+  local argv_parts: {string} = {}
+  if arg and (arg as {integer: string})[-1] then
+    argv_parts[#argv_parts + 1] = (arg as {integer: string})[-1]
+  end
+  if arg and (arg as {integer: string})[0] then
+    argv_parts[#argv_parts + 1] = (arg as {integer: string})[0]
+  end
+  if arg then
+    local i = 1
+    while (arg as {integer: string})[i] do
+      argv_parts[#argv_parts + 1] = (arg as {integer: string})[i]
+      i = i + 1
+    end
+  end
+  if #argv_parts > 0 then
+    lines[#lines + 1] = "\n**Command**: `" .. table.concat(argv_parts, " ") .. "`"
+  end
+
+  -- Pledge promises (always the same when AH_SANDBOX=1)
+  local promises = "stdio rpath wpath cpath flock tty proc exec execnative unix prot_exec"
+  lines[#lines + 1] = "\n**Pledge**: `" .. promises .. "`"
+
+  -- Unveiled paths: system defaults + user-supplied
+  lines[#lines + 1] = "\n**Unveiled paths**:"
+  local cwd = getenv("PWD") or "."
+  local system_unveils: {{string}} = {
+    {cwd, "rwxc"},
+    {"/tmp", "rwxc"},
+    {"/usr", "rx"},
+    {"/bin", "rx"},
+    {"/lib", "rx"},
+    {"/lib64", "rx"},
+    {"/etc/ssl", "r"},
+    {"/etc/resolv.conf", "r"},
+    {"/dev/null", "rw"},
+    {"/dev/tty", "rw"},
+    {"/proc/self", "r"},
+  }
+  local home = getenv("HOME")
+  if home then
+    system_unveils[#system_unveils + 1] = {home, "r"}
+  end
+
+  -- Collect protect dirs (downgrade to read-only)
+  local protect_set: {string: boolean} = {}
+  local protect_env = getenv("AH_PROTECT_DIRS")
+  if protect_env then
+    for dir in protect_env:gmatch("[^:]+") do
+      protect_set[cwd .. "/" .. dir] = true
+    end
+  end
+
+  for _, entry in ipairs(system_unveils) do
+    local u_path = entry[1]
+    local u_perms = entry[2]
+    if protect_set[u_path] then
+      u_perms = "r"
+    end
+    lines[#lines + 1] = "- `" .. u_path .. "` (" .. u_perms .. ")"
+  end
+
+  -- User-supplied unveil paths from AH_UNVEIL
+  local unveil_env = getenv("AH_UNVEIL")
+  if unveil_env then
+    for raw in unveil_env:gmatch("[^,]+") do
+      local colon = raw:find(":", 1, true)
+      if colon then
+        local u_path = raw:sub(1, colon - 1)
+        local u_perms = raw:sub(colon + 1)
+        if u_path:sub(1, 1) ~= "/" then
+          u_path = cwd .. "/" .. u_path
+        end
+        lines[#lines + 1] = "- `" .. u_path .. "` (" .. u_perms .. ") [user]"
+      end
+    end
+  end
+
+  -- Network: always anthropic, plus user-supplied hosts
+  lines[#lines + 1] = "\n**Allowed network hosts**:"
+  lines[#lines + 1] = "- `api.anthropic.com:443`"
+  local allow_env = getenv("AH_ALLOW_HOSTS")
+  if allow_env then
+    for host in allow_env:gmatch("[^,]+") do
+      lines[#lines + 1] = "- `" .. host .. "` [user]"
+    end
+  end
+
+  return table.concat(lines, "\n")
+end
+
 return {
   load_claude_md = load_claude_md,
   load_system_prompt = load_system_prompt,
+  sandbox_context = sandbox_context,
 }

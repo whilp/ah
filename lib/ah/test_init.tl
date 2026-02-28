@@ -194,4 +194,44 @@ local function test_resolve_session_not_found()
 end
 test_resolve_session_not_found()
 
+-- sandbox_context tests
+
+local function test_sandbox_context_no_sandbox()
+  local result = prompt_mod.sandbox_context({})
+  assert(result == "", "should return empty string when AH_SANDBOX not set, got: " .. result)
+end
+test_sandbox_context_no_sandbox()
+
+local function test_sandbox_context_basic()
+  local result = prompt_mod.sandbox_context({AH_SANDBOX = "1"})
+  assert(result:match("## Sandbox"), "should have Sandbox header")
+  assert(result:match("Pledge"), "should have Pledge section")
+  assert(result:match("stdio"), "should include pledge promises")
+  assert(result:match("Unveiled paths"), "should have Unveiled paths section")
+  assert(result:match("api%.anthropic%.com:443"), "should include anthropic host")
+  assert(result:match("Allowed network hosts"), "should have network section")
+end
+test_sandbox_context_basic()
+
+local function test_sandbox_context_with_allow_hosts()
+  local result = prompt_mod.sandbox_context({AH_SANDBOX = "1", AH_ALLOW_HOSTS = "example.com:443,other.io:80"})
+  assert(result:match("example%.com:443"), "should include example.com:443")
+  assert(result:match("other%.io:80"), "should include other.io:80")
+end
+test_sandbox_context_with_allow_hosts()
+
+local function test_sandbox_context_with_unveil()
+  local result = prompt_mod.sandbox_context({AH_SANDBOX = "1", AH_UNVEIL = "/custom/path:rw,/data:r"})
+  assert(result:match("/custom/path"), "should include custom path")
+  assert(result:match("/data"), "should include /data path")
+  assert(result:match("%[user%]"), "should mark user-supplied paths")
+end
+test_sandbox_context_with_unveil()
+
+local function test_sandbox_context_via_init()
+  local result = init.sandbox_context({})
+  assert(result == "", "init.sandbox_context should delegate to prompt_mod")
+end
+test_sandbox_context_via_init()
+
 print("all init tests passed")
