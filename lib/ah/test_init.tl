@@ -66,6 +66,64 @@ local function test_load_both_claude_and_agents_md()
 end
 test_load_both_claude_and_agents_md()
 
+-- Ancestor walking tests (non-git dirs, so walk stops at "/").
+-- We use TEST_TMPDIR as the ancestor with a context file.
+
+local function test_ancestor_claude_md_included()
+  -- ancestor has CLAUDE.md, cwd does not
+  local ancestor = fs.join(TEST_TMPDIR, "anc_test1")
+  local cwd = fs.join(ancestor, "sub")
+  fs.makedirs(cwd)
+  cio.barf(fs.join(ancestor, "CLAUDE.md"), "ancestor context")
+
+  local content = prompt_mod.load_claude_md(cwd)
+  assert(content:match("ancestor context"), "ancestor CLAUDE.md should be included: " .. content)
+end
+test_ancestor_claude_md_included()
+
+local function test_ancestor_and_cwd_both_included()
+  -- ancestor has CLAUDE.md, cwd also has CLAUDE.md
+  local ancestor = fs.join(TEST_TMPDIR, "anc_test2")
+  local cwd = fs.join(ancestor, "sub")
+  fs.makedirs(cwd)
+  cio.barf(fs.join(ancestor, "CLAUDE.md"), "parent context")
+  cio.barf(fs.join(cwd, "CLAUDE.md"), "child context")
+
+  local content = prompt_mod.load_claude_md(cwd)
+  assert(content:match("parent context"), "ancestor content should be included: " .. content)
+  assert(content:match("child context"), "cwd content should be included: " .. content)
+  -- ancestor (more general) should appear before cwd (more specific)
+  local parent_pos = content:find("parent context")
+  local child_pos = content:find("child context")
+  assert(parent_pos < child_pos, "ancestor should precede cwd in output")
+end
+test_ancestor_and_cwd_both_included()
+
+local function test_cwd_only_backward_compat()
+  -- cwd alone has CLAUDE.md, ancestor does not — legacy header format
+  local ancestor = fs.join(TEST_TMPDIR, "anc_test3")
+  local cwd = fs.join(ancestor, "sub")
+  fs.makedirs(cwd)
+  cio.barf(fs.join(cwd, "CLAUDE.md"), "only child context")
+
+  local content = prompt_mod.load_claude_md(cwd)
+  assert(content:match("Project Context"), "single-source should use legacy 'Project Context' header")
+  assert(content:match("only child context"), "cwd content should be present")
+end
+test_cwd_only_backward_compat()
+
+local function test_ancestor_agents_md_included()
+  -- ancestor has AGENTS.md, cwd has nothing
+  local ancestor = fs.join(TEST_TMPDIR, "anc_test4")
+  local cwd = fs.join(ancestor, "sub")
+  fs.makedirs(cwd)
+  cio.barf(fs.join(ancestor, "AGENTS.md"), "ancestor agent context")
+
+  local content = prompt_mod.load_claude_md(cwd)
+  assert(content:match("ancestor agent context"), "ancestor AGENTS.md should be included: " .. content)
+end
+test_ancestor_agents_md_included()
+
 local function test_load_system_prompt_with_claude_md()
   local cwd = fs.join(TEST_TMPDIR, "cwd_with_claude")
   fs.makedirs(cwd)
