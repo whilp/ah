@@ -50,5 +50,7 @@ non-allowed destinations are rejected.
 | variable | purpose |
 |----------|---------|
 | `AH_ALLOW_HOSTS` | additional `host:port` entries for proxy allowlist |
+| `AH_LOG_LEVEL` | controls verbosity: `debug` enables proxy and sandbox lifecycle messages; defaults to `info` in CI, `debug` otherwise |
 | `AH_PROTECT_DIRS` | colon-separated paths protected from write/edit |
+| `AH_PROXY_VERBOSE` | legacy flag: `1` forces proxy logging regardless of `AH_LOG_LEVEL` |
 | `https_proxy` | set automatically in sandbox mode to unix socket |

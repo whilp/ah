@@ -101,7 +101,11 @@ local function resolvehost(host: string): ip.Addr, string
   return addr, err
 end
 
-local verbose = os.getenv("AH_PROXY_VERBOSE") == "1"
+local _log_level = os.getenv("AH_LOG_LEVEL")
+if not _log_level then
+  _log_level = os.getenv("CI") and "info" or "debug"
+end
+local verbose = os.getenv("AH_PROXY_VERBOSE") == "1" or _log_level == "debug"
 
 local function log(...: string)
   if not verbose then return end
