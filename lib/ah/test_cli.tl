@@ -228,6 +228,68 @@ local function test_make_cli_handler_agent_end_no_tokens_no_output()
 end
 test_make_cli_handler_agent_end_no_tokens_no_output()
 
+-- tool_call_start / tool_call_end output ordering tests
+
+local function test_tool_call_start_shows_name_and_command()
+  local handler = cli.make_cli_handler(nil)
+  local output = capture_stderr(function()
+      handler({
+          event_type = "tool_call_start",
+          tool_name = "bash",
+          tool_key = "echo hello",
+          tool_input = '{"command":"echo hello"}',
+          tool_index = 1,
+          tool_count = 1,
+        } as events.EventData)
+    end)
+  assert(output:match("bash"), "tool_call_start should show tool name, got: " .. output)
+  assert(output:match("echo hello"), "tool_call_start should show command, got: " .. output)
+  assert(not output:match("%.%ds"), "tool_call_start should not show elapsed time, got: " .. output)
+end
+test_tool_call_start_shows_name_and_command()
+
+local function test_tool_call_end_shows_output_then_time()
+  local handler = cli.make_cli_handler(nil)
+  local output = capture_stderr(function()
+      handler({
+          event_type = "tool_call_end",
+          tool_name = "bash",
+          tool_key = "echo hello",
+          tool_output = "hello world",
+          is_error = false,
+          duration_ms = 1500,
+          tool_index = 1,
+          tool_count = 1,
+        } as events.EventData)
+    end)
+  assert(output:match("hello world"), "tool_call_end should show output, got: " .. output)
+  assert(output:match("1%.5s"), "tool_call_end should show elapsed time, got: " .. output)
+  assert(not output:match("bash"), "tool_call_end should not repeat tool name, got: " .. output)
+  -- Elapsed time should appear after output
+  local output_pos = output:find("hello world")
+  local time_pos = output:find("1%.5s")
+  assert(time_pos > output_pos, "elapsed time should appear after output, got: " .. output)
+end
+test_tool_call_end_shows_output_then_time()
+
+local function test_tool_call_end_error_shows_marker()
+  local handler = cli.make_cli_handler(nil)
+  local output = capture_stderr(function()
+      handler({
+          event_type = "tool_call_end",
+          tool_name = "bash",
+          tool_key = "false",
+          tool_output = "exit code: 1",
+          is_error = true,
+          duration_ms = 200,
+          tool_index = 1,
+          tool_count = 1,
+        } as events.EventData)
+    end)
+  assert(output:match("0%.2s"), "error tool_call_end should show elapsed time, got: " .. output)
+end
+test_tool_call_end_error_shows_marker()
+
 -- find_difftool tests
 
 local function test_find_difftool_env_var()
