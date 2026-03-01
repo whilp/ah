@@ -5,6 +5,7 @@ local child = require("cosmic.child")
 local signal = require("cosmic.signal")
 local time = require("cosmic.time")
 local toolload = require("ah.toolload")
+local util = require("ah.util")
 
 local record ToolDetails
   path: string
@@ -111,7 +112,7 @@ end
 -- This has highest precedence — it overrides system, embed, and project tools.
 local function add_tool_override(name: string, cmd: string)
   if not (cmd:match("%.tl$") or cmd:match("%.lua$")) then
-    io.stderr:write(string.format("warning: tool %s: only .tl and .lua files are supported (got %s)\n", name, cmd))
+    util.debug(string.format("warning: tool %s: only .tl and .lua files are supported (got %s)", name, cmd))
     return
   end
 
@@ -122,30 +123,30 @@ local function add_tool_override(name: string, cmd: string)
   -- Read source and check AST before evaluating — guards against os.exit()
   local source = cio.slurp(cmd)
   if not source then
-    io.stderr:write(string.format("warning: failed to read tool %s from %s\n", name, cmd))
+    util.debug(string.format("warning: failed to read tool %s from %s", name, cmd))
     return
   end
   if not toolload.looks_like_tool(source, cmd:match("%.lua$") ~= nil) then
-    io.stderr:write(string.format("warning: skipping tool %s from %s: does not look like a tool module\n", name, cmd))
+    util.debug(string.format("warning: skipping tool %s from %s: does not look like a tool module", name, cmd))
     return
   end
 
   local load_ok, chunk, load_err = pcall(toolload.load_tool_file, cmd)
   if not load_ok then
-    io.stderr:write(string.format("warning: failed to load tool %s from %s: %s\n", name, cmd, tostring(chunk)))
+    util.debug(string.format("warning: failed to load tool %s from %s: %s", name, cmd, tostring(chunk)))
     return
   end
   if not chunk then
-    io.stderr:write(string.format("warning: failed to load tool %s from %s: %s\n", name, cmd, tostring(load_err)))
+    util.debug(string.format("warning: failed to load tool %s from %s: %s", name, cmd, tostring(load_err)))
     return
   end
   local ok, result = pcall(chunk as function(): any)
   if not ok then
-    io.stderr:write(string.format("warning: failed to execute tool %s from %s: %s\n", name, cmd, tostring(result)))
+    util.debug(string.format("warning: failed to execute tool %s from %s: %s", name, cmd, tostring(result)))
     return
   end
   if not toolload.is_valid_tool(result) then
-    io.stderr:write(string.format("warning: invalid tool format in %s\n", cmd))
+    util.debug(string.format("warning: invalid tool format in %s", cmd))
     return
   end
   local tool = result as Tool

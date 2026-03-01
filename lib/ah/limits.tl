@@ -2,6 +2,7 @@
 local fetch = require("cosmic.fetch")
 local json = require("cosmic.json")
 local auth = require("ah.auth")
+local util = require("ah.util")
 
 -- Detect proxy from environment (same pattern as api.tl).
 local function get_proxy_url(): string
@@ -13,7 +14,7 @@ local function get_proxy_url(): string
     if url then
       return url
     else
-      io.stderr:write("[limits] warning: invalid proxy url: " .. (err or "unknown") .. "\n")
+      util.debug("[limits] warning: invalid proxy url: " .. (err or "unknown"))
     end
   end
   return nil
@@ -56,11 +57,11 @@ end
 local function cmd_limits(): integer
   local creds, err = auth.load_credentials()
   if not creds then
-    io.stderr:write("limits: " .. (err or "no credentials") .. "\n")
+    util.log("limits: " .. (err or "no credentials"))
     return 1
   end
   if not creds.is_oauth then
-    io.stderr:write("limits: requires OAuth auth (set CLAUDE_CODE_OAUTH_TOKEN)\n")
+    util.log("limits: requires OAuth auth (set CLAUDE_CODE_OAUTH_TOKEN)")
     return 1
   end
 
@@ -75,20 +76,20 @@ local function cmd_limits(): integer
     } as fetch.Opts)
 
   if not result.ok then
-    io.stderr:write("limits: fetch failed: " .. (result.error or "unknown") .. "\n")
+    util.log("limits: fetch failed: " .. (result.error or "unknown"))
     return 1
   end
 
   local body = read_body(result.reader)
 
   if result.status ~= 200 then
-    io.stderr:write(string.format("limits: API error %s: %s\n", tostring(result.status), body))
+    util.log(string.format("limits: API error %s: %s", tostring(result.status), body))
     return 1
   end
 
   local data = json.decode(body) as {string: any}
   if not data then
-    io.stderr:write("limits: could not parse response\n")
+    util.log("limits: could not parse response")
     return 1
   end
 
