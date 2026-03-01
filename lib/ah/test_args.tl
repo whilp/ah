@@ -224,7 +224,7 @@ local function test_usage_text_contains_all_options()
   local defined_options = {
     "help", "new", "session", "name", "db", "model", "output", "cd",
     "steer", "followup", "max-tokens", "max-session-tokens", "max-turn-tokens",
-    "sandbox", "timeout", "allow-host", "unveil", "skill", "must-produce",
+    "sandbox", "timeout", "allow-host", "unveil", "pledge", "skill", "must-produce",
   }
   for _, opt in ipairs(defined_options) do
     assert(help:find("--" .. opt, 1, true), "help text missing option: --" .. opt)
@@ -252,17 +252,21 @@ test_parse_args_tool()
 
 -- Sandbox sub-option validation
 
+-- Sandbox sub-option validation (now standalone --unveil/--allow-host are allowed)
+
 local function test_parse_args_unveil_without_sandbox()
   local parsed, err = args_mod.parse_args({"--unveil", "/tmp:r", "hello"})
-  assert(not parsed, "--unveil without --sandbox should fail")
-  assert(err == "error: --unveil requires --sandbox", "err mismatch: " .. tostring(err))
+  assert(parsed, "--unveil without --sandbox should now succeed, got err: " .. tostring(err))
+  assert(#parsed.unveil_dirs == 1, "should have 1 unveil dir")
+  assert(parsed.unveil_dirs[1] == "/tmp:r", "unveil dir mismatch")
 end
 test_parse_args_unveil_without_sandbox()
 
 local function test_parse_args_allow_host_without_sandbox()
   local parsed, err = args_mod.parse_args({"--allow-host", "example.com:443", "hello"})
-  assert(not parsed, "--allow-host without --sandbox should fail")
-  assert(err == "error: --allow-host requires --sandbox", "err mismatch: " .. tostring(err))
+  assert(parsed, "--allow-host without --sandbox should now succeed, got err: " .. tostring(err))
+  assert(#parsed.allow_hosts == 1, "should have 1 allow host")
+  assert(parsed.allow_hosts[1] == "example.com:443", "allow host mismatch")
 end
 test_parse_args_allow_host_without_sandbox()
 
@@ -279,6 +283,29 @@ local function test_parse_args_sandbox_with_allow_host()
   assert(parsed.sandbox == true, "sandbox should be true")
 end
 test_parse_args_sandbox_with_allow_host()
+
+local function test_parse_args_pledge_standalone()
+  local parsed, err = args_mod.parse_args({"--pledge", "stdio rpath", "hello"})
+  assert(parsed, "--pledge standalone should succeed, got err: " .. tostring(err))
+  assert(parsed.pledge_promises == "stdio rpath", "pledge_promises mismatch: " .. tostring(parsed.pledge_promises))
+end
+test_parse_args_pledge_standalone()
+
+local function test_parse_args_pledge_with_sandbox()
+  local parsed = args_mod.parse_args({"--sandbox", "--pledge", "stdio rpath wpath", "hello"})
+  assert(parsed, "--sandbox --pledge should succeed")
+  assert(parsed.sandbox == true, "sandbox should be true")
+  assert(parsed.pledge_promises == "stdio rpath wpath", "pledge_promises mismatch")
+end
+test_parse_args_pledge_with_sandbox()
+
+local function test_parse_args_pledge_with_unveil()
+  local parsed = args_mod.parse_args({"--unveil", "/tmp:rw", "--pledge", "stdio rpath wpath cpath", "hello"})
+  assert(parsed, "--unveil --pledge should succeed")
+  assert(parsed.unveil_dirs[1] == "/tmp:rw", "unveil dir mismatch")
+  assert(parsed.pledge_promises == "stdio rpath wpath cpath", "pledge_promises mismatch")
+end
+test_parse_args_pledge_with_unveil()
 
 -- parse_subcommand_options tests
 
