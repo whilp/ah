@@ -93,7 +93,7 @@ end
 
 -- Repair dangling tool_use blocks in message history
 local function repair_dangling_tool_use(api_messages: {any}, on_event: events.EventCallback)
-  for i = 1, #api_messages - 1 do
+  for i = #api_messages, 1, -1 do
     local msg = api_messages[i] as {string: any}
     if msg.role == "assistant" then
       local tool_use_ids: {string} = {}
@@ -108,7 +108,7 @@ local function repair_dangling_tool_use(api_messages: {any}, on_event: events.Ev
       if #tool_use_ids > 0 then
         local next_msg = api_messages[i + 1] as {string: any}
         local has_tool_results = false
-        if next_msg.role == "user" then
+        if next_msg ~= nil and next_msg.role == "user" then
           local next_content = next_msg.content as {any}
           for _, block in ipairs(next_content) do
             local b = block as {string: any}
@@ -480,4 +480,5 @@ return {
   LOOP_BREAK_THRESHOLD = LOOP_BREAK_THRESHOLD,
   measure_payload_bytes = measure_payload_bytes,
   PAYLOAD_WARN_BYTES = PAYLOAD_WARN_BYTES,
+  repair_dangling_tool_use = repair_dangling_tool_use,
 }
