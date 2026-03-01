@@ -250,6 +250,11 @@ local function drain_steering(self: QueueDB): {QueueMessage}
   local messages: {QueueMessage} = {}
   local now = os.time()
 
+  local ok = self._db:exec("BEGIN IMMEDIATE")
+  if not ok then
+    return messages
+  end
+
   -- Collect unconsumed steering messages (ordered by rowid for insertion order)
   for row in self._db:query([[
     select id, message_type, content, created_at from queue_messages
@@ -271,6 +276,7 @@ local function drain_steering(self: QueueDB): {QueueMessage}
       now)
   end
 
+  self._db:exec("COMMIT")
   return messages
 end
 
@@ -278,6 +284,11 @@ end
 local function drain_followup(self: QueueDB): {QueueMessage}
   local messages: {QueueMessage} = {}
   local now = os.time()
+
+  local ok = self._db:exec("BEGIN IMMEDIATE")
+  if not ok then
+    return messages
+  end
 
   -- Collect unconsumed followup messages (ordered by rowid for insertion order)
   for row in self._db:query([[
@@ -300,6 +311,7 @@ local function drain_followup(self: QueueDB): {QueueMessage}
       now)
   end
 
+  self._db:exec("COMMIT")
   return messages
 end
 
