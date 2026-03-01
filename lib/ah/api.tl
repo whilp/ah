@@ -210,9 +210,32 @@ local function build_request(messages: {any}, opts: {string: any}, is_oauth: boo
             input_schema = tool.input_schema,
           })
       end
+      -- Cache the tools list: add cache_control to the last tool so Claude caches
+      -- the entire tools array between turns (tools are static within a session)
+      if #remapped > 0 then
+        remapped[#remapped].cache_control = {type = "ephemeral"}
+      end
       req.tools = remapped
     else
-      req.tools = opts.tools
+      -- Build a new tools array; shallow-copy the last entry to avoid mutating caller's data
+      local tools_src = opts.tools as {{string: any}}
+      local tools_copy: {{string: any}} = {}
+      for i, t in ipairs(tools_src) do
+        if i < #tools_src then
+          table.insert(tools_copy, t)
+        else
+          -- Shallow-copy the last tool so we can add cache_control without mutation
+          local last_copy: {string: any} = {}
+          for k, v in pairs(t) do
+            last_copy[k] = v
+          end
+          -- Cache the tools list: add cache_control to the last tool so Claude caches
+          -- the entire tools array between turns (tools are static within a session)
+          last_copy.cache_control = {type = "ephemeral"}
+          table.insert(tools_copy, last_copy)
+        end
+      end
+      req.tools = tools_copy
     end
   end
   return req
