@@ -225,6 +225,7 @@ local function test_usage_text_contains_all_options()
     "help", "new", "session", "name", "db", "model", "output", "cd",
     "steer", "followup", "max-tokens", "max-session-tokens", "max-turn-tokens",
     "sandbox", "timeout", "allow-host", "unveil", "pledge", "skill", "must-produce",
+    "no-tools",
   }
   for _, opt in ipairs(defined_options) do
     assert(help:find("--" .. opt, 1, true), "help text missing option: --" .. opt)
@@ -418,5 +419,28 @@ local function test_parse_args_both_max_token_flags()
   assert(parsed.max_turn_tokens == 2000, "max_turn_tokens should be 2000, got: " .. tostring(parsed.max_turn_tokens))
 end
 test_parse_args_both_max_token_flags()
+
+local function test_parse_args_no_tools()
+  local parsed = args_mod.parse_args({"--no-tools", "hello"})
+  assert(parsed, "should parse successfully")
+  assert(parsed.no_tools == true, "no_tools should be true")
+end
+test_parse_args_no_tools()
+
+local function test_parse_args_no_tools_default()
+  local parsed = args_mod.parse_args({"hello"})
+  assert(parsed, "should parse successfully")
+  assert(not parsed.no_tools, "no_tools should be false by default")
+end
+test_parse_args_no_tools_default()
+
+local function test_parse_args_no_tools_with_tool()
+  local parsed = args_mod.parse_args({"--no-tools", "--tool", "foo=/usr/bin/foo", "hello"})
+  assert(parsed, "should parse --no-tools --tool args")
+  assert(parsed.no_tools == true, "no_tools should be true")
+  assert(#parsed.tool_overrides == 1, "should have 1 tool override")
+  assert(parsed.tool_overrides[1] == "foo=/usr/bin/foo", "tool override mismatch")
+end
+test_parse_args_no_tools_with_tool()
 
 print("all args tests passed")

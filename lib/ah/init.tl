@@ -418,9 +418,11 @@ local function main(args: {string}): integer, string
     if was_command then prompt = expanded end
   end
 
-  tools.init_custom_tools(cwd)
-  if active_skill_name and loaded_skills[active_skill_name] then
-    tools.load_skill_tools(loaded_skills[active_skill_name].base_dir)
+  if not parsed.no_tools then
+    tools.init_custom_tools(cwd)
+    if active_skill_name and loaded_skills[active_skill_name] then
+      tools.load_skill_tools(loaded_skills[active_skill_name].base_dir)
+    end
   end
 
   for _, spec in ipairs(parsed.tool_overrides) do

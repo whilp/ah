@@ -22,6 +22,7 @@ local record ParsedArgs
   skill: string
   must_produce: string
   tool_overrides: {string}
+  no_tools: boolean
   cd_path: string
   remaining: {string}
 end
@@ -69,6 +70,7 @@ local function parse_args(args: {string}): ParsedArgs, string
   local result: ParsedArgs = {
     new_session = false,
     sandbox = false,
+    no_tools = false,
     allow_hosts = {},
     unveil_dirs = {},
     tool_overrides = {},
@@ -97,6 +99,7 @@ local function parse_args(args: {string}): ParsedArgs, string
     {name = "skill", has_arg = "required"},
     {name = "must-produce", has_arg = "required"},
     {name = "tool", has_arg = "required", short = "t"},
+    {name = "no-tools", has_arg = "none"},
     {name = "cd", has_arg = "required"},
   }
 
@@ -151,6 +154,8 @@ local function parse_args(args: {string}): ParsedArgs, string
       result.must_produce = optarg
     elseif opt == "t" or opt == "tool" then
       table.insert(result.tool_overrides, optarg)
+    elseif opt == "no-tools" then
+      result.no_tools = true
     elseif opt == "cd" then
       result.cd_path = optarg
     elseif opt == "?" then
