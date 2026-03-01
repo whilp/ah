@@ -471,7 +471,6 @@ end
 
 return {
   format_tokens = format_tokens,
-  colorize_diff_line = render.colorize_diff_line,
   colorize_tool_line = colorize_tool_line,
   make_cli_handler = make_cli_handler,
   find_difftool = find_difftool,

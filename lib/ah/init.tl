@@ -24,6 +24,7 @@ local args_mod = require("ah.args")
 local sessions_mod = require("ah.sessions")
 local prompt_mod = require("ah.prompt")
 local cli_mod = require("ah.cli")
+local render_mod = require("ah.render")
 
 -- Global for signal handling
 global interrupted: boolean = false
@@ -482,7 +483,7 @@ return {
   parse_protect_dirs = args_mod.parse_protect_dirs,
   parse_unveil_entry = args_mod.parse_unveil_entry,
   usage_text = args_mod.usage_text,
-  colorize_diff_line = cli_mod.colorize_diff_line,
+  colorize_diff_line = render_mod.colorize_diff_line,
   colorize_tool_line = cli_mod.colorize_tool_line,
   format_tokens = cli_mod.format_tokens,
   make_cli_handler = cli_mod.make_cli_handler,
