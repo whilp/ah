@@ -38,18 +38,44 @@ use it directly as context for the current task. skip to step 4.
 
 ### 3. Reconstruct context from recent messages
 
-if no compaction summary exists, read recent message content instead:
+if no compaction summary exists, use multiple signals to reconstruct what was happening.
+
+**a. read the first messages** — understand how the session started and what the original goal was:
+
+```bash
+sqlite3 <db> "SELECT m.role, cb.content FROM messages m JOIN content_blocks cb ON cb.message_id = m.id WHERE cb.block_type = 'text' ORDER BY m.seq ASC LIMIT 5;"
+```
+
+**b. read recent messages** — understand where the session ended:
 
 ```bash
 sqlite3 <db> "SELECT m.role, cb.content FROM messages m JOIN content_blocks cb ON cb.message_id = m.id WHERE cb.block_type = 'text' ORDER BY m.seq DESC LIMIT 20;"
 ```
 
-use the retrieved messages to reconstruct what was happening.
+**c. explore working state** — look for leftover artifacts from the previous session:
+
+```bash
+git log --oneline -5 2>/dev/null
+git status 2>/dev/null
+ls o/plan/ 2>/dev/null
+ls o/do/ 2>/dev/null
+```
+
+use all retrieved signals together — session origin, recent messages, commits, and leftover artifacts — to reconstruct what was happening and what work remains.
 
 ### 4. Proceed with the task
 
-report what context was found (summary, recent messages, or none), then
-continue with the user's follow-up task without re-exploring everything from scratch.
+report what context was found (compaction summary, reconstructed history, or none) and your understanding of:
+- what was being worked on
+- where it was left off
+- what appears to remain
+
+then **ask the user to confirm or clarify** before continuing:
+- does the reconstruction match their intent?
+- is there anything to correct or add?
+- what do they want to do next (or confirm the follow-up task if one was provided)?
+
+only proceed once the user confirms the understanding or provides clarification.
 
 ## Rules
 
