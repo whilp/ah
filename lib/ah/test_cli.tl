@@ -421,4 +421,35 @@ local function test_run_pager_empty_filename()
 end
 test_run_pager_empty_filename()
 
+local function test_make_cli_handler_agent_end_shows_session_id()
+  local fake_ulid = "01ABCDEFGHIJKLMNOPQRSTUVWX"
+  local handler = cli.make_cli_handler(nil, fake_ulid)
+  local output = capture_stderr(function()
+      handler({event_type = "agent_start", model = "claude-opus-4-5-20251101"} as events.EventData)
+      handler({
+          event_type = "agent_end",
+          total_input_tokens = 100000,
+          total_output_tokens = 0,
+          total_cache_read_tokens = 0,
+        } as events.EventData)
+    end)
+  assert(output:match("%[01ABCDEF%]"), "agent_end output should contain '[01ABCDEF]' short session id, got: " .. output)
+end
+test_make_cli_handler_agent_end_shows_session_id()
+
+local function test_make_cli_handler_agent_end_no_session_id_when_nil()
+  local handler = cli.make_cli_handler(nil, nil)
+  local output = capture_stderr(function()
+      handler({event_type = "agent_start", model = "claude-opus-4-5-20251101"} as events.EventData)
+      handler({
+          event_type = "agent_end",
+          total_input_tokens = 100000,
+          total_output_tokens = 0,
+          total_cache_read_tokens = 0,
+        } as events.EventData)
+    end)
+  assert(not output:match("%["), "agent_end output should not contain '[' when session_ulid is nil, got: " .. output)
+end
+test_make_cli_handler_agent_end_no_session_id_when_nil()
+
 print("all cli tests passed")
