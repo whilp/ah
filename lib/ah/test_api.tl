@@ -94,9 +94,48 @@ local function test_build_request_with_tools()
   local tools_list = {{name = "read", description = "Read a file"}}
   local req = api.build_request({}, {tools = tools_list}, false)
   assert(req.tools ~= nil, "should include tools")
-  assert(#(req.tools as {any}) == 1, "should have 1 tool")
+  local req_tools = req.tools as {{string: any}}
+  assert(#req_tools == 1, "should have 1 tool")
+  -- Last (and only) tool should have cache_control
+  assert(req_tools[1].cache_control ~= nil, "last tool should have cache_control")
+  local cc = req_tools[1].cache_control as {string: any}
+  assert(cc.type == "ephemeral", "cache_control type should be ephemeral")
 end
 test_build_request_with_tools()
+
+local function test_build_request_tools_cache_on_last_only()
+  -- Only the last tool should have cache_control; earlier ones should not
+  local tools_list = {
+    {name = "read", description = "Read a file", input_schema = {type = "object"}},
+    {name = "write", description = "Write a file", input_schema = {type = "object"}},
+    {name = "bash", description = "Run command", input_schema = {type = "object"}},
+  }
+  local req = api.build_request({}, {tools = tools_list}, false)
+  local req_tools = req.tools as {{string: any}}
+  assert(#req_tools == 3, "should have 3 tools")
+  -- First two tools should NOT have cache_control
+  assert(req_tools[1].cache_control == nil, "first tool should not have cache_control")
+  assert(req_tools[2].cache_control == nil, "second tool should not have cache_control")
+  -- Last tool should have cache_control
+  assert(req_tools[3].cache_control ~= nil, "last tool should have cache_control")
+  local cc = req_tools[3].cache_control as {string: any}
+  assert(cc.type == "ephemeral", "cache_control type should be ephemeral")
+end
+test_build_request_tools_cache_on_last_only()
+
+local function test_build_request_tools_no_mutation()
+  -- Non-OAuth path must not mutate the caller's tools array
+  local tools_list: {{string: any}} = {
+    {name = "read", description = "Read a file", input_schema = {type = "object"}},
+    {name = "bash", description = "Run command", input_schema = {type = "object"}},
+  }
+  -- Capture original last tool reference
+  local orig_last = tools_list[2]
+  api.build_request({}, {tools = tools_list}, false)
+  -- Original tools list should be unchanged
+  assert(orig_last.cache_control == nil, "caller's tools should not be mutated")
+end
+test_build_request_tools_no_mutation()
 
 local function test_build_request_oauth_system_prompt()
   -- OAuth mode should format system as array with Claude Code identity first
@@ -263,6 +302,12 @@ local function test_build_request_oauth_tool_names()
   assert(req_tools[2].name == "Bash", "bash should become Bash in OAuth mode")
   -- Custom tools should pass through unchanged
   assert(req_tools[3].name == "custom", "custom tools should be unchanged")
+  -- cache_control only on last tool
+  assert(req_tools[1].cache_control == nil, "first tool should not have cache_control in OAuth mode")
+  assert(req_tools[2].cache_control == nil, "second tool should not have cache_control in OAuth mode")
+  assert(req_tools[3].cache_control ~= nil, "last tool should have cache_control in OAuth mode")
+  local cc = req_tools[3].cache_control as {string: any}
+  assert(cc.type == "ephemeral", "cache_control type should be ephemeral in OAuth mode")
 end
 test_build_request_oauth_tool_names()
 
