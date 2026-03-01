@@ -1,6 +1,7 @@
 -- ah/toolload.tl: tool file loading, AST validation, and directory scanning
 local fs = require("cosmic.fs")
 local cio = require("cosmic.io")
+local util = require("ah.util")
 
 -- Validate that a loaded module is a valid tool
 local function is_valid_tool(t: any): boolean
@@ -154,25 +155,25 @@ local function load_custom_tools_from_dir(dir: string): {Tool}
     -- and other dangerous side effects in non-tool files.
     local source = cio.slurp(tool_path)
     if not source then
-      io.stderr:write(string.format("warning: failed to read %s\n", tool_path))
+      util.debug(string.format("warning: failed to read %s", tool_path))
     elseif not looks_like_tool(source, tool_path:match("%.lua$") ~= nil) then
-      io.stderr:write(string.format("warning: skipping %s: does not look like a tool module\n", tool_path))
+      util.debug(string.format("warning: skipping %s: does not look like a tool module", tool_path))
     else
       local load_ok, chunk, load_err = pcall(load_tool_file, tool_path)
       if not load_ok then
         -- chunk holds the thrown error message when pcall catches a throw
-        io.stderr:write(string.format("warning: failed to load %s: %s\n", tool_path, tostring(chunk)))
+        util.debug(string.format("warning: failed to load %s: %s", tool_path, tostring(chunk)))
       elseif chunk then
         local ok, result = pcall(chunk as function(): any)
         if ok and is_valid_tool(result) then
           table.insert(loaded, result as Tool)
         elseif not ok then
-          io.stderr:write(string.format("warning: failed to execute %s: %s\n", tool_path, tostring(result)))
+          util.debug(string.format("warning: failed to execute %s: %s", tool_path, tostring(result)))
         else
-          io.stderr:write(string.format("warning: invalid tool format in %s\n", tool_path))
+          util.debug(string.format("warning: invalid tool format in %s", tool_path))
         end
       else
-        io.stderr:write(string.format("warning: failed to load %s: %s\n", tool_path, tostring(load_err)))
+        util.debug(string.format("warning: failed to load %s: %s", tool_path, tostring(load_err)))
       end
     end
   end
