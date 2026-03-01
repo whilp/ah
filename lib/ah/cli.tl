@@ -378,22 +378,12 @@ local function make_cli_handler(skill_name: string, session_ulid?: string): even
         io.stderr:write("\n")
       end
 
-    elseif t == "tool_call_end" then
-      local indent = "  "
-      local elapsed = (event.duration_ms or 0) / 1000
+      local prefix = is_tty and "⠋ " or ""
+      io.stderr:write(string.format("%s%s%s%s\n", DIM, prefix, event.tool_name, RESET))
 
-      -- Line 1: tool name and timing
-      -- Use yellow+bold with ✗ prefix for errors, dim with ⠋ for success
-      if is_tty and event.is_error then
-        io.stderr:write(string.format("\27[1;33m✗ %s (%.1fs)\27[0m\n", event.tool_name, elapsed))
-      else
-        local prefix = is_tty and "⠋ " or ""
-        io.stderr:write(string.format("%s%s%s (%.1fs)%s\n", DIM, prefix, event.tool_name, elapsed, RESET))
-      end
-
-      -- Line 2: command (for bash) or key param
       local key = event.tool_key or ""
       if key ~= "" then
+        local indent = "  "
         local cmd_prefix = event.tool_name == "bash" and "$ " or ""
         if event.tool_name == "bash" then
           local term_width = 80
@@ -405,7 +395,11 @@ local function make_cli_handler(skill_name: string, session_ulid?: string): even
         io.stderr:write(string.format("%s%s%s%s%s\n", DIM, indent, cmd_prefix, key, RESET))
       end
 
-      -- Show truncated output (first 3 lines, then count)
+    elseif t == "tool_call_end" then
+      local indent = "  "
+      local elapsed = (event.duration_ms or 0) / 1000
+      local key = event.tool_key or ""
+
       local result = event.tool_output or ""
       if result ~= "" and result ~= "(no output)" then
         -- For edit tool on a TTY, try to pipe through a difftool
@@ -477,6 +471,12 @@ local function make_cli_handler(skill_name: string, session_ulid?: string): even
             io.stderr:write(string.format("%s%s... (%d more lines)%s\n", DIM, indent, #lines - max_lines, RESET))
           end
         end
+      end
+
+      if is_tty and event.is_error then
+        io.stderr:write(string.format("%s\27[1;33m✗ %.1fs\27[0m\n", indent, elapsed))
+      else
+        io.stderr:write(string.format("%s%s%.1fs%s\n", indent, DIM, elapsed, RESET))
       end
 
       -- Blank line after tool block

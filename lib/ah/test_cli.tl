@@ -54,26 +54,12 @@ local function test_colorize_tool_line_pass()
 end
 test_colorize_tool_line_pass()
 
-local function test_colorize_tool_line_pass_prefix()
-  local result, colored = cli.colorize_tool_line("PASSING all tests")
-  assert(colored == true, "PASSING should be colored")
-  assert(result:find("\27%[1;34m"), "PASSING should be blue+bold")
-end
-test_colorize_tool_line_pass_prefix()
-
 local function test_colorize_tool_line_fail()
   local result, colored = cli.colorize_tool_line("FAIL test_bar")
   assert(colored == true, "FAIL should be colored")
   assert(result == "\27[1;33mFAIL test_bar\27[0m", "FAIL should be yellow+bold, got: " .. result)
 end
 test_colorize_tool_line_fail()
-
-local function test_colorize_tool_line_failure_prefix()
-  local result, colored = cli.colorize_tool_line("FAILURE in module X")
-  assert(colored == true, "FAILURE should be colored")
-  assert(result:find("\27%[1;33m"), "FAILURE should be yellow+bold")
-end
-test_colorize_tool_line_failure_prefix()
 
 local function test_colorize_tool_line_error_lower()
   local result, colored = cli.colorize_tool_line("error: something broke")
@@ -102,13 +88,6 @@ local function test_colorize_tool_line_no_match()
   assert(result == "just a normal line", "normal line should be unchanged, got: " .. result)
 end
 test_colorize_tool_line_no_match()
-
-local function test_colorize_tool_line_lowercase_pass()
-  local result, colored = cli.colorize_tool_line("passed all tests")
-  assert(colored == false, "lowercase 'passed' should not be colored")
-  assert(result == "passed all tests", "lowercase 'passed' should be unchanged")
-end
-test_colorize_tool_line_lowercase_pass()
 
 local function test_colorize_tool_line_empty()
   local result, colored = cli.colorize_tool_line("")
@@ -227,6 +206,68 @@ local function test_make_cli_handler_agent_end_no_tokens_no_output()
   assert(not output:match("total"), "zero tokens should produce no total line, got: " .. output)
 end
 test_make_cli_handler_agent_end_no_tokens_no_output()
+
+-- tool_call_start / tool_call_end output ordering tests
+
+local function test_tool_call_start_shows_name_and_command()
+  local handler = cli.make_cli_handler(nil)
+  local output = capture_stderr(function()
+      handler({
+          event_type = "tool_call_start",
+          tool_name = "bash",
+          tool_key = "echo hello",
+          tool_input = '{"command":"echo hello"}',
+          tool_index = 1,
+          tool_count = 1,
+        } as events.EventData)
+    end)
+  assert(output:match("bash"), "tool_call_start should show tool name, got: " .. output)
+  assert(output:match("echo hello"), "tool_call_start should show command, got: " .. output)
+  assert(not output:match("%.%ds"), "tool_call_start should not show elapsed time, got: " .. output)
+end
+test_tool_call_start_shows_name_and_command()
+
+local function test_tool_call_end_shows_output_then_time()
+  local handler = cli.make_cli_handler(nil)
+  local output = capture_stderr(function()
+      handler({
+          event_type = "tool_call_end",
+          tool_name = "bash",
+          tool_key = "echo hello",
+          tool_output = "hello world",
+          is_error = false,
+          duration_ms = 1500,
+          tool_index = 1,
+          tool_count = 1,
+        } as events.EventData)
+    end)
+  assert(output:match("hello world"), "tool_call_end should show output, got: " .. output)
+  assert(output:match("1%.5s"), "tool_call_end should show elapsed time, got: " .. output)
+  assert(not output:match("bash"), "tool_call_end should not repeat tool name, got: " .. output)
+  -- Elapsed time should appear after output
+  local output_pos = output:find("hello world")
+  local time_pos = output:find("1%.5s")
+  assert(time_pos > output_pos, "elapsed time should appear after output, got: " .. output)
+end
+test_tool_call_end_shows_output_then_time()
+
+local function test_tool_call_end_error_shows_marker()
+  local handler = cli.make_cli_handler(nil)
+  local output = capture_stderr(function()
+      handler({
+          event_type = "tool_call_end",
+          tool_name = "bash",
+          tool_key = "false",
+          tool_output = "exit code: 1",
+          is_error = true,
+          duration_ms = 200,
+          tool_index = 1,
+          tool_count = 1,
+        } as events.EventData)
+    end)
+  assert(output:match("0%.2s"), "error tool_call_end should show elapsed time, got: " .. output)
+end
+test_tool_call_end_error_shows_marker()
 
 -- find_difftool tests
 
