@@ -160,7 +160,9 @@ local function run_agent(d: db.DB, qdb: queue.QueueDB, system_prompt: string, mo
   local last_error: string = nil
   local turn_history: {string} = {}
   local last_input_tokens: integer = 0
-  local cumulative_input_tokens: integer = 0
+  -- The API reports total input tokens per turn (including all prior context),
+  -- so the latest value already represents the effective cumulative input.
+  local last_effective_input_tokens: integer = 0
   local cumulative_output_tokens: integer = 0
 
   local function is_interrupted(): boolean
@@ -339,12 +341,12 @@ local function run_agent(d: db.DB, qdb: queue.QueueDB, system_prompt: string, mo
     emit(on_event, events.api_call_end(assistant_msg.id, usage.input_tokens as integer, usage.output_tokens as integer, resp.api_latency_ms as integer, resp.model as string, cache_creation_tokens, cache_read_tokens))
     db.log_event(d, "api_call_end", assistant_msg.id, events.to_json(events.api_call_end(assistant_msg.id, usage.input_tokens as integer, usage.output_tokens as integer, resp.api_latency_ms as integer, resp.model as string, cache_creation_tokens, cache_read_tokens)))
 
-    cumulative_input_tokens = effective_input_tokens
+    last_effective_input_tokens = effective_input_tokens
     cumulative_output_tokens = cumulative_output_tokens + ((usage.output_tokens or 0) as integer)
 
-    if max_tokens and (cumulative_input_tokens + cumulative_output_tokens) > max_tokens then
-      emit(on_event, events.budget_exceeded(cumulative_input_tokens, cumulative_output_tokens, max_tokens))
-      db.log_event(d, "budget_exceeded", assistant_msg.id, events.to_json(events.budget_exceeded(cumulative_input_tokens, cumulative_output_tokens, max_tokens)))
+    if max_tokens and (last_effective_input_tokens + cumulative_output_tokens) > max_tokens then
+      emit(on_event, events.budget_exceeded(last_effective_input_tokens, cumulative_output_tokens, max_tokens))
+      db.log_event(d, "budget_exceeded", assistant_msg.id, events.to_json(events.budget_exceeded(last_effective_input_tokens, cumulative_output_tokens, max_tokens)))
       local pending_tool_ids: {string} = {}
       for _, blk in ipairs(assistant_blocks) do
         if blk.block_type == "tool_use" then table.insert(pending_tool_ids, blk.tool_id as string) end
