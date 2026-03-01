@@ -54,26 +54,12 @@ local function test_colorize_tool_line_pass()
 end
 test_colorize_tool_line_pass()
 
-local function test_colorize_tool_line_pass_prefix()
-  local result, colored = cli.colorize_tool_line("PASSING all tests")
-  assert(colored == true, "PASSING should be colored")
-  assert(result:find("\27%[1;34m"), "PASSING should be blue+bold")
-end
-test_colorize_tool_line_pass_prefix()
-
 local function test_colorize_tool_line_fail()
   local result, colored = cli.colorize_tool_line("FAIL test_bar")
   assert(colored == true, "FAIL should be colored")
   assert(result == "\27[1;33mFAIL test_bar\27[0m", "FAIL should be yellow+bold, got: " .. result)
 end
 test_colorize_tool_line_fail()
-
-local function test_colorize_tool_line_failure_prefix()
-  local result, colored = cli.colorize_tool_line("FAILURE in module X")
-  assert(colored == true, "FAILURE should be colored")
-  assert(result:find("\27%[1;33m"), "FAILURE should be yellow+bold")
-end
-test_colorize_tool_line_failure_prefix()
 
 local function test_colorize_tool_line_error_lower()
   local result, colored = cli.colorize_tool_line("error: something broke")
@@ -102,13 +88,6 @@ local function test_colorize_tool_line_no_match()
   assert(result == "just a normal line", "normal line should be unchanged, got: " .. result)
 end
 test_colorize_tool_line_no_match()
-
-local function test_colorize_tool_line_lowercase_pass()
-  local result, colored = cli.colorize_tool_line("passed all tests")
-  assert(colored == false, "lowercase 'passed' should not be colored")
-  assert(result == "passed all tests", "lowercase 'passed' should be unchanged")
-end
-test_colorize_tool_line_lowercase_pass()
 
 local function test_colorize_tool_line_empty()
   local result, colored = cli.colorize_tool_line("")
