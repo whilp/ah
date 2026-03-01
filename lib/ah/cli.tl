@@ -224,22 +224,6 @@ local function format_tokens(n: integer): string
   end
 end
 
--- Colorize a single diff line with ANSI escape codes.
--- Uses blue/yellow instead of green/red for colorblind accessibility.
--- Returns the line with color prefix/suffix applied, or unchanged if not a diff line.
-local function colorize_diff_line(line: string): string
-  if line:sub(1, 3) == "+++" or line:sub(1, 3) == "---" then
-    return "\27[1m" .. line .. "\27[0m"
-  elseif line:sub(1, 2) == "@@" then
-    return "\27[36m" .. line .. "\27[0m"
-  elseif line:sub(1, 1) == "+" then
-    return "\27[34m" .. line .. "\27[0m"
-  elseif line:sub(1, 1) == "-" then
-    return "\27[33m" .. line .. "\27[0m"
-  end
-  return line
-end
-
 -- Colorize a single tool output line with ANSI escape codes.
 -- Uses blue+bold for success (PASS) and yellow+bold for errors (FAIL, error, exit code).
 -- Uses blue/yellow instead of green/red for colorblind accessibility.
@@ -450,7 +434,7 @@ local function make_cli_handler(skill_name: string, session_ulid?: string): even
               line = line:sub(1, 77) .. "..."
             end
             if is_diff_cmd then
-              local colored = colorize_diff_line(line)
+              local colored = render.colorize_diff_line(line)
               if colored ~= line then
                 io.stderr:write(string.format("%s%s%s\n", indent, colored, ""))
               else
@@ -487,7 +471,7 @@ end
 
 return {
   format_tokens = format_tokens,
-  colorize_diff_line = colorize_diff_line,
+  colorize_diff_line = render.colorize_diff_line,
   colorize_tool_line = colorize_tool_line,
   make_cli_handler = make_cli_handler,
   find_difftool = find_difftool,
