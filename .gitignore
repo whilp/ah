@@ -10,3 +10,6 @@ o/
 # work loop sandbox artifacts
 work/
 plan.md
+
+# downloaded tools
+cosmic-lua
