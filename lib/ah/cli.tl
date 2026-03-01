@@ -258,9 +258,8 @@ local function colorize_tool_line(line: string): string, boolean
 end
 
 -- CLI display handler: renders structured events to stderr/stdout for terminal use.
--- This is the application-layer implementation of the event callback.
 -- Other handlers (JSON logging, web UI, etc.) can be substituted.
-local function make_cli_handler(skill_name: string): events.EventCallback
+local function make_cli_handler(skill_name: string, session_ulid?: string): events.EventCallback
   local is_tty = tty.isatty(2)
   local is_stdout_tty = tty.isatty(1)
   local is_ci = os.getenv("GITHUB_ACTIONS") == "true"
@@ -321,7 +320,8 @@ local function make_cli_handler(skill_name: string): events.EventCallback
         local total = total_in + total_out
         local budget = compact.get_context_limit(captured_model)
         local pct = math.floor(total / budget * 100)
-        io.stderr:write(string.format("%s%s in / %s out (%s/%s total, %d%%)%s\n", DIM, in_str, format_tokens(total_out), format_tokens(total), format_tokens(budget), pct, RESET))
+        local sfx = session_ulid and (" [" .. session_ulid:sub(1, 8) .. "]") or ""
+        io.stderr:write(string.format("%s%s in / %s out (%s/%s total, %d%%)%s%s\n", DIM, in_str, format_tokens(total_out), format_tokens(total), format_tokens(budget), pct, sfx, RESET))
       end
       if is_ci and skill_name then
         io.stdout:write("::endgroup::\n")
