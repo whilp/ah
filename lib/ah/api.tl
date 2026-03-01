@@ -320,8 +320,8 @@ local function stream(messages: {any}, opts: {string: any}, callback: function({
   -- Parse SSE response with true streaming
   local response: {string: any} = nil
   local current_block: {string: any} = nil
-  local block_index: integer = nil
-  local content_blocks: {integer: {string: any}} = {}
+  local current_block_idx: integer = nil
+  local content_blocks: {{string: any}} = {}
   local was_interrupted = false
 
   for line in reader:lines() do
@@ -344,9 +344,9 @@ local function stream(messages: {any}, opts: {string: any}, callback: function({
           response.content = {}
         elseif event.type == "content_block_start" then
           current_block = event.content_block as {string: any}
-          block_index = event.index as integer
           if current_block then
-            content_blocks[block_index + 1] = current_block
+            table.insert(content_blocks, current_block)
+            current_block_idx = #content_blocks
           end
         elseif event.type == "content_block_delta" and event.delta then
           local delta = event.delta as {string: any}
@@ -357,16 +357,16 @@ local function stream(messages: {any}, opts: {string: any}, callback: function({
             current_block.partial_json = ((current_block.partial_json or "") as string) .. ((delta.partial_json or "") as string)
           end
         elseif event.type == "content_block_stop" then
-          if current_block and block_index ~= nil then
+          if current_block and current_block_idx ~= nil then
             -- Parse accumulated tool input JSON
             if current_block.partial_json then
               current_block.input = json.decode(current_block.partial_json as string)
               current_block.partial_json = nil
             end
-            content_blocks[block_index + 1] = current_block
+            content_blocks[current_block_idx] = current_block
           end
           current_block = nil
-          block_index = nil
+          current_block_idx = nil
         elseif event.type == "message_delta" then
           local delta = event.delta as {string: any}
           if response and delta then
@@ -389,7 +389,7 @@ local function stream(messages: {any}, opts: {string: any}, callback: function({
   -- On interruption, finalize partial response with accumulated content
   if was_interrupted and response then
     -- Finalize any in-progress block
-    if current_block and block_index ~= nil then
+    if current_block and current_block_idx ~= nil then
       if current_block.partial_json then
         -- Try to parse partial tool input; drop it if invalid
         local parsed_input = json.decode(current_block.partial_json as string)
@@ -398,7 +398,7 @@ local function stream(messages: {any}, opts: {string: any}, callback: function({
         end
         current_block.partial_json = nil
       end
-      content_blocks[block_index + 1] = current_block
+      content_blocks[current_block_idx] = current_block
     end
     response.content = content_blocks
     response.stop_reason = "interrupted"

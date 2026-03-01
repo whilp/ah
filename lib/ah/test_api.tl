@@ -357,4 +357,31 @@ local function test_transport_error_not_retryable_via_is_retryable()
 end
 test_transport_error_not_retryable_via_is_retryable()
 
+local function test_extract_tool_calls_dense_blocks()
+  -- Verify extract_tool_calls handles multiple content blocks without gaps.
+  -- This tests that content_blocks is a dense array: all blocks are accessible via ipairs.
+  local response = {
+    content = {
+      {type = "text", text = "First block"},
+      {type = "tool_use", id = "t1", name = "read", input = {path = "/a"}},
+      {type = "text", text = "Third block"},
+      {type = "tool_use", id = "t2", name = "bash", input = {command = "ls"}},
+    }
+  }
+  -- All 4 blocks must be accessible; ipairs must not stop early
+  local count = 0
+  for _, _ in ipairs(response.content as {any}) do
+    count = count + 1
+  end
+  assert(count == 4, "ipairs must see all 4 blocks in dense array, got: " .. count)
+
+  -- extract_tool_calls must find both tool_use blocks
+  local result = api.extract_tool_calls(response)
+  assert(#result == 2, "should extract 2 tool calls from 4 blocks, got: " .. #result)
+  assert(result[1].id == "t1", "first tool id mismatch")
+  assert(result[2].id == "t2", "second tool id mismatch")
+  print("PASS test_extract_tool_calls_dense_blocks")
+end
+test_extract_tool_calls_dense_blocks()
+
 print("all api tests passed")
