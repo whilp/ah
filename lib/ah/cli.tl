@@ -127,6 +127,92 @@ local function reset_difftool_cache()
   _difftool_cache = nil
 end
 
+-- Cache for find_pager result across calls.
+-- false means "already checked, not found"; nil means "not yet checked"
+local _pager_cache: string | boolean = nil
+
+-- Find a pager for rendering read tool output with syntax highlighting.
+-- Checks AH_PAGER env var first, then autodetects bat. Returns command or nil.
+local function find_pager(): string
+  if _pager_cache ~= nil then
+    if _pager_cache == false then
+      return nil
+    end
+    return _pager_cache as string
+  end
+
+  local env_tool = os.getenv("AH_PAGER")
+  if env_tool and env_tool ~= "" then
+    _pager_cache = env_tool
+    return env_tool
+  end
+
+  -- Autodetect bat at common paths
+  local candidates: {string} = {
+    "/usr/bin/bat",
+    "/usr/local/bin/bat",
+    "/opt/homebrew/bin/bat",
+  }
+  for _, path in ipairs(candidates) do
+    local f = io.open(path, "r")
+    if f then
+      f:close()
+      _pager_cache = path
+      return path
+    end
+  end
+
+  -- Try PATH via command -v
+  local handle = io.popen("command -v bat 2>/dev/null")
+  if handle then
+    local result = handle:read("*l")
+    handle:close()
+    if result and result ~= "" then
+      _pager_cache = result
+      return result
+    end
+  end
+
+  _pager_cache = false
+  return nil
+end
+
+-- Run content through a pager subprocess with syntax highlighting.
+-- Writes content to a temp file and pipes it to the pager with --file-name.
+-- Returns rendered output string, or nil on failure.
+local function run_pager(pager: string, content: string, file_name: string): string
+  if not pager or content == "" then
+    return nil
+  end
+  if not file_name or file_name == "" then
+    return nil
+  end
+  local tmp = os.tmpname()
+  local f = io.open(tmp, "w")
+  if not f then
+    return nil
+  end
+  f:write(content)
+  f:close()
+  local handle = io.popen(pager .. " --file-name=" .. file_name .. " --color=always --style=plain < " .. tmp .. " 2>/dev/null")
+  if not handle then
+    os.remove(tmp)
+    return nil
+  end
+  local output = handle:read("*a")
+  local ok = handle:close()
+  os.remove(tmp)
+  if not ok or not output or output == "" then
+    return nil
+  end
+  return output
+end
+
+-- Reset the pager cache (for testing).
+local function reset_pager_cache()
+  _pager_cache = nil
+end
+
 -- Format token count as human-friendly string (e.g., 1234 -> "1.2k", 12345 -> "12.3k")
 local function format_tokens(n: integer): string
   if n >= 1000000 then
@@ -337,7 +423,20 @@ local function make_cli_handler(skill_name: string): events.EventCallback
           end
         end
 
-        if not difftool_rendered then
+        -- For read tool on a TTY, try to pipe through a pager for syntax highlighting
+        local pager_rendered = false
+        if is_tty and event.tool_name == "read" and not difftool_rendered then
+          local pager = find_pager()
+          if pager and key ~= "" then
+            local rendered = run_pager(pager, result, key)
+            if rendered then
+              io.stderr:write(rendered)
+              pager_rendered = true
+            end
+          end
+        end
+
+        if not difftool_rendered and not pager_rendered then
           -- Detect diff-like commands for colorization
           local is_diff_cmd = false
           if is_tty and event.tool_name == "bash" and key ~= "" then
@@ -395,4 +494,7 @@ return {
   run_difftool = run_difftool,
   to_unified_diff = to_unified_diff,
   reset_difftool_cache = reset_difftool_cache,
+  find_pager = find_pager,
+  run_pager = run_pager,
+  reset_pager_cache = reset_pager_cache,
 }
