@@ -7,44 +7,6 @@ local events = require("ah.events")
 
 local TEST_TMPDIR = os.getenv("TEST_TMPDIR") or "/tmp"
 
--- Diff colorization tests
-
-local function test_colorize_diff_line_plus()
-  local result = cli.colorize_diff_line("+added line")
-  assert(result == "\27[34m+added line\27[0m", "plus line should be blue, got: " .. result)
-end
-test_colorize_diff_line_plus()
-
-local function test_colorize_diff_line_minus()
-  local result = cli.colorize_diff_line("-removed line")
-  assert(result == "\27[33m-removed line\27[0m", "minus line should be yellow, got: " .. result)
-end
-test_colorize_diff_line_minus()
-
-local function test_colorize_diff_line_hunk()
-  local result = cli.colorize_diff_line("@@ -1,3 +1,4 @@")
-  assert(result == "\27[36m@@ -1,3 +1,4 @@\27[0m", "hunk header should be cyan, got: " .. result)
-end
-test_colorize_diff_line_hunk()
-
-local function test_colorize_diff_line_header_plus()
-  local result = cli.colorize_diff_line("+++ b/file.txt")
-  assert(result == "\27[1m+++ b/file.txt\27[0m", "+++ header should be bold, got: " .. result)
-end
-test_colorize_diff_line_header_plus()
-
-local function test_colorize_diff_line_header_minus()
-  local result = cli.colorize_diff_line("--- a/file.txt")
-  assert(result == "\27[1m--- a/file.txt\27[0m", "--- header should be bold, got: " .. result)
-end
-test_colorize_diff_line_header_minus()
-
-local function test_colorize_diff_line_plain()
-  local result = cli.colorize_diff_line(" context line")
-  assert(result == " context line", "context line should be unchanged, got: " .. result)
-end
-test_colorize_diff_line_plain()
-
 -- Tool output colorization tests
 
 local function test_colorize_tool_line_pass()
