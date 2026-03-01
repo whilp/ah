@@ -28,7 +28,15 @@ local function env_get(run_env: {string}, key: string): string
 end
 
 -- Set an environment variable in the env array.
+-- Replaces an existing entry with the same key; appends if not found.
 local function env_set(run_env: {string}, key: string, value: string)
+  local prefix = key .. "="
+  for i, entry in ipairs(run_env) do
+    if entry:sub(1, #prefix) == prefix then
+      run_env[i] = key .. "=" .. value
+      return
+    end
+  end
   table.insert(run_env, key .. "=" .. value)
 end
 
