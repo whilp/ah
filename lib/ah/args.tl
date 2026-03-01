@@ -18,6 +18,7 @@ local record ParsedArgs
   timeout: integer
   allow_hosts: {string}
   unveil_dirs: {string}
+  pledge_promises: string
   skill: string
   must_produce: string
   tool_overrides: {string}
@@ -92,6 +93,7 @@ local function parse_args(args: {string}): ParsedArgs, string
     {name = "timeout", has_arg = "required"},
     {name = "allow-host", has_arg = "required"},
     {name = "unveil", has_arg = "required"},
+    {name = "pledge", has_arg = "required"},
     {name = "skill", has_arg = "required"},
     {name = "must-produce", has_arg = "required"},
     {name = "tool", has_arg = "required", short = "t"},
@@ -141,6 +143,8 @@ local function parse_args(args: {string}): ParsedArgs, string
       table.insert(result.allow_hosts, optarg)
     elseif opt == "unveil" then
       table.insert(result.unveil_dirs, optarg)
+    elseif opt == "pledge" then
+      result.pledge_promises = optarg
     elseif opt == "skill" then
       result.skill = optarg
     elseif opt == "must-produce" then
@@ -155,16 +159,6 @@ local function parse_args(args: {string}): ParsedArgs, string
   end
 
   result.remaining = parser:remaining() or {}
-
-  -- Validate sandbox sub-options require --sandbox
-  if not result.sandbox then
-    if #result.unveil_dirs > 0 then
-      return nil, "error: --unveil requires --sandbox"
-    end
-    if #result.allow_hosts > 0 then
-      return nil, "error: --allow-host requires --sandbox"
-    end
-  end
 
   return result, nil
 end

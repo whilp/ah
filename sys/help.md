@@ -27,9 +27,10 @@ options:
   --skill NAME        invoke a skill by name (prepends /skill:<name> to prompt)
   --must-produce FILE require the agent to write FILE before finishing
   -t, --tool NAME=CMD register a .tl/.lua tool (repeatable, overrides all tiers)
-  --sandbox           run inside network sandbox (proxy + unveil + pledge)
+  --sandbox           run inside network sandbox (proxy + allow-host)
   --timeout N         wall-clock timeout in seconds
   --allow-host H:P    allow egress to host:port (repeatable, default: api.anthropic.com:443)
-  --unveil PATH:PERM  set filesystem visibility (repeatable, perms: r/w/x/c)
+  --unveil PATH:PERM  restrict filesystem visibility (repeatable, perms: r/w/x/c)
+  --pledge PROMISES   restrict syscalls to given pledge promises
 
 models:

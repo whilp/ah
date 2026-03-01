@@ -62,6 +62,39 @@ local record StderrHandle
   read: function(StderrHandle): string
 end
 
+-- apply_unveil sets up filesystem visibility restrictions.
+-- cwd is the working directory; extra_dirs is a comma-separated list of "path:perms".
+local function apply_unveil(cwd: string, extra_dirs: string)
+  sandbox.unveil(cwd, "rwxc")
+  local protect = args_mod.parse_protect_dirs(os.getenv("AH_PROTECT_DIRS"))
+  for _, dir in ipairs(protect) do
+    sandbox.unveil(cwd .. "/" .. dir, "r")
+  end
+  if extra_dirs then
+    for entry in extra_dirs:gmatch("[^,]+") do
+      local u_path, u_perms = args_mod.parse_unveil_entry(entry)
+      if u_path:sub(1, 1) == "/" then
+        sandbox.unveil(u_path, u_perms)
+      else
+        sandbox.unveil(cwd .. "/" .. u_path, u_perms)
+      end
+    end
+  end
+  sandbox.unveil("/tmp", "rwxc")
+  sandbox.unveil("/usr", "rx")
+  sandbox.unveil("/bin", "rx")
+  sandbox.unveil("/lib", "rx")
+  sandbox.unveil("/lib64", "rx")
+  sandbox.unveil("/etc/ssl", "r")
+  sandbox.unveil("/etc/resolv.conf", "r")
+  sandbox.unveil("/dev/null", "rw")
+  sandbox.unveil("/dev/tty", "rw")
+  sandbox.unveil("/proc/self", "r")
+  local home = os.getenv("HOME")
+  if home then sandbox.unveil(home, "r") end
+  sandbox.unveil(nil, nil)
+end
+
 local function main(args: {string}): integer, string
   -- Load embedded env.d/ variables before anything else.
   envd.load()
@@ -69,43 +102,20 @@ local function main(args: {string}): integer, string
   -- Enable core dumps for crash debugging
   proc.setrlimit(4, -1, -1)
 
-  -- Sandbox mode: when AH_SANDBOX=1, restrict capabilities
-  if os.getenv("AH_SANDBOX") then
-    local cwd_for_unveil = fs.getcwd()
-    sandbox.unveil(cwd_for_unveil, "rwxc")
-    local protect = args_mod.parse_protect_dirs(os.getenv("AH_PROTECT_DIRS"))
-    for _, dir in ipairs(protect) do
-      sandbox.unveil(cwd_for_unveil .. "/" .. dir, "r")
-    end
-    local unveil_env = os.getenv("AH_UNVEIL")
-    if unveil_env then
-      for entry in unveil_env:gmatch("[^,]+") do
-        local u_path, u_perms = args_mod.parse_unveil_entry(entry)
-        if u_path:sub(1, 1) == "/" then
-          sandbox.unveil(u_path, u_perms)
-        else
-          sandbox.unveil(cwd_for_unveil .. "/" .. u_path, u_perms)
-        end
-      end
-    end
-    sandbox.unveil("/tmp", "rwxc")
-    sandbox.unveil("/usr", "rx")
-    sandbox.unveil("/bin", "rx")
-    sandbox.unveil("/lib", "rx")
-    sandbox.unveil("/lib64", "rx")
-    sandbox.unveil("/etc/ssl", "r")
-    sandbox.unveil("/etc/resolv.conf", "r")
-    sandbox.unveil("/dev/null", "rw")
-    sandbox.unveil("/dev/tty", "rw")
-    sandbox.unveil("/proc/self", "r")
-    local home = os.getenv("HOME")
-    if home then
-      sandbox.unveil(home, "r")
-    end
-    sandbox.unveil(nil, nil)
+  -- Sandbox mode: when AH_SANDBOX=1, apply network sandbox restrictions.
+  -- When AH_UNVEIL is set (with or without AH_SANDBOX), apply unveil.
+  -- When AH_PLEDGE is set (with or without AH_SANDBOX), apply pledge.
+  local in_sandbox = os.getenv("AH_SANDBOX")
+  local unveil_env = os.getenv("AH_UNVEIL")
+  local pledge_env = os.getenv("AH_PLEDGE")
 
+  if in_sandbox or unveil_env then
+    apply_unveil(fs.getcwd(), unveil_env)
+  end
+
+  if in_sandbox or pledge_env then
     local PLEDGE_PENALTY_RETURN_EPERM = 2
-    local promises = "stdio rpath wpath cpath flock tty proc exec execnative unix prot_exec"
+    local promises = pledge_env or "stdio rpath wpath cpath flock tty proc exec execnative unix prot_exec"
     sandbox.pledge(promises, promises, PLEDGE_PENALTY_RETURN_EPERM)
   end
 
@@ -146,7 +156,19 @@ local function main(args: {string}): integer, string
   local max_tokens = parsed.max_session_tokens
   local remaining = parsed.remaining
 
-  -- Supervisor mode: --sandbox starts proxy, re-execs as sandboxed child
+  -- Supervisor mode: --sandbox starts proxy, re-execs as sandboxed child.
+  -- --unveil and --pledge alone apply restrictions inline (no fork needed).
+  if not parsed.sandbox and (#parsed.unveil_dirs > 0 or parsed.pledge_promises) then
+    -- Apply unveil/pledge inline without forking a child process.
+    if #parsed.unveil_dirs > 0 then
+      apply_unveil(fs.getcwd(), table.concat(parsed.unveil_dirs, ","))
+    end
+    if parsed.pledge_promises then
+      local PLEDGE_PENALTY_RETURN_EPERM = 2
+      sandbox.pledge(parsed.pledge_promises, parsed.pledge_promises, PLEDGE_PENALTY_RETURN_EPERM)
+    end
+  end
+
   if parsed.sandbox then
     local sbox = require("ah.sandbox") as SandboxMod
     local fetch = require("cosmic.fetch") as FetchMod
@@ -181,6 +203,9 @@ local function main(args: {string}): integer, string
     if #parsed.unveil_dirs > 0 then
       sbox.env_set(run_env, "AH_UNVEIL", table.concat(parsed.unveil_dirs, ","))
     end
+    if parsed.pledge_promises then
+      sbox.env_set(run_env, "AH_PLEDGE", parsed.pledge_promises)
+    end
 
     local child_args: {string} = {}
     local exe = sbox.ah_exe()
@@ -198,6 +223,7 @@ local function main(args: {string}): integer, string
       elseif a == "--timeout" then i = i + 1
       elseif a == "--allow-host" then i = i + 1
       elseif a == "--unveil" then i = i + 1
+      elseif a == "--pledge" then i = i + 1
       else table.insert(child_args, a) end
       i = i + 1
     end
