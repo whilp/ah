@@ -5,6 +5,7 @@ local fs = require("cosmic.fs")
 local child = require("cosmic.child")
 local net = require("cosmic.net")
 local ip = require("cosmic.ip")
+local signal = require("cosmic.signal")
 
 -- TODO: use net.Socket once cosmic exports it on NetModule
 -- https://github.com/whilp/cosmic/issues/230
@@ -332,8 +333,13 @@ function M.serve(socket_path: string): integer
 
   log("listening on", socket_path)
 
-  -- Note: forked children become zombies until the proxy is killed.
-  -- Acceptable since proxy lifetime is bounded by the work session.
+  signal.sigaction(signal.SIGCHLD, function()
+      while true do
+        local pid, _ = child.wait(-1, child.WNOHANG)
+        if not pid or pid <= 0 then break end
+      end
+    end)
+
   while true do
     local client = server:accept(net.SOCK_NONBLOCK)
     if client then
