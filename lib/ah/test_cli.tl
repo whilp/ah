@@ -271,15 +271,15 @@ test_find_difftool_cached()
 
 local function test_run_difftool_cat_passthrough()
   local input = "- old line\n+ new line"
-  local result = cli.run_difftool("cat", input)
-  assert(result ~= nil, "run_difftool with cat should succeed")
+  local result = cli.run_difftool("/bin/cat", input)
+  assert(result ~= nil, "run_difftool with /bin/cat should succeed")
   assert(result:find("old line") ~= nil, "output should contain input text, got: " .. tostring(result))
 end
 test_run_difftool_cat_passthrough()
 
 local function test_run_difftool_preserves_multiline_diff()
   local input = "--- a/foo.tl\n+++ b/foo.tl\n@@ -1,3 +1,3 @@\n line1\n-old\n+new\n line3\n"
-  local result = cli.run_difftool("cat", input)
+  local result = cli.run_difftool("/bin/cat", input)
   assert(result ~= nil, "run_difftool should succeed with multiline diff")
   assert(result == input, "run_difftool should preserve diff content exactly, got: " .. tostring(result))
 end
@@ -343,7 +343,7 @@ local function test_to_unified_diff_roundtrip_with_cat()
   local pseudo = "- local y = 2\n+ local y = 42"
   local unified = cli.to_unified_diff(pseudo, "lib/ah/cli.tl")
   assert(unified ~= nil, "should produce unified diff")
-  local result = cli.run_difftool("cat", unified)
+  local result = cli.run_difftool("/bin/cat", unified)
   assert(result ~= nil, "cat should succeed")
   assert(result == unified, "cat roundtrip should preserve content exactly")
 end
@@ -384,13 +384,18 @@ test_find_pager_cached()
 
 local function test_run_pager_cat_passthrough()
   local content = "local x = 1\nlocal y = 2\n"
-  -- Use 'cat' but with a wrapper that drops extra args and reads from stdin via redirection
-  -- run_pager passes content via temp file as stdin redirect, so test with a cat-like command
-  -- that ignores the --file-name/--color/--style flags (not available in plain cat).
-  -- We test via a shell wrapper: 'sh -c cat' ignores positional args and reads stdin.
-  local result = cli.run_pager("sh -c cat", content, "foo.tl")
-  assert(result ~= nil, "run_pager with sh -c cat should succeed")
-  assert(result:find("local x") ~= nil, "output should contain input text, got: " .. tostring(result))
+  -- Write a temp script that ignores extra args and cats stdin
+  local script = TEST_TMPDIR .. "/ah_test_pager_" .. tostring(os.time())
+  local sf = io.open(script, "w")
+  if sf then
+    sf:write("#!/bin/sh\ncat\n")
+    sf:close()
+    os.execute("chmod 0755 " .. script)
+    local result = cli.run_pager(script, content, "foo.tl")
+    assert(result ~= nil, "run_pager with cat wrapper should succeed")
+    assert(result:find("local x") ~= nil, "output should contain input text, got: " .. tostring(result))
+    os.remove(script)
+  end
 end
 test_run_pager_cat_passthrough()
 

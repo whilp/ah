@@ -5,6 +5,14 @@ local loop = require("ah.loop")
 local render = require("ah.render")
 local compact = require("ah.compact")
 
+local record ChildMod
+  spawn: function({string}, {string: any}): ChildHandle, string
+end
+local record ChildHandle
+  read: function(ChildHandle): boolean, string, string
+end
+local child_mod = require("cosmic.child") as ChildMod
+
 -- ToolFinder holds a find function and a reset function for a cached tool lookup.
 local record ToolFinder
   find: function(): string
@@ -61,31 +69,21 @@ local function make_tool_finder(env_var: string, candidates: {string}, tool_name
   return {find = find, reset = reset}
 end
 
--- run_piped writes content to a temp file and pipes it to tool + extra_args.
+-- run_spawned spawns args as a subprocess and passes content to its stdin.
 -- Returns rendered output string, or nil on failure.
-local function run_piped(tool: string, content: string, extra_args: string): string
-  if not tool or content == "" then
+local function run_spawned(args: {string}, content: string): string
+  if not args or #args == 0 or content == "" then
     return nil
   end
-  local tmp = os.tmpname()
-  local f = io.open(tmp, "w")
-  if not f then
-    return nil
-  end
-  f:write(content)
-  f:close()
-  local handle = io.popen(tool .. extra_args .. " < " .. tmp .. " 2>/dev/null")
+  local handle, err = child_mod.spawn(args, {stdin = content})
   if not handle then
-    os.remove(tmp)
     return nil
   end
-  local output = handle:read("*a")
-  local ok = handle:close()
-  os.remove(tmp)
-  if not ok or not output or output == "" then
+  local ok, stdout, _ = handle:read()
+  if not ok or not stdout or stdout == "" then
     return nil
   end
-  return output
+  return stdout
 end
 
 -- difftool_finder: find/reset for delta
@@ -103,11 +101,11 @@ local function find_difftool(): string
 end
 
 -- Run diff text through a difftool subprocess.
--- Writes diff_text to a temp file and pipes it to the difftool,
--- avoiding shell quoting issues with Lua's %q format.
+-- Passes diff_text directly to the difftool via stdin.
 -- Returns rendered output string, or nil on failure.
 local function run_difftool(difftool: string, diff_text: string): string
-  return run_piped(difftool, diff_text, "")
+  if not difftool then return nil end
+  return run_spawned({difftool}, diff_text)
 end
 
 -- Convert the edit tool's pseudo-diff ("- "/"+ " prefixed lines) to unified diff format.
@@ -166,13 +164,17 @@ local function find_pager(): string
 end
 
 -- Run content through a pager subprocess with syntax highlighting.
--- Writes content to a temp file and pipes it to the pager with --file-name.
+-- Passes content directly to the pager via stdin with --file-name flags.
 -- Returns rendered output string, or nil on failure.
 local function run_pager(pager: string, content: string, file_name: string): string
   if not file_name or file_name == "" then
     return nil
   end
-  return run_piped(pager, content, " --file-name=" .. file_name .. " --color=always --style=plain")
+  if not pager then return nil end
+  return run_spawned(
+    {pager, "--file-name=" .. file_name, "--color=always", "--style=plain"},
+    content
+  )
 end
 
 -- Reset the pager cache (for testing).
