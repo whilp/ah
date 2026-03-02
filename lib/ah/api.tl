@@ -458,7 +458,6 @@ return {
   to_claude_code_name = to_claude_code_name,
   from_claude_code_name = from_claude_code_name,
   get_api_url = get_api_url,
-  get_proxy_url = util.get_proxy_url,
   DEFAULT_MODEL = DEFAULT_MODEL,
   MODEL_ALIASES = MODEL_ALIASES,
   MAX_RETRIES = MAX_RETRIES,
