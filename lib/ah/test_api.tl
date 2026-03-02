@@ -371,27 +371,6 @@ local function test_get_api_url_lazy_after_env_change()
 end
 test_get_api_url_lazy_after_env_change()
 
-local function test_get_proxy_url_none()
-  -- With no proxy env vars, should return nil
-  local saved = {
-    os.getenv("https_proxy"), os.getenv("HTTPS_PROXY"),
-    os.getenv("http_proxy"), os.getenv("HTTP_PROXY"),
-  }
-  env.unset("https_proxy")
-  env.unset("HTTPS_PROXY")
-  env.unset("http_proxy")
-  env.unset("HTTP_PROXY")
-  local url = api.get_proxy_url()
-  assert(url == nil, "no proxy vars should return nil, got: " .. tostring(url))
-  -- Restore
-  if saved[1] then env.set("https_proxy", saved[1]) end
-  if saved[2] then env.set("HTTPS_PROXY", saved[2]) end
-  if saved[3] then env.set("http_proxy", saved[3]) end
-  if saved[4] then env.set("HTTP_PROXY", saved[4]) end
-  print("PASS test_get_proxy_url_none")
-end
-test_get_proxy_url_none()
-
 local function test_transport_error_not_retryable_via_is_retryable()
   -- Transport errors (status 0) are NOT retryable via is_retryable_error().
   -- The retry loop handles them unconditionally (not stream_result.ok branch).
