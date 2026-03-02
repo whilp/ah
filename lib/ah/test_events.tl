@@ -389,4 +389,13 @@ local function test_payload_warn_json()
 end
 test_payload_warn_json()
 
+-- Test make_event with fields table (two-arg form)
+local function test_make_event_with_fields()
+  local e = events.make_event("custom_type", {model = "bar"} as events.EventData)
+  assert(e.event_type == "custom_type", "event_type should be custom_type")
+  assert(e.model == "bar", "model should be bar")
+  assert(e.timestamp and e.timestamp > 0, "timestamp should be set")
+end
+test_make_event_with_fields()
+
 print("all events tests passed")
