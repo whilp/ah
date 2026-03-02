@@ -4,22 +4,6 @@ local json = require("cosmic.json")
 local auth = require("ah.auth")
 local util = require("ah.util")
 
--- Detect proxy from environment (same pattern as api.tl).
-local function get_proxy_url(): string
-  local http_proxy = os.getenv("https_proxy") or os.getenv("HTTPS_PROXY")
-  or os.getenv("http_proxy") or os.getenv("HTTP_PROXY")
-  if http_proxy and http_proxy:sub(1, 7) == "unix://" then
-    local path = http_proxy:sub(8)
-    local url, err = fetch.unix_proxy(path)
-    if url then
-      return url
-    else
-      util.debug("[limits] warning: invalid proxy url: " .. (err or "unknown"))
-    end
-  end
-  return nil
-end
-
 -- Format a number with comma separators.
 local function fmt_num(n: number): string
   if not n then return "?" end
@@ -72,7 +56,7 @@ local function cmd_limits(): integer
         ["authorization"] = "Bearer " .. creds.access_token,
         ["accept"] = "application/json",
       } as {string: string},
-      proxy = get_proxy_url(),
+      proxy = util.get_proxy_url(),
     } as fetch.Opts)
 
   if not result.ok then

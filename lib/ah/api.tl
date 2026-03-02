@@ -5,23 +5,6 @@ local time = require("cosmic.time")
 local auth = require("ah.auth")
 local util = require("ah.util")
 
--- Detect proxy from environment (set by work.tl for sandboxed processes).
--- Resolved lazily so envd.load() has time to set vars before first use.
-local function get_proxy_url(): string
-  local http_proxy = os.getenv("https_proxy") or os.getenv("HTTPS_PROXY")
-  or os.getenv("http_proxy") or os.getenv("HTTP_PROXY")
-  if http_proxy and http_proxy:sub(1, 7) == "unix://" then
-    local path = http_proxy:sub(8)
-    local url, err = fetch.unix_proxy(path)
-    if url then
-      return url
-    else
-      util.debug("[api] warning: invalid proxy url: " .. (err or "unknown"))
-    end
-  end
-  return nil
-end
-
 -- Tool name mapping for Claude Code compatibility (OAuth mode)
 local CLAUDE_CODE_TOOLS: {string: string} = {
   read = "Read",
@@ -283,7 +266,7 @@ local function stream(messages: {any}, opts: {string: any}, callback: function({
         method = "POST",
         headers = auth_headers,
         body = body,
-        proxy = get_proxy_url(),
+        proxy = util.get_proxy_url(),
       } as fetch.Opts)
     local elapsed_ms = now_ms() - attempt_start_ms
 
@@ -475,7 +458,7 @@ return {
   to_claude_code_name = to_claude_code_name,
   from_claude_code_name = from_claude_code_name,
   get_api_url = get_api_url,
-  get_proxy_url = get_proxy_url,
+  get_proxy_url = util.get_proxy_url,
   DEFAULT_MODEL = DEFAULT_MODEL,
   MODEL_ALIASES = MODEL_ALIASES,
   MAX_RETRIES = MAX_RETRIES,
