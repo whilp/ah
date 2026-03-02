@@ -445,7 +445,7 @@ assert(result:match("protected"), "error should mention protected: " .. tostring
 print("PROTECT_WRITE_OK")
 ]], fs.join(TEST_TMPDIR, "nonexistent"), protected_file))
   local run_result, _ = tools.execute_tool("bash", {
-      command = string.format("AH_PROTECT_DIRS=%s cosmic %s 2>&1", protected_dir, test_script)
+      command = string.format("AH_PROTECT_DIRS=%s o/bin/cosmic %s 2>&1", protected_dir, test_script)
     })
   assert(run_result:match("PROTECT_WRITE_OK"), "subprocess should print PROTECT_WRITE_OK: " .. tostring(run_result))
   print("✓ write tool blocks protected directories")
@@ -467,7 +467,7 @@ assert(result:match("protected"), "error should mention protected: " .. tostring
 print("PROTECT_EDIT_OK")
 ]], fs.join(TEST_TMPDIR, "nonexistent"), protected_file))
   local run_result, _ = tools.execute_tool("bash", {
-      command = string.format("AH_PROTECT_DIRS=%s cosmic %s 2>&1", protected_dir, test_script)
+      command = string.format("AH_PROTECT_DIRS=%s o/bin/cosmic %s 2>&1", protected_dir, test_script)
     })
   assert(run_result:match("PROTECT_EDIT_OK"), "subprocess should print PROTECT_EDIT_OK: " .. tostring(run_result))
   print("✓ edit tool blocks protected directories")
