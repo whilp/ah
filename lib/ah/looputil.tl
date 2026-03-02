@@ -3,13 +3,10 @@ local json = require("cosmic.json")
 local cfs = require("cosmic.fs")
 
 -- Shorten an absolute path to a relative one when under cwd
-local _cwd: string
 local function shorten_path(p: string): string
-  if not _cwd then
-    _cwd = cfs.getcwd() or ""
-  end
-  if _cwd ~= "" and p:sub(1, #_cwd) == _cwd then
-    local rest = p:sub(#_cwd + 1)
+  local cwd = cfs.getcwd() or ""
+  if cwd ~= "" and p:sub(1, #cwd) == cwd then
+    local rest = p:sub(#cwd + 1)
     if rest:sub(1, 1) == "/" then
       rest = rest:sub(2)
     end
