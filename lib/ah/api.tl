@@ -65,6 +65,16 @@ local MODEL_ALIASES: {string: string} = {
   ["haiku"] = "claude-haiku-4-5-20251001",
 }
 
+-- Model context window limits (tokens)
+local MODEL_CONTEXT_LIMITS: {string: integer} = {
+  ["claude-sonnet-4-6"] = 200000,
+  ["claude-sonnet-4-6-1m"] = 1000000,
+  ["claude-opus-4-5-20251101"] = 200000,
+  ["claude-opus-4-6"] = 200000,
+  ["claude-opus-4-6-1m"] = 1000000,
+  ["claude-haiku-4-5-20251001"] = 200000,
+}
+
 -- Resolve model name, expanding aliases
 local function resolve_model(name: string): string
   if not name then return nil end
@@ -460,6 +470,7 @@ return {
   get_api_url = get_api_url,
   DEFAULT_MODEL = DEFAULT_MODEL,
   MODEL_ALIASES = MODEL_ALIASES,
+  MODEL_CONTEXT_LIMITS = MODEL_CONTEXT_LIMITS,
   MAX_RETRIES = MAX_RETRIES,
   BASE_DELAY_MS = BASE_DELAY_MS,
   MAX_RETRY_DELAY_MS = MAX_RETRY_DELAY_MS,

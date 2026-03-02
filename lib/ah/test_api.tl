@@ -408,4 +408,44 @@ local function test_extract_tool_calls_dense_blocks()
 end
 test_extract_tool_calls_dense_blocks()
 
+local function test_model_context_limits_exists()
+  -- api.MODEL_CONTEXT_LIMITS must be a table
+  assert(type(api.MODEL_CONTEXT_LIMITS) == "table", "MODEL_CONTEXT_LIMITS should be a table")
+  print("PASS test_model_context_limits_exists")
+end
+test_model_context_limits_exists()
+
+local function test_model_context_limits_coverage()
+  -- every model in api.MODELS must have a context limit entry
+  local models: {string} = {
+    "claude-sonnet-4-6",
+    "claude-sonnet-4-6-1m",
+    "claude-opus-4-5-20251101",
+    "claude-opus-4-6",
+    "claude-opus-4-6-1m",
+    "claude-haiku-4-5-20251001",
+  }
+  local limits = api.MODEL_CONTEXT_LIMITS as {string: integer}
+  for _, m in ipairs(models) do
+    local limit = limits[m]
+    assert(limit ~= nil, "MODEL_CONTEXT_LIMITS missing entry for: " .. m)
+    assert(limit > 0, "context limit must be positive for: " .. m)
+  end
+  print("PASS test_model_context_limits_coverage")
+end
+test_model_context_limits_coverage()
+
+local function test_model_context_limits_values()
+  local limits = api.MODEL_CONTEXT_LIMITS as {string: integer}
+  -- 1m variants should have 1M token limit
+  assert(limits["claude-sonnet-4-6-1m"] == 1000000, "sonnet 1m limit should be 1000000")
+  assert(limits["claude-opus-4-6-1m"] == 1000000, "opus 1m limit should be 1000000")
+  -- standard variants should have 200k limit
+  assert(limits["claude-sonnet-4-6"] == 200000, "sonnet limit should be 200000")
+  assert(limits["claude-opus-4-6"] == 200000, "opus limit should be 200000")
+  assert(limits["claude-haiku-4-5-20251001"] == 200000, "haiku limit should be 200000")
+  print("PASS test_model_context_limits_values")
+end
+test_model_context_limits_values()
+
 print("all api tests passed")
