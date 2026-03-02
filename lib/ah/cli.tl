@@ -1,5 +1,6 @@
 -- ah/cli.tl: CLI display handler and output formatting
 local tty = require("cosmic.tty")
+local child = require("cosmic.child")
 local events = require("ah.events")
 local loop = require("ah.loop")
 local render = require("ah.render")
@@ -40,10 +41,16 @@ local function make_tool_finder(env_var: string, candidates: {string}, tool_name
       end
     end
 
-    local handle = io.popen("command -v " .. tool_name .. " 2>/dev/null")
-    if handle then
-      local result = handle:read("*l")
-      handle:close()
+    local h, _ = child.spawn({"/bin/sh", "-c", "command -v " .. tool_name})
+    if h then
+      local ok, stdout, _ = h:read()
+      local result: string = nil
+      if ok then
+        result = (stdout as string)
+        if result then
+          result = result:gsub("%s+$", "")
+        end
+      end
       if result and result ~= "" then
         cache = result
         return result
@@ -61,28 +68,34 @@ local function make_tool_finder(env_var: string, candidates: {string}, tool_name
   return {find = find, reset = reset}
 end
 
--- run_piped writes content to a temp file and pipes it to tool + extra_args.
+-- run_piped passes content via stdin to tool with extra_args.
 -- Returns rendered output string, or nil on failure.
-local function run_piped(tool: string, content: string, extra_args: string): string
+local function run_piped(tool: string, content: string, extra_args: {string}): string
   if not tool or content == "" then
     return nil
   end
-  local tmp = os.tmpname()
-  local f = io.open(tmp, "w")
-  if not f then
+
+  -- Build argv: split tool on whitespace, then append extra_args elements
+  local argv: {string} = {}
+  for part in tool:gmatch("%S+") do
+    table.insert(argv, part)
+  end
+  if extra_args then
+    for _, arg in ipairs(extra_args) do
+      table.insert(argv, arg)
+    end
+  end
+
+  local h, _ = child.spawn(argv, {stdin = content})
+  if not h then
     return nil
   end
-  f:write(content)
-  f:close()
-  local handle = io.popen(tool .. extra_args .. " < " .. tmp .. " 2>/dev/null")
-  if not handle then
-    os.remove(tmp)
+  local ok, stdout, _ = h:read()
+  if not ok then
     return nil
   end
-  local output = handle:read("*a")
-  local ok = handle:close()
-  os.remove(tmp)
-  if not ok or not output or output == "" then
+  local output = (stdout as string) or ""
+  if output == "" then
     return nil
   end
   return output
@@ -103,11 +116,10 @@ local function find_difftool(): string
 end
 
 -- Run diff text through a difftool subprocess.
--- Writes diff_text to a temp file and pipes it to the difftool,
--- avoiding shell quoting issues with Lua's %q format.
+-- Passes diff_text via stdin to the difftool, avoiding shell quoting issues.
 -- Returns rendered output string, or nil on failure.
 local function run_difftool(difftool: string, diff_text: string): string
-  return run_piped(difftool, diff_text, "")
+  return run_piped(difftool, diff_text, {})
 end
 
 -- Convert the edit tool's pseudo-diff ("- "/"+ " prefixed lines) to unified diff format.
@@ -166,13 +178,13 @@ local function find_pager(): string
 end
 
 -- Run content through a pager subprocess with syntax highlighting.
--- Writes content to a temp file and pipes it to the pager with --file-name.
+-- Passes content via stdin to the pager with --file-name.
 -- Returns rendered output string, or nil on failure.
 local function run_pager(pager: string, content: string, file_name: string): string
   if not file_name or file_name == "" then
     return nil
   end
-  return run_piped(pager, content, " --file-name=" .. file_name .. " --color=always --style=plain")
+  return run_piped(pager, content, {"--file-name=" .. file_name, "--color=always", "--style=plain"})
 end
 
 -- Reset the pager cache (for testing).
