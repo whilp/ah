@@ -5,63 +5,66 @@ local loop = require("ah.loop")
 local render = require("ah.render")
 local compact = require("ah.compact")
 
--- Cache for find_difftool result across calls.
--- false means "already checked, no difftool found"; nil means "not yet checked"
-local _difftool_cache: string | boolean = nil
-
--- Find a difftool for rendering diff output.
--- Checks AH_DIFFTOOL env var first, then autodetects delta on PATH.
--- Returns the tool command string, or nil if none available.
-local function find_difftool(): string
-  if _difftool_cache ~= nil then
-    if _difftool_cache == false then
-      return nil
-    end
-    return _difftool_cache as string
-  end
-
-  local env_tool = os.getenv("AH_DIFFTOOL")
-  if env_tool and env_tool ~= "" then
-    _difftool_cache = env_tool
-    return env_tool
-  end
-
-  -- Autodetect delta at common paths
-  local candidates: {string} = {
-    "/usr/bin/delta",
-    "/usr/local/bin/delta",
-    "/opt/homebrew/bin/delta",
-  }
-  for _, path in ipairs(candidates) do
-    local f = io.open(path, "r")
-    if f then
-      f:close()
-      _difftool_cache = path
-      return path
-    end
-  end
-
-  -- Try PATH via command -v
-  local handle = io.popen("command -v delta 2>/dev/null")
-  if handle then
-    local result = handle:read("*l")
-    handle:close()
-    if result and result ~= "" then
-      _difftool_cache = result
-      return result
-    end
-  end
-
-  _difftool_cache = false
-  return nil
+-- ToolFinder holds a find function and a reset function for a cached tool lookup.
+local record ToolFinder
+  find: function(): string
+  reset: function()
 end
 
--- Run diff text through a difftool subprocess.
--- Writes diff_text to a temp file and pipes it to the difftool,
--- avoiding shell quoting issues with Lua's %q format.
+-- make_tool_finder returns a ToolFinder that checks env_var first, then walks
+-- candidates via io.open, then falls back to `command -v tool_name`.
+-- Each finder maintains its own independent cache.
+local function make_tool_finder(env_var: string, candidates: {string}, tool_name: string): ToolFinder
+  local cache: string | boolean = nil
+
+  local function find(): string
+    if cache ~= nil then
+      if cache == false then
+        return nil
+      end
+      return cache as string
+    end
+
+    local env_tool = os.getenv(env_var)
+    if env_tool and env_tool ~= "" then
+      cache = env_tool
+      return env_tool
+    end
+
+    for _, path in ipairs(candidates) do
+      local f = io.open(path, "r")
+      if f then
+        f:close()
+        cache = path
+        return path
+      end
+    end
+
+    local handle = io.popen("command -v " .. tool_name .. " 2>/dev/null")
+    if handle then
+      local result = handle:read("*l")
+      handle:close()
+      if result and result ~= "" then
+        cache = result
+        return result
+      end
+    end
+
+    cache = false
+    return nil
+  end
+
+  local function reset()
+    cache = nil
+  end
+
+  return {find = find, reset = reset}
+end
+
+-- run_piped writes content to a temp file and pipes it to tool + extra_args.
 -- Returns rendered output string, or nil on failure.
-local function run_difftool(difftool: string, diff_text: string): string
-  if not difftool or diff_text == "" then
+local function run_piped(tool: string, content: string, extra_args: string): string
+  if not tool or content == "" then
     return nil
   end
   local tmp = os.tmpname()
@@ -69,9 +72,9 @@ local function run_difftool(difftool: string, diff_text: string): string
   if not f then
     return nil
   end
-  f:write(diff_text)
+  f:write(content)
   f:close()
-  local handle = io.popen(difftool .. " < " .. tmp .. " 2>/dev/null")
+  local handle = io.popen(tool .. extra_args .. " < " .. tmp .. " 2>/dev/null")
   if not handle then
     os.remove(tmp)
     return nil
@@ -83,6 +86,28 @@ local function run_difftool(difftool: string, diff_text: string): string
     return nil
   end
   return output
+end
+
+-- difftool_finder: find/reset for delta
+local _difftool_finder = make_tool_finder("AH_DIFFTOOL", {
+    "/usr/bin/delta",
+    "/usr/local/bin/delta",
+    "/opt/homebrew/bin/delta",
+  }, "delta")
+
+-- Find a difftool for rendering diff output.
+-- Checks AH_DIFFTOOL env var first, then autodetects delta on PATH.
+-- Returns the tool command string, or nil if none available.
+local function find_difftool(): string
+  return _difftool_finder.find()
+end
+
+-- Run diff text through a difftool subprocess.
+-- Writes diff_text to a temp file and pipes it to the difftool,
+-- avoiding shell quoting issues with Lua's %q format.
+-- Returns rendered output string, or nil on failure.
+local function run_difftool(difftool: string, diff_text: string): string
+  return run_piped(difftool, diff_text, "")
 end
 
 -- Convert the edit tool's pseudo-diff ("- "/"+ " prefixed lines) to unified diff format.
@@ -124,93 +149,35 @@ end
 
 -- Reset the difftool cache (for testing).
 local function reset_difftool_cache()
-  _difftool_cache = nil
+  _difftool_finder.reset()
 end
 
--- Cache for find_pager result across calls.
--- false means "already checked, not found"; nil means "not yet checked"
-local _pager_cache: string | boolean = nil
+-- pager_finder: find/reset for bat
+local _pager_finder = make_tool_finder("AH_PAGER", {
+    "/usr/bin/bat",
+    "/usr/local/bin/bat",
+    "/opt/homebrew/bin/bat",
+  }, "bat")
 
 -- Find a pager for rendering read tool output with syntax highlighting.
 -- Checks AH_PAGER env var first, then autodetects bat. Returns command or nil.
 local function find_pager(): string
-  if _pager_cache ~= nil then
-    if _pager_cache == false then
-      return nil
-    end
-    return _pager_cache as string
-  end
-
-  local env_tool = os.getenv("AH_PAGER")
-  if env_tool and env_tool ~= "" then
-    _pager_cache = env_tool
-    return env_tool
-  end
-
-  -- Autodetect bat at common paths
-  local candidates: {string} = {
-    "/usr/bin/bat",
-    "/usr/local/bin/bat",
-    "/opt/homebrew/bin/bat",
-  }
-  for _, path in ipairs(candidates) do
-    local f = io.open(path, "r")
-    if f then
-      f:close()
-      _pager_cache = path
-      return path
-    end
-  end
-
-  -- Try PATH via command -v
-  local handle = io.popen("command -v bat 2>/dev/null")
-  if handle then
-    local result = handle:read("*l")
-    handle:close()
-    if result and result ~= "" then
-      _pager_cache = result
-      return result
-    end
-  end
-
-  _pager_cache = false
-  return nil
+  return _pager_finder.find()
 end
 
 -- Run content through a pager subprocess with syntax highlighting.
 -- Writes content to a temp file and pipes it to the pager with --file-name.
 -- Returns rendered output string, or nil on failure.
 local function run_pager(pager: string, content: string, file_name: string): string
-  if not pager or content == "" then
-    return nil
-  end
   if not file_name or file_name == "" then
     return nil
   end
-  local tmp = os.tmpname()
-  local f = io.open(tmp, "w")
-  if not f then
-    return nil
-  end
-  f:write(content)
-  f:close()
-  local handle = io.popen(pager .. " --file-name=" .. file_name .. " --color=always --style=plain < " .. tmp .. " 2>/dev/null")
-  if not handle then
-    os.remove(tmp)
-    return nil
-  end
-  local output = handle:read("*a")
-  local ok = handle:close()
-  os.remove(tmp)
-  if not ok or not output or output == "" then
-    return nil
-  end
-  return output
+  return run_piped(pager, content, " --file-name=" .. file_name .. " --color=always --style=plain")
 end
 
 -- Reset the pager cache (for testing).
 local function reset_pager_cache()
-  _pager_cache = nil
+  _pager_finder.reset()
 end
 
 -- Format token count as human-friendly string (e.g., 1234 -> "1.2k", 12345 -> "12.3k")
