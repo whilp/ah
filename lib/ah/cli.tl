@@ -5,6 +5,15 @@ local loop = require("ah.loop")
 local render = require("ah.render")
 local compact = require("ah.compact")
 
+-- Type declarations for cosmic.child (lazy-loaded)
+local record ChildMod
+  spawn: function({string}, {string: any}): ChildHandle, string
+end
+
+local record ChildHandle
+  read: function(ChildHandle): boolean, string, string
+end
+
 -- Cache for find_difftool result across calls.
 -- false means "already checked, no difftool found"; nil means "not yet checked"
 local _difftool_cache: string | boolean = nil
@@ -57,28 +66,19 @@ local function find_difftool(): string
 end
 
 -- Run diff text through a difftool subprocess.
--- Writes diff_text to a temp file and pipes it to the difftool,
--- avoiding shell quoting issues with Lua's %q format.
+-- Passes diff_text via stdin to the difftool using child.spawn,
+-- avoiding temp files and shell quoting issues.
 -- Returns rendered output string, or nil on failure.
 local function run_difftool(difftool: string, diff_text: string): string
   if not difftool or diff_text == "" then
     return nil
   end
-  local tmp = os.tmpname()
-  local f = io.open(tmp, "w")
-  if not f then
+  local child_mod = require("cosmic.child") as ChildMod
+  local handle, spawn_err = child_mod.spawn({"sh", "-c", difftool .. " 2>/dev/null"}, {stdin = diff_text})
+  if not handle or spawn_err then
     return nil
   end
-  f:write(diff_text)
-  f:close()
-  local handle = io.popen(difftool .. " < " .. tmp .. " 2>/dev/null")
-  if not handle then
-    os.remove(tmp)
-    return nil
-  end
-  local output = handle:read("*a")
-  local ok = handle:close()
-  os.remove(tmp)
+  local ok, output, _ = handle:read()
   if not ok or not output or output == "" then
     return nil
   end
@@ -178,7 +178,8 @@ local function find_pager(): string
 end
 
 -- Run content through a pager subprocess with syntax highlighting.
--- Writes content to a temp file and pipes it to the pager with --file-name.
+-- Passes content via stdin to the pager using child.spawn,
+-- avoiding temp files. The --file-name flag is used for language detection only.
 -- Returns rendered output string, or nil on failure.
 local function run_pager(pager: string, content: string, file_name: string): string
   if not pager or content == "" then
@@ -187,21 +188,13 @@ local function run_pager(pager: string, content: string, file_name: string): str
   if not file_name or file_name == "" then
     return nil
   end
-  local tmp = os.tmpname()
-  local f = io.open(tmp, "w")
-  if not f then
+  local child_mod = require("cosmic.child") as ChildMod
+  local cmd = pager .. " --file-name=" .. file_name .. " --color=always --style=plain 2>/dev/null"
+  local handle, spawn_err = child_mod.spawn({"sh", "-c", cmd}, {stdin = content})
+  if not handle or spawn_err then
     return nil
   end
-  f:write(content)
-  f:close()
-  local handle = io.popen(pager .. " --file-name=" .. file_name .. " --color=always --style=plain < " .. tmp .. " 2>/dev/null")
-  if not handle then
-    os.remove(tmp)
-    return nil
-  end
-  local output = handle:read("*a")
-  local ok = handle:close()
-  os.remove(tmp)
+  local ok, output, _ = handle:read()
   if not ok or not output or output == "" then
     return nil
   end
