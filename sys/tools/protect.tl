@@ -25,4 +25,4 @@ local function is_protected(path: string): boolean
   return false
 end
 
-return { is_protected = is_protected }
+return {is_protected = is_protected}
