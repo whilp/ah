@@ -384,10 +384,8 @@ test_find_pager_cached()
 
 local function test_run_pager_cat_passthrough()
   local content = "local x = 1\nlocal y = 2\n"
-  -- Use 'cat' but with a wrapper that drops extra args and reads from stdin via redirection
-  -- run_pager passes content via temp file as stdin redirect, so test with a cat-like command
-  -- that ignores the --file-name/--color/--style flags (not available in plain cat).
-  -- We test via a shell wrapper: 'sh -c cat' ignores positional args and reads stdin.
+  -- Use 'sh -c cat' to ignore positional args (--file-name/--color/--style flags)
+  -- and just pass content through via stdin. run_pager passes content via child.spawn stdin.
   local result = cli.run_pager("sh -c cat", content, "foo.tl")
   assert(result ~= nil, "run_pager with sh -c cat should succeed")
   assert(result:find("local x") ~= nil, "output should contain input text, got: " .. tostring(result))
