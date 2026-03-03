@@ -1,6 +1,7 @@
 -- ah/cli.tl: CLI display handler and output formatting
 local tty = require("cosmic.tty")
 local child = require("cosmic.child")
+local unix = require("cosmo.unix")
 local events = require("ah.events")
 local loop = require("ah.loop")
 local render = require("ah.render")
@@ -13,7 +14,7 @@ local record ToolFinder
 end
 
 -- make_tool_finder returns a ToolFinder that checks env_var first, then walks
--- candidates via io.open, then falls back to `command -v tool_name`.
+-- candidates via io.open, then falls back to unix.commandv for PATH lookup.
 -- Each finder maintains its own independent cache.
 local function make_tool_finder(env_var: string, candidates: {string}, tool_name: string): ToolFinder
   local cache: string | boolean = nil
@@ -41,20 +42,10 @@ local function make_tool_finder(env_var: string, candidates: {string}, tool_name
       end
     end
 
-    local h, _ = child.spawn({"/bin/sh", "-c", "command -v " .. tool_name})
-    if h then
-      local ok, stdout, _ = h:read()
-      local result: string = nil
-      if ok then
-        result = (stdout as string)
-        if result then
-          result = result:gsub("%s+$", "")
-        end
-      end
-      if result and result ~= "" then
-        cache = result
-        return result
-      end
+    local result = unix.commandv(tool_name)
+    if result then
+      cache = result
+      return result
     end
 
     cache = false
@@ -75,11 +66,8 @@ local function run_piped(tool: string, content: string, extra_args: {string}): s
     return nil
   end
 
-  -- Build argv: split tool on whitespace, then append extra_args elements
-  local argv: {string} = {}
-  for part in tool:gmatch("%S+") do
-    table.insert(argv, part)
-  end
+  -- Build argv: tool is always a bare path, append extra_args elements
+  local argv: {string} = {tool}
   if extra_args then
     for _, arg in ipairs(extra_args) do
       table.insert(argv, arg)
