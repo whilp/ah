@@ -387,4 +387,44 @@ local function test_agents_skills_overrides_dot_ah()
 end
 test_agents_skills_overrides_dot_ah()
 
+local function test_claude_skills_loads()
+  -- .claude/skills/ should be scanned and loaded
+  local project = fs.join(tmpdir, "claude-skills-project")
+  local claude_skills = fs.join(project, ".claude", "skills")
+  fs.makedirs(claude_skills)
+
+  cio.barf(fs.join(claude_skills, "deploy.md"),
+    "---\nname: deploy\ndescription: claude deploy skill\n---\n# Deploy")
+
+  local loaded = skills.load_skills(project)
+  assert(loaded["deploy"] ~= nil, ".claude/skills skill should be loaded")
+  assert(loaded["deploy"].description == "claude deploy skill",
+    ".claude/skills description mismatch: " .. tostring(loaded["deploy"] and loaded["deploy"].description))
+  assert(loaded["deploy"].file_path:match("%.claude/skills/"),
+    "file_path should be from .claude/skills: " .. tostring(loaded["deploy"] and loaded["deploy"].file_path))
+end
+test_claude_skills_loads()
+
+local function test_claude_skills_overrides_agents()
+  -- .claude/skills/ should override .agents/skills/ (last wins)
+  local project = fs.join(tmpdir, "claude-override-project")
+  local agents_skills = fs.join(project, ".agents", "skills")
+  local claude_skills = fs.join(project, ".claude", "skills")
+  fs.makedirs(agents_skills)
+  fs.makedirs(claude_skills)
+
+  cio.barf(fs.join(agents_skills, "pick.md"),
+    "---\nname: pick\ndescription: agents pick\n---\n# Agents")
+  cio.barf(fs.join(claude_skills, "pick.md"),
+    "---\nname: pick\ndescription: claude pick\n---\n# Claude")
+
+  local loaded = skills.load_skills(project)
+  assert(loaded["pick"] ~= nil, "pick skill should be loaded")
+  assert(loaded["pick"].description == "claude pick",
+    ".claude/skills should win over .agents/skills: " .. tostring(loaded["pick"] and loaded["pick"].description))
+  assert(loaded["pick"].file_path:match("%.claude/skills/"),
+    "file_path should be from .claude/skills: " .. tostring(loaded["pick"] and loaded["pick"].file_path))
+end
+test_claude_skills_overrides_agents()
+
 print("all skills tests passed")
