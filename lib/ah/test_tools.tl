@@ -431,4 +431,47 @@ return { name = "ovr_tool", description = "Override tool with require",
 end
 test_add_tool_override_require()
 
+local function test_write_protect_dirs()
+  local protected_dir = fs.join(TEST_TMPDIR, "protected_write_dir")
+  fs.makedirs(protected_dir)
+  local protected_file = fs.join(protected_dir, "secret.txt")
+  local test_script = fs.join(TEST_TMPDIR, "run_protect_write_test.lua")
+  cio.barf(test_script, string.format([[
+local tools = require("ah.tools")
+tools.init_custom_tools(%q)
+local result, is_error = tools.execute_tool("write", {path = %q, content = "should fail"})
+assert(is_error, "write to protected dir should fail: " .. tostring(result))
+assert(result:match("protected"), "error should mention protected: " .. tostring(result))
+print("PROTECT_WRITE_OK")
+]], fs.join(TEST_TMPDIR, "nonexistent"), protected_file))
+  local run_result, _ = tools.execute_tool("bash", {
+      command = string.format("AH_PROTECT_DIRS=%s o/bin/cosmic %s 2>&1", protected_dir, test_script)
+    })
+  assert(run_result:match("PROTECT_WRITE_OK"), "subprocess should print PROTECT_WRITE_OK: " .. tostring(run_result))
+  print("✓ write tool blocks protected directories")
+end
+test_write_protect_dirs()
+
+local function test_edit_protect_dirs()
+  local protected_dir = fs.join(TEST_TMPDIR, "protected_edit_dir")
+  fs.makedirs(protected_dir)
+  local protected_file = fs.join(protected_dir, "secret_edit.txt")
+  cio.barf(protected_file, "original content")
+  local test_script = fs.join(TEST_TMPDIR, "run_protect_edit_test.lua")
+  cio.barf(test_script, string.format([[
+local tools = require("ah.tools")
+tools.init_custom_tools(%q)
+local result, is_error = tools.execute_tool("edit", {path = %q, old_string = "original", new_string = "replaced"})
+assert(is_error, "edit to protected dir should fail: " .. tostring(result))
+assert(result:match("protected"), "error should mention protected: " .. tostring(result))
+print("PROTECT_EDIT_OK")
+]], fs.join(TEST_TMPDIR, "nonexistent"), protected_file))
+  local run_result, _ = tools.execute_tool("bash", {
+      command = string.format("AH_PROTECT_DIRS=%s o/bin/cosmic %s 2>&1", protected_dir, test_script)
+    })
+  assert(run_result:match("PROTECT_EDIT_OK"), "subprocess should print PROTECT_EDIT_OK: " .. tostring(run_result))
+  print("✓ edit tool blocks protected directories")
+end
+test_edit_protect_dirs()
+
 print("\nAll tools tests passed!")

@@ -1,6 +1,7 @@
 -- sys/tools/write.tl: write file tool
 local fs = require("cosmic.fs")
 local cio = require("cosmic.io")
+local protect = require("protect")
 
 return {
   name = "write",
@@ -23,6 +24,10 @@ return {
     end
     if not content then
       return "error: content is required", true
+    end
+
+    if protect.is_protected(file_path) then
+      return "error: path is in a protected directory: " .. file_path, true
     end
 
     local dir = fs.dirname(file_path)

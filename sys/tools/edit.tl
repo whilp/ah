@@ -1,5 +1,6 @@
 -- sys/tools/edit.tl: edit file tool
 local cio = require("cosmic.io")
+local protect = require("protect")
 
 return {
   name = "edit",
@@ -27,6 +28,10 @@ return {
     end
     if new_string == nil then
       return "error: new_string is required", true
+    end
+
+    if protect.is_protected(file_path) then
+      return "error: path is in a protected directory: " .. file_path, true
     end
 
     local content = cio.slurp(file_path)
