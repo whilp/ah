@@ -70,16 +70,12 @@ local function start_sandbox(): SandboxCtx, string
   local socket_path = tmpdir .. "/proxy.sock"
 
   local exe = ah_exe()
-  local pid = spawn.fork()
-  if pid < 0 then
+  local handle = spawn.spawn({exe, "proxy", socket_path}, {})
+  if not handle then
     cfs.rmrf(tmpdir)
-    return nil, "fork failed"
+    return nil, "spawn failed"
   end
-
-  if pid == 0 then
-    require("cosmic.proc").execve(exe, {exe, "proxy", socket_path}, require("cosmo.unix").environ())
-    os.exit(1)
-  end
+  local pid = handle.pid
 
   -- Wait for socket to appear (up to 5s)
   local timeout = 50
@@ -92,7 +88,7 @@ local function start_sandbox(): SandboxCtx, string
 
   if timeout == 0 then
     signal.kill(pid, spawn.SIGTERM)
-    spawn.wait()
+    spawn.wait(pid, 0)
     cfs.rmrf(tmpdir)
     return nil, "proxy socket not ready"
   end
@@ -110,7 +106,7 @@ local function stop_sandbox(ctx: SandboxCtx)
   if not ctx then return end
   if ctx.proxy_pid > 0 then
     signal.kill(ctx.proxy_pid, spawn.SIGTERM)
-    spawn.wait()
+    spawn.wait(ctx.proxy_pid, 0)
   end
   if ctx.tmpdir then
     cfs.rmrf(ctx.tmpdir)
