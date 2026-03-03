@@ -2,6 +2,7 @@
 local fs = require("cosmic.fs")
 local cio = require("cosmic.io")
 local protect = require("protect")
+local pathutil = require("ah.pathutil")
 
 return {
   name = "write",
@@ -29,6 +30,8 @@ return {
     if protect.is_protected(file_path) then
       return "error: path is in a protected directory: " .. file_path, true
     end
+
+    pathutil.warn_if_outside_cwd(file_path, "write")
 
     local dir = fs.dirname(file_path)
     if dir and dir ~= "" then

@@ -221,3 +221,23 @@ default limits:
 `AH_PROTECT_DIRS` (colon-separated paths) prevents write/edit operations
 to specified directories. the write and edit tools check this before
 executing.
+
+## filesystem access and path warnings
+
+without `--sandbox`, ah has unrestricted filesystem access (subject only
+to OS permissions). the `AH_PROTECT_DIRS` enforcement in write and edit
+does not depend on unveil — it is always active.
+
+the write and edit tools emit a warning to stderr when the target path is
+absolute and outside the current working directory:
+
+```
+warning: write target is outside working directory: /etc/shadow
+warning: edit target is outside working directory: /etc/passwd
+```
+
+the warning fires only for absolute paths outside cwd. relative paths and
+absolute paths under cwd are unaffected. the operation still proceeds —
+this is visibility, not enforcement. for enforcement, use `--sandbox`
+(enables unveil to restrict filesystem access to the working directory and
+a small set of allowed paths).

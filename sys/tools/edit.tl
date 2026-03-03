@@ -1,6 +1,7 @@
 -- sys/tools/edit.tl: edit file tool
 local cio = require("cosmic.io")
 local protect = require("protect")
+local pathutil = require("ah.pathutil")
 
 return {
   name = "edit",
@@ -33,6 +34,8 @@ return {
     if protect.is_protected(file_path) then
       return "error: path is in a protected directory: " .. file_path, true
     end
+
+    pathutil.warn_if_outside_cwd(file_path, "edit")
 
     local content = cio.slurp(file_path)
     if not content then
