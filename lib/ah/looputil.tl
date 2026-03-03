@@ -49,12 +49,24 @@ end
 
 -- Normalize a potentially multi-line command for display.
 -- If the command has multiple lines, returns the first line with " ..." appended.
+-- Also truncates at " && " boundaries and " \<newline>" continuations.
 -- Single-line commands are returned unchanged.
 local function display_command(cmd: string): string
   if not cmd or cmd == "" then return cmd end
-  local first, rest = cmd:match("^([^\n]*)([\n].*)$")
-  if first and rest then
-    return first .. " ..."
+  -- Handle \ continuations: " \<newline>" or " \<newline><whitespace>"
+  local first_cont = cmd:match("^(.-) \\%s*\n")
+  if first_cont then
+    return first_cont .. " ..."
+  end
+  -- Handle newlines
+  local first_nl = cmd:match("^([^\n]+)\n")
+  if first_nl then
+    return first_nl .. " ..."
+  end
+  -- Handle && chaining
+  local first_amp = cmd:match("^(.-) &&")
+  if first_amp and first_amp ~= "" then
+    return first_amp .. " ..."
   end
   return cmd
 end
