@@ -138,7 +138,7 @@ end
 -- Later sources override earlier ones by name:
 --   1. system (built-in)
 --   2. embed (zip overlay)
---   3. project (cwd/skills/, cwd/.ah/skills/, cwd/.agents/skills/ — all scanned, later wins)
+--   3. project (cwd/skills/, cwd/.ah/skills/, cwd/.agents/skills/, cwd/.claude/skills/ — all scanned, later wins)
 local function load_skills(cwd?: string): {string: Skill}
   cwd = cwd or fs.getcwd()
   local skills: {string: Skill} = {}
@@ -160,6 +160,7 @@ local function load_skills(cwd?: string): {string: Skill}
     fs.join(cwd, "skills"),
     fs.join(cwd, ".ah", "skills"),
     fs.join(cwd, ".agents", "skills"),
+    fs.join(cwd, ".claude", "skills"),
   }
   for _, dir in ipairs(project_dirs) do
     for _, skill in ipairs(load_skills_from_dir(dir)) do
