@@ -68,6 +68,31 @@ local function test_display_command_empty()
 end
 test_display_command_empty()
 
+-- Tests for display_command with && and \ continuations
+local function test_display_command_ampersand()
+  local cmd = "cd /tmp && ls -la && pwd"
+  local result = looputil.display_command(cmd)
+  assert(result == "cd /tmp ...", "should truncate at first &&: " .. result)
+  print("PASS: display_command truncates at &&")
+end
+test_display_command_ampersand()
+
+local function test_display_command_backslash_continuation()
+  local cmd = "gh pr create \\\n  --title 'fix' \\\n  --body 'desc'"
+  local result = looputil.display_command(cmd)
+  assert(result == "gh pr create ...", "should truncate at \\ continuation: " .. result)
+  print("PASS: display_command truncates at \\ continuation")
+end
+test_display_command_backslash_continuation()
+
+local function test_display_command_no_ampersand_match()
+  local cmd = "ls --color=auto"
+  local result = looputil.display_command(cmd)
+  assert(result == cmd, "command without && should be unchanged: " .. result)
+  print("PASS: display_command leaves command without && unchanged")
+end
+test_display_command_no_ampersand_match()
+
 -- Tests for wrap_command
 local function test_wrap_command_short()
   local cmd = "ls -la"
@@ -84,6 +109,15 @@ local function test_wrap_command_long_with_flags()
   print("PASS: wrap_command wraps long command with flags")
 end
 test_wrap_command_long_with_flags()
+
+local function test_wrap_command_ampersand_shows_first()
+  local cmd = "cd /tmp && ls -la && pwd"
+  local result = looputil.wrap_command(cmd, 80, "    ")
+  -- display_command should have collapsed to first segment
+  assert(result == "cd /tmp ...", "wrap_command with && should show first segment: " .. result)
+  print("PASS: wrap_command shows first segment of && command")
+end
+test_wrap_command_ampersand_shows_first()
 
 -- Tests for check_loop
 local function test_check_loop_empty()
