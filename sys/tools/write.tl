@@ -1,7 +1,7 @@
 -- sys/tools/write.tl: write file tool
 local fs = require("cosmic.fs")
 local cio = require("cosmic.io")
-local protect = require("protect")
+local protect = require("ah.protect")
 local pathutil = require("ah.pathutil")
 
 return {
