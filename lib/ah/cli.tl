@@ -214,6 +214,8 @@ local function make_cli_handler(skill_name: string, session_ulid?: string): even
   local is_tty = tty.isatty(2)
   local is_stdout_tty = tty.isatty(1)
   local is_ci = os.getenv("GITHUB_ACTIONS") == "true"
+  local term = os.getenv("TERM") or ""
+  local is_dumb = term == "dumb" or term == ""
   local DIM = is_tty and "\27[2m" or ""
   local RESET = is_tty and "\27[0m" or ""
   local has_text = false
@@ -329,21 +331,26 @@ local function make_cli_handler(skill_name: string, session_ulid?: string): even
         io.stderr:write("\n")
       end
 
-      local prefix = is_tty and "⠋ " or ""
-      io.stderr:write(string.format("%s%s%s%s\n", DIM, prefix, event.tool_name, RESET))
-
       local key = event.tool_key or ""
-      if key ~= "" then
-        local indent = "  "
-        local cmd_prefix = event.tool_name == "bash" and "$ " or ""
-        if event.tool_name == "bash" then
-          local term_width = 80
-          local ws = tty.winsize(2)
-          if ws then term_width = ws.cols as integer end
-          local wrap_indent = indent .. "  "
-          key = loop.wrap_command(key, term_width - #indent - #cmd_prefix, wrap_indent)
+
+      if event.tool_name == "bash" then
+        -- Bash: single line with braille bracket, "⠋ $ command"
+        local prefix = is_dumb and "> " or "⠋ "
+        local term_width = 80
+        local ws = tty.winsize(2)
+        if ws then term_width = ws.cols as integer end
+        local wrap_indent = "    "
+        local available = term_width - #prefix - 2 -- 2 for "$ "
+        local wrapped = loop.wrap_command(key, available, wrap_indent)
+        io.stderr:write(string.format("%s%s$ %s%s\n", DIM, prefix, wrapped, RESET))
+      else
+        -- Non-bash: tool name with optional key
+        local prefix = is_tty and (is_dumb and "> " or "⠋ ") or ""
+        if key ~= "" then
+          io.stderr:write(string.format("%s%s%s %s%s\n", DIM, prefix, event.tool_name, key, RESET))
+        else
+          io.stderr:write(string.format("%s%s%s%s\n", DIM, prefix, event.tool_name, RESET))
         end
-        io.stderr:write(string.format("%s%s%s%s%s\n", DIM, indent, cmd_prefix, key, RESET))
       end
 
     elseif t == "tool_call_end" then
@@ -394,6 +401,12 @@ local function make_cli_handler(skill_name: string, session_ulid?: string): even
           for line in result:gmatch("[^\n]+") do
             table.insert(lines, line)
           end
+          -- For bash, strip trailing "exit code: N" / timeout lines (shown in ⠜ summary)
+          if event.tool_name == "bash" then
+            while #lines > 0 and (lines[#lines]:match("^exit code: %d+$") or lines[#lines]:match("^error: command timed out")) do
+              table.remove(lines)
+            end
+          end
           local max_lines = 3
           for j = 1, math.min(max_lines, #lines) do
             local line = lines[j]
@@ -424,10 +437,35 @@ local function make_cli_handler(skill_name: string, session_ulid?: string): even
         end
       end
 
-      if is_tty and event.is_error then
-        io.stderr:write(string.format("%s\27[1;33m✗ %.1fs\27[0m\n", indent, elapsed))
+      if event.tool_name == "bash" then
+        -- Bash: mirror braille bracket with duration, line count, exit status
+        local line_count = 0
+        if result ~= "" and result ~= "(no output)" then
+          for _ in result:gmatch("\n") do line_count = line_count + 1 end
+          if result:sub(-1) ~= "\n" then line_count = line_count + 1 end
+        end
+        local suffix = is_dumb and "< " or "⠜ "
+        local parts: {string} = {}
+        table.insert(parts, string.format("%.1fs", elapsed))
+        if line_count > 0 then
+          table.insert(parts, string.format("%d line%s", line_count, line_count == 1 and "" or "s"))
+        end
+        if event.is_error then
+          local code = result:match("exit code: (%d+)")
+          if code then
+            table.insert(parts, "exit " .. code)
+          else
+            table.insert(parts, "error")
+          end
+        end
+        local summary = table.concat(parts, ", ")
+        io.stderr:write(string.format("%s%s%s%s\n", DIM, suffix, summary, RESET))
       else
-        io.stderr:write(string.format("%s%s%.1fs%s\n", indent, DIM, elapsed, RESET))
+        if is_tty and event.is_error then
+          io.stderr:write(string.format("%s\27[1;33m✗ %.1fs\27[0m\n", indent, elapsed))
+        else
+          io.stderr:write(string.format("%s%s%.1fs%s\n", indent, DIM, elapsed, RESET))
+        end
       end
 
       -- Blank line after tool block

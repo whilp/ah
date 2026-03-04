@@ -119,6 +119,34 @@ local function test_wrap_command_ampersand_shows_first()
 end
 test_wrap_command_ampersand_shows_first()
 
+local function test_wrap_command_first_line_width()
+  -- First line should respect width, not accumulate unlimited tokens
+  local cmd = "echo aaa bbb ccc ddd eee fff --ggg --hhh"
+  local result = looputil.wrap_command(cmd, 25, "    ")
+  assert(result:find("\\\n"), "should wrap: " .. result)
+  -- Every line (stripped of trailing " \") should fit within width
+  for line in result:gmatch("[^\n]+") do
+    local clean = line:gsub(" \\$", "")
+    assert(#clean <= 25, "line exceeds width: [" .. #clean .. " chars] " .. line)
+  end
+  print("PASS: wrap_command respects width on first line")
+end
+test_wrap_command_first_line_width()
+
+local function test_wrap_command_first_line_flag_break()
+  -- Flag-aware breaking should work on the first line, not just continuations
+  local cmd = "gh issue list --repo whilp/ah --label todo --state open"
+  local result = looputil.wrap_command(cmd, 30, "    ")
+  assert(result:find("\\\n"), "should wrap: " .. result)
+  -- The flag pass should produce breaks at flag boundaries
+  -- (not fall through to the space-boundary fallback)
+  local first_line = result:match("^([^\n]+)")
+  local clean = first_line:gsub(" \\$", "")
+  assert(#clean <= 30, "first line exceeds width: [" .. #clean .. " chars] " .. first_line)
+  print("PASS: wrap_command flag-aware breaking works on first line")
+end
+test_wrap_command_first_line_flag_break()
+
 -- Tests for check_loop
 local function test_check_loop_empty()
   local count = looputil.check_loop({})
