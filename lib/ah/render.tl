@@ -56,10 +56,26 @@ local function parse_row(line: string): {string}
   return cells
 end
 
--- Compute display width of a string, stripping ANSI escape sequences.
+-- Compute display width of a string, stripping ANSI escape sequences
+-- and counting UTF-8 characters (not bytes).
 local function display_width(s: string): integer
   local stripped = s:gsub("\27%[[%d;]*m", "")
-  return #stripped
+  local len = 0
+  local i = 1
+  while i <= #stripped do
+    local b = stripped:byte(i)
+    if b < 0x80 then
+      i = i + 1
+    elseif b < 0xE0 then
+      i = i + 2
+    elseif b < 0xF0 then
+      i = i + 3
+    else
+      i = i + 4
+    end
+    len = len + 1
+  end
+  return len
 end
 
 -- Render a table block from raw markdown lines into box-drawing output.
@@ -233,9 +249,36 @@ local function render_markdown(text: string): string
   return table.concat(result, "\n")
 end
 
+-- Truncate a string to at most max_chars UTF-8 characters, appending suffix
+-- if truncated. Safe: never splits a multi-byte sequence.
+local function utf8_truncate(s: string, max_chars: integer, suffix: string): string
+  suffix = suffix or "..."
+  local char_count = 0
+  local i = 1
+  while i <= #s do
+    local b = s:byte(i)
+    local seq_len = 1
+    if b >= 0xF0 then
+      seq_len = 4
+    elseif b >= 0xE0 then
+      seq_len = 3
+    elseif b >= 0xC0 then
+      seq_len = 2
+    end
+    char_count = char_count + 1
+    if char_count > max_chars then
+      return s:sub(1, i - 1) .. suffix
+    end
+    i = i + seq_len
+  end
+  return s
+end
+
 return {
   render_markdown = render_markdown,
   apply_inline = apply_inline,
   colorize_diff_line = colorize_diff_line,
   render_table = render_table,
+  display_width = display_width,
+  utf8_truncate = utf8_truncate,
 }

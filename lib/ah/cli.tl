@@ -397,8 +397,8 @@ local function make_cli_handler(skill_name: string, session_ulid?: string): even
           local max_lines = 3
           for j = 1, math.min(max_lines, #lines) do
             local line = lines[j]
-            if #line > 80 then
-              line = line:sub(1, 77) .. "..."
+            if render.display_width(line) > 80 then
+              line = render.utf8_truncate(line, 77, "...")
             end
             if is_diff_cmd then
               local colored = render.colorize_diff_line(line)

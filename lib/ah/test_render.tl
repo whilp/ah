@@ -295,6 +295,72 @@ local function test_ragged_table()
   print("PASS: ragged table")
 end
 
+-- test: table with multi-byte UTF-8 characters aligns correctly
+local function test_utf8_table()
+  local input = "| Name | City |\n|------|------|\n| Alice | Zürich |\n| Bob | Paris |\n"
+  local result = render.render_markdown(input)
+  -- All rows should have same visual width between │ delimiters.
+  -- Extract lines with │ (data rows) and check they have consistent segments.
+  local data_lines: {string} = {}
+  for line in result:gmatch("([^\n]+)") do
+    if line:sub(1, 3) == "│" then
+      table.insert(data_lines, line)
+    end
+  end
+  assert(#data_lines >= 2, "should have at least 2 data rows, got: " .. #data_lines)
+  -- Strip ANSI codes and check visual widths match
+  local function strip_ansi(s: string): string
+    return (s:gsub("\27%[[%d;]*m", ""))
+  end
+  local function utf8len(s: string): integer
+    local len = 0
+    local i = 1
+    while i <= #s do
+      local b = s:byte(i)
+      if b < 0x80 then i = i + 1
+      elseif b < 0xE0 then i = i + 2
+      elseif b < 0xF0 then i = i + 3
+      else i = i + 4 end
+      len = len + 1
+    end
+    return len
+  end
+  local widths: {integer} = {}
+  for _, line in ipairs(data_lines) do
+    table.insert(widths, utf8len(strip_ansi(line)))
+  end
+  for i = 2, #widths do
+    assert(widths[i] == widths[1],
+      "data row " .. i .. " width " .. widths[i] .. " != header width " .. widths[1] .. "\n" .. result)
+  end
+  print("PASS: table with multi-byte UTF-8 characters aligns correctly")
+end
+
+-- test: display_width counts UTF-8 characters not bytes
+local function test_display_width()
+  -- re-export display_width
+  local dw = (render as {string: function(string): integer}).display_width
+  assert(dw("hello") == 5, "ASCII should be 5")
+  assert(dw("café") == 4, "café should be 4 chars, not 5 bytes")
+  assert(dw("日本語") == 3, "3 CJK chars")
+  assert(dw("a\27[1mb\27[0mc") == 3, "ANSI codes should be stripped")
+  assert(dw("") == 0, "empty string")
+  print("PASS: display_width counts UTF-8 characters not bytes")
+end
+
+-- test: utf8_truncate never splits multi-byte sequences
+local function test_utf8_truncate()
+  local trunc = (render as {string: function(string, integer, string): string}).utf8_truncate
+  assert(trunc("hello", 3, "...") == "hel...", "ASCII truncate")
+  assert(trunc("hi", 10, "...") == "hi", "no truncate when short")
+  assert(trunc("café", 3, "...") == "caf...", "truncate before é")
+  assert(trunc("café", 4, "...") == "café", "exact length no truncate")
+  -- Verify no broken UTF-8
+  local result = trunc("aübcd", 3, "…")
+  assert(result == "aüb…", "should not split ü, got: " .. result)
+  print("PASS: utf8_truncate never splits multi-byte sequences")
+end
+
 test_h1_heading()
 test_h2_heading()
 test_h3_heading()
@@ -322,3 +388,6 @@ test_inline_formatting_in_cells()
 test_empty_cells()
 test_render_table_direct()
 test_ragged_table()
+test_utf8_table()
+test_display_width()
+test_utf8_truncate()

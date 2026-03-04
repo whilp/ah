@@ -3,6 +3,7 @@ local fs = require("cosmic.fs")
 local db = require("ah.db")
 local ulid = require("ulid")
 local cli = require("ah.cli")
+local render = require("ah.render")
 
 -- Session record for listing
 local record Session
@@ -113,10 +114,8 @@ local function cmd_sessions(cwd: string, current_ulid: string)
     local time_str = decoded and decoded.time or "unknown"
     local short_ulid = s.ulid:sub(1, 11)
     local name_str = s.name and string.format("  [%s]", s.name) or ""
-    local preview = s.first_prompt:gsub("\n", " "):sub(1, 40)
-    if #s.first_prompt > 40 then
-      preview = preview .. "..."
-    end
+    local flat_prompt = s.first_prompt:gsub("\n", " ")
+    local preview = render.utf8_truncate(flat_prompt, 40, "...")
     io.write(string.format("%s %s  %s  %2d msgs%s  %s\n",
         marker, short_ulid, time_str, s.msg_count, name_str, preview))
   end
