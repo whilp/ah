@@ -376,6 +376,16 @@ local function main(args: {string}): integer, string
   local qdb, qerr = queue.open(queue_path)
   if not qdb then db.close(d); return 1, qerr end
 
+  -- Crash recovery: reset "processing" state when no live lock (previous crash).
+  local prev_state = db.get_session_state(d)
+  if prev_state == "processing" then
+    local locked, _ = queue.is_locked(qdb)
+    if not locked then
+      db.set_session_state(d, "idle")
+      io.stderr:write("session was in processing state (crash recovery): reset to idle\n")
+    end
+  end
+
   if cmd == "usage" then
     sessions_mod.cmd_usage(d)
     queue.close(qdb); db.close(d)
