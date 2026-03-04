@@ -416,15 +416,11 @@ test_find_pager_cached()
 
 local function test_run_pager_cat_passthrough()
   local content = "local x = 1\nlocal y = 2\n"
-  -- With child.spawn + stdin, cat reads from stdin and ignores unknown flags.
-  -- run_pager passes extra args (--file-name, --color, --style) as argv elements,
-  -- which cat will attempt to open as files. On Linux, cat ignores unrecognized
-  -- long options and reads stdin when given no valid files. We verify stdin content
-  -- is present in output.
+  -- run_pager passes bat-style flags (--file-name=, --color=, --style=) to the
+  -- pager binary. cat does not recognize these flags and exits non-zero, so
+  -- run_pager should return nil rather than crashing.
   local result = cli.run_pager("cat", content, "foo.tl")
-  -- cat may fail if it tries to open --file-name=foo.tl as a file; that's OK.
-  -- The test just checks nil/non-nil behavior is consistent.
-  assert(result == nil or type(result) == "string", "run_pager result should be string or nil, got: " .. type(tostring(result)))
+  assert(result == nil, "run_pager should return nil when pager rejects its flags, got: " .. tostring(result))
 end
 test_run_pager_cat_passthrough()
 
