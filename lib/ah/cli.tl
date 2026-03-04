@@ -329,21 +329,26 @@ local function make_cli_handler(skill_name: string, session_ulid?: string): even
         io.stderr:write("\n")
       end
 
-      local prefix = is_tty and "⠋ " or ""
-      io.stderr:write(string.format("%s%s%s%s\n", DIM, prefix, event.tool_name, RESET))
-
       local key = event.tool_key or ""
-      if key ~= "" then
-        local indent = "  "
-        local cmd_prefix = event.tool_name == "bash" and "$ " or ""
-        if event.tool_name == "bash" then
-          local term_width = 80
-          local ws = tty.winsize(2)
-          if ws then term_width = ws.cols as integer end
-          local wrap_indent = indent .. "  "
-          key = loop.wrap_command(key, term_width - #indent - #cmd_prefix, wrap_indent)
+
+      if event.tool_name == "bash" then
+        -- Bash: single line with braille bracket, "⠋ $ command"
+        local prefix = is_tty and "⠋ " or ""
+        local term_width = 80
+        local ws = tty.winsize(2)
+        if ws then term_width = ws.cols as integer end
+        local wrap_indent = "    "
+        local available = term_width - #prefix - 2 -- 2 for "$ "
+        local wrapped = loop.wrap_command(key, available, wrap_indent)
+        io.stderr:write(string.format("%s%s$ %s%s\n", DIM, prefix, wrapped, RESET))
+      else
+        -- Non-bash: tool name with optional key
+        local prefix = is_tty and "⠋ " or ""
+        if key ~= "" then
+          io.stderr:write(string.format("%s%s%s %s%s\n", DIM, prefix, event.tool_name, key, RESET))
+        else
+          io.stderr:write(string.format("%s%s%s%s\n", DIM, prefix, event.tool_name, RESET))
         end
-        io.stderr:write(string.format("%s%s%s%s%s\n", DIM, indent, cmd_prefix, key, RESET))
       end
 
     elseif t == "tool_call_end" then
@@ -424,10 +429,31 @@ local function make_cli_handler(skill_name: string, session_ulid?: string): even
         end
       end
 
-      if is_tty and event.is_error then
-        io.stderr:write(string.format("%s\27[1;33m✗ %.1fs\27[0m\n", indent, elapsed))
+      if event.tool_name == "bash" then
+        -- Bash: mirror braille bracket with duration, line count, exit status
+        local line_count = 0
+        if result ~= "" and result ~= "(no output)" then
+          for _ in result:gmatch("\n") do line_count = line_count + 1 end
+          if result:sub(-1) ~= "\n" then line_count = line_count + 1 end
+        end
+        local suffix = is_tty and "⠜ " or "  "
+        local parts: {string} = {}
+        table.insert(parts, string.format("%.1fs", elapsed))
+        if line_count > 0 then
+          table.insert(parts, string.format("%d line%s", line_count, line_count == 1 and "" or "s"))
+        end
+        local summary = table.concat(parts, ", ")
+        if is_tty and event.is_error then
+          io.stderr:write(string.format("\27[1;33m%s✗ %s\27[0m\n", suffix, summary))
+        else
+          io.stderr:write(string.format("%s%s%s%s\n", DIM, suffix, summary, RESET))
+        end
       else
-        io.stderr:write(string.format("%s%s%.1fs%s\n", indent, DIM, elapsed, RESET))
+        if is_tty and event.is_error then
+          io.stderr:write(string.format("%s\27[1;33m✗ %.1fs\27[0m\n", indent, elapsed))
+        else
+          io.stderr:write(string.format("%s%s%.1fs%s\n", indent, DIM, elapsed, RESET))
+        end
       end
 
       -- Blank line after tool block

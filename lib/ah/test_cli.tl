@@ -171,7 +171,7 @@ test_make_cli_handler_agent_end_no_tokens_no_output()
 
 -- tool_call_start / tool_call_end output ordering tests
 
-local function test_tool_call_start_shows_name_and_command()
+local function test_tool_call_start_bash_single_line()
   local handler = cli.make_cli_handler(nil)
   local output = capture_stderr(function()
       handler({
@@ -183,11 +183,10 @@ local function test_tool_call_start_shows_name_and_command()
           tool_count = 1,
         } as events.EventData)
     end)
-  assert(output:match("bash"), "tool_call_start should show tool name, got: " .. output)
-  assert(output:match("echo hello"), "tool_call_start should show command, got: " .. output)
+  assert(output:match("%$ echo hello"), "tool_call_start should show $ command, got: " .. output)
   assert(not output:match("%.%ds"), "tool_call_start should not show elapsed time, got: " .. output)
 end
-test_tool_call_start_shows_name_and_command()
+test_tool_call_start_bash_single_line()
 
 local function test_tool_call_end_shows_output_then_time()
   local handler = cli.make_cli_handler(nil)
@@ -205,6 +204,7 @@ local function test_tool_call_end_shows_output_then_time()
     end)
   assert(output:match("hello world"), "tool_call_end should show output, got: " .. output)
   assert(output:match("1%.5s"), "tool_call_end should show elapsed time, got: " .. output)
+  assert(output:match("1 line"), "tool_call_end should show line count, got: " .. output)
   assert(not output:match("bash"), "tool_call_end should not repeat tool name, got: " .. output)
   -- Elapsed time should appear after output
   local output_pos = output:find("hello world")
@@ -228,8 +228,47 @@ local function test_tool_call_end_error_shows_marker()
         } as events.EventData)
     end)
   assert(output:match("0%.2s"), "error tool_call_end should show elapsed time, got: " .. output)
+  assert(output:match("1 line"), "error tool_call_end should show line count, got: " .. output)
 end
 test_tool_call_end_error_shows_marker()
+
+local function test_tool_call_end_bash_multiline()
+  local handler = cli.make_cli_handler(nil)
+  local output = capture_stderr(function()
+      handler({
+          event_type = "tool_call_end",
+          tool_name = "bash",
+          tool_key = "ls",
+          tool_output = "foo\nbar\nbaz\n",
+          is_error = false,
+          duration_ms = 100,
+          tool_index = 1,
+          tool_count = 1,
+        } as events.EventData)
+    end)
+  assert(output:match("3 lines"), "bash multiline should show '3 lines', got: " .. output)
+  assert(output:match("0%.1s"), "should show elapsed time, got: " .. output)
+end
+test_tool_call_end_bash_multiline()
+
+local function test_tool_call_end_bash_no_output()
+  local handler = cli.make_cli_handler(nil)
+  local output = capture_stderr(function()
+      handler({
+          event_type = "tool_call_end",
+          tool_name = "bash",
+          tool_key = "true",
+          tool_output = "(no output)",
+          is_error = false,
+          duration_ms = 50,
+          tool_index = 1,
+          tool_count = 1,
+        } as events.EventData)
+    end)
+  assert(output:match("0%.1s"), "no-output bash should show elapsed time, got: " .. output)
+  assert(not output:match("line"), "no-output bash should not show line count, got: " .. output)
+end
+test_tool_call_end_bash_no_output()
 
 -- find_difftool tests
 
