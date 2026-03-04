@@ -228,11 +228,32 @@ local function test_tool_call_end_error_shows_exit_code()
         } as events.EventData)
     end)
   assert(output:match("0%.2s"), "error tool_call_end should show elapsed time, got: " .. output)
-  assert(output:match("1 line"), "error tool_call_end should show line count, got: " .. output)
-  assert(output:match("exit 1"), "error tool_call_end should show exit code, got: " .. output)
+  assert(output:match("exit 1"), "error tool_call_end should show exit code in summary, got: " .. output)
   assert(not output:match("✗"), "error tool_call_end should not show ✗, got: " .. output)
+  -- "exit code: 1" should be stripped from preview (only shown in ⠜ summary)
+  assert(not output:match("exit code: 1"), "exit code line should be stripped from preview, got: " .. output)
 end
 test_tool_call_end_error_shows_exit_code()
+
+local function test_tool_call_end_error_with_output()
+  local handler = cli.make_cli_handler(nil)
+  local output = capture_stderr(function()
+      handler({
+          event_type = "tool_call_end",
+          tool_name = "bash",
+          tool_key = "ls /nonexistent",
+          tool_output = "ls: /nonexistent: No such file or directory\nexit code: 2",
+          is_error = true,
+          duration_ms = 100,
+          tool_index = 1,
+          tool_count = 1,
+        } as events.EventData)
+    end)
+  assert(output:match("No such file"), "should show actual error output, got: " .. output)
+  assert(output:match("exit 2"), "should show exit code in summary, got: " .. output)
+  assert(not output:match("exit code: 2"), "exit code line should be stripped, got: " .. output)
+end
+test_tool_call_end_error_with_output()
 
 local function test_tool_call_end_bash_multiline()
   local handler = cli.make_cli_handler(nil)

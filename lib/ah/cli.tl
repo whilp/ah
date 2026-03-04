@@ -399,6 +399,12 @@ local function make_cli_handler(skill_name: string, session_ulid?: string): even
           for line in result:gmatch("[^\n]+") do
             table.insert(lines, line)
           end
+          -- For bash, strip trailing "exit code: N" / timeout lines (shown in ⠜ summary)
+          if event.tool_name == "bash" then
+            while #lines > 0 and (lines[#lines]:match("^exit code: %d+$") or lines[#lines]:match("^error: command timed out")) do
+              table.remove(lines)
+            end
+          end
           local max_lines = 3
           for j = 1, math.min(max_lines, #lines) do
             local line = lines[j]
