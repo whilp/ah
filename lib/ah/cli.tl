@@ -442,12 +442,16 @@ local function make_cli_handler(skill_name: string, session_ulid?: string): even
         if line_count > 0 then
           table.insert(parts, string.format("%d line%s", line_count, line_count == 1 and "" or "s"))
         end
-        local summary = table.concat(parts, ", ")
-        if is_tty and event.is_error then
-          io.stderr:write(string.format("\27[1;33m%s✗ %s\27[0m\n", suffix, summary))
-        else
-          io.stderr:write(string.format("%s%s%s%s\n", DIM, suffix, summary, RESET))
+        if event.is_error then
+          local code = result:match("exit code: (%d+)")
+          if code then
+            table.insert(parts, "exit " .. code)
+          else
+            table.insert(parts, "error")
+          end
         end
+        local summary = table.concat(parts, ", ")
+        io.stderr:write(string.format("%s%s%s%s\n", DIM, suffix, summary, RESET))
       else
         if is_tty and event.is_error then
           io.stderr:write(string.format("%s\27[1;33m✗ %.1fs\27[0m\n", indent, elapsed))

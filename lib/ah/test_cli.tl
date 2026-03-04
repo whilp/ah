@@ -213,7 +213,7 @@ local function test_tool_call_end_shows_output_then_time()
 end
 test_tool_call_end_shows_output_then_time()
 
-local function test_tool_call_end_error_shows_marker()
+local function test_tool_call_end_error_shows_exit_code()
   local handler = cli.make_cli_handler(nil)
   local output = capture_stderr(function()
       handler({
@@ -229,8 +229,10 @@ local function test_tool_call_end_error_shows_marker()
     end)
   assert(output:match("0%.2s"), "error tool_call_end should show elapsed time, got: " .. output)
   assert(output:match("1 line"), "error tool_call_end should show line count, got: " .. output)
+  assert(output:match("exit 1"), "error tool_call_end should show exit code, got: " .. output)
+  assert(not output:match("✗"), "error tool_call_end should not show ✗, got: " .. output)
 end
-test_tool_call_end_error_shows_marker()
+test_tool_call_end_error_shows_exit_code()
 
 local function test_tool_call_end_bash_multiline()
   local handler = cli.make_cli_handler(nil)
