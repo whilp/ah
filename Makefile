@@ -136,6 +136,14 @@ ah_sys_other := $(filter-out %.tl,$(ah_sys_files_raw))
 ah_sys := $(patsubst sys/%.tl,$(o)/embed/embed/sys/%.lua,$(ah_sys_tl)) \
           $(patsubst sys/%,$(o)/embed/embed/sys/%,$(ah_sys_other))
 
+# docs files: embed docs/*.md at /zip/embed/sys/docs/
+ah_doc_srcs := $(wildcard docs/*.md)
+ah_docs := $(patsubst docs/%.md,$(o)/embed/embed/sys/docs/%.md,$(ah_doc_srcs))
+
+$(o)/embed/embed/sys/docs/%.md: docs/%.md
+	@mkdir -p $(@D)
+	@cp $< $@
+
 # cosmic skill files: extracted from the cosmic binary at build time
 cosmic_skill_stamp := $(o)/embed/embed/sys/skills/cosmic/.stamp
 
@@ -152,7 +160,7 @@ $(o)/embed/embed/ci/%: %
 	@mkdir -p $(@D)
 	@cp $< $@
 
-$(o)/bin/ah: $(o)/embed/main.lua $(ah_lib_lua) $(ah_dep_lua) $(ah_version_lua) $(ah_sys) $(ah_ci) $(cosmic_skill_stamp) $(cosmic)
+$(o)/bin/ah: $(o)/embed/main.lua $(ah_lib_lua) $(ah_dep_lua) $(ah_version_lua) $(ah_sys) $(ah_docs) $(ah_ci) $(cosmic_skill_stamp) $(cosmic)
 	@echo "==> embedding ah"
 	@$(cosmic) --embed $(o)/embed --output $@.tmp && mv $@.tmp $@
 
@@ -160,7 +168,7 @@ $(o)/bin/ah: $(o)/embed/main.lua $(ah_lib_lua) $(ah_dep_lua) $(ah_version_lua) $
 ## Build ah executable archive
 ah: $(o)/bin/ah
 
-$(o)/bin/ah-debug: $(o)/embed/main.lua $(ah_lib_lua) $(ah_dep_lua) $(ah_version_lua) $(ah_sys) $(ah_ci) $(cosmic_skill_stamp) $(cosmic_debug)
+$(o)/bin/ah-debug: $(o)/embed/main.lua $(ah_lib_lua) $(ah_dep_lua) $(ah_version_lua) $(ah_sys) $(ah_docs) $(ah_ci) $(cosmic_skill_stamp) $(cosmic_debug)
 	@echo "==> embedding ah-debug"
 	@$(cosmic_debug) --embed $(o)/embed --output $@.tmp && mv $@.tmp $@
 

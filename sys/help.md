@@ -6,6 +6,7 @@ commands:
   sessions            list all sessions
   usage               show token usage and cache stats
   limits              show Claude Max subscription usage (OAuth only)
+  docs <query>        search embedded documentation
   embed <dir>         embed files into /zip/embed/
   extract <dir>       extract /zip/embed/ to directory
 
