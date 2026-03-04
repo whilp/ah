@@ -173,8 +173,35 @@ local function test_parse_args_no_sandbox_defaults()
   local parsed = args_mod.parse_args({"hello"})
   assert(parsed, "should parse successfully")
   assert(not parsed.sandbox, "sandbox should be false by default")
+  assert(not parsed.sandbox_ro, "sandbox_ro should be false by default")
 end
 test_parse_args_no_sandbox_defaults()
+
+-- sandbox-ro tests
+
+local function test_parse_args_sandbox_ro()
+  local parsed = args_mod.parse_args({"--sandbox-ro", "hello"})
+  assert(parsed, "should parse successfully")
+  assert(parsed.sandbox_ro == true, "sandbox_ro should be true")
+  assert(not parsed.sandbox, "sandbox should remain false")
+end
+test_parse_args_sandbox_ro()
+
+local function test_parse_args_sandbox_ro_with_sandbox()
+  local parsed = args_mod.parse_args({"--sandbox", "--sandbox-ro", "hello"})
+  assert(parsed, "should parse successfully")
+  assert(parsed.sandbox == true, "sandbox should be true")
+  assert(parsed.sandbox_ro == true, "sandbox_ro should be true")
+end
+test_parse_args_sandbox_ro_with_sandbox()
+
+local function test_parse_args_sandbox_ro_with_pledge()
+  local parsed = args_mod.parse_args({"--sandbox-ro", "--pledge", "stdio rpath", "hello"})
+  assert(parsed, "should parse successfully")
+  assert(parsed.sandbox_ro == true, "sandbox_ro should be true")
+  assert(parsed.pledge_promises == "stdio rpath", "explicit pledge should be preserved")
+end
+test_parse_args_sandbox_ro_with_pledge()
 
 -- parse_unveil helper tests
 
@@ -225,6 +252,7 @@ local function test_usage_text_contains_all_options()
     "help", "new", "session", "name", "db", "model", "output", "cd",
     "steer", "followup", "max-tokens", "max-session-tokens", "max-turn-tokens",
     "sandbox", "timeout", "allow-host", "unveil", "pledge", "skill", "must-produce",
+    "sandbox-ro",
   }
   for _, opt in ipairs(defined_options) do
     assert(help:find("--" .. opt, 1, true), "help text missing option: --" .. opt)

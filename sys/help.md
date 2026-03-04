@@ -28,6 +28,7 @@ options:
   --must-produce FILE require the agent to write FILE before finishing
   -t, --tool NAME=CMD register a .tl/.lua tool (repeatable, overrides all tiers)
   --sandbox           run inside network sandbox (proxy + allow-host)
+  --sandbox-ro        unveil cwd as read-only (rx), db in /tmp, drop write syscalls
   --timeout N         wall-clock timeout in seconds
   --allow-host H:P    allow egress to host:port (repeatable, default: api.anthropic.com:443)
   --unveil PATH:PERM  restrict filesystem visibility (repeatable, perms: r/w/x/c)

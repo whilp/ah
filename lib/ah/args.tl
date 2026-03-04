@@ -15,6 +15,7 @@ local record ParsedArgs
   max_session_tokens: integer
   max_turn_tokens: integer
   sandbox: boolean
+  sandbox_ro: boolean
   timeout: integer
   allow_hosts: {string}
   unveil_dirs: {string}
@@ -69,6 +70,7 @@ local function parse_args(args: {string}): ParsedArgs, string
   local result: ParsedArgs = {
     new_session = false,
     sandbox = false,
+    sandbox_ro = false,
     allow_hosts = {},
     unveil_dirs = {},
     tool_overrides = {},
@@ -90,6 +92,7 @@ local function parse_args(args: {string}): ParsedArgs, string
     {name = "max-session-tokens", has_arg = "required"},
     {name = "max-turn-tokens", has_arg = "required"},
     {name = "sandbox", has_arg = "none"},
+    {name = "sandbox-ro", has_arg = "none"},
     {name = "timeout", has_arg = "required"},
     {name = "allow-host", has_arg = "required"},
     {name = "unveil", has_arg = "required"},
@@ -137,6 +140,8 @@ local function parse_args(args: {string}): ParsedArgs, string
       result.max_turn_tokens = tonumber(optarg) as integer
     elseif opt == "sandbox" then
       result.sandbox = true
+    elseif opt == "sandbox-ro" then
+      result.sandbox_ro = true
     elseif opt == "timeout" then
       result.timeout = tonumber(optarg) as integer
     elseif opt == "allow-host" then

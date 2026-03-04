@@ -65,8 +65,9 @@ end
 
 -- apply_unveil sets up filesystem visibility restrictions.
 -- cwd is the working directory; extra_dirs is a comma-separated list of "path:perms".
-local function apply_unveil(cwd: string, extra_dirs: string)
-  sandbox.unveil(cwd, "rwxc")
+-- cwd_perms is the permissions for cwd (default: "rwxc").
+local function apply_unveil(cwd: string, extra_dirs: string, cwd_perms: string)
+  sandbox.unveil(cwd, cwd_perms or "rwxc")
   local protect = args_mod.parse_protect_dirs(os.getenv("AH_PROTECT_DIRS"))
   for _, dir in ipairs(protect) do
     sandbox.unveil(cwd .. "/" .. dir, "r")
@@ -97,27 +98,26 @@ local function apply_unveil(cwd: string, extra_dirs: string)
 end
 
 local function main(args: {string}): integer, string
-  -- Load embedded env.d/ variables before anything else.
   envd.load()
-
-  -- Enable core dumps for crash debugging
   proc.setrlimit(4, -1, -1)
 
-  -- Sandbox mode: when AH_SANDBOX=1, apply network sandbox restrictions.
-  -- When AH_UNVEIL is set (with or without AH_SANDBOX), apply unveil.
-  -- When AH_PLEDGE is set (with or without AH_SANDBOX), apply pledge.
+  -- Apply sandbox from env (child re-entry or standalone --unveil/--pledge).
   local in_sandbox = os.getenv("AH_SANDBOX")
   local unveil_env = os.getenv("AH_UNVEIL")
   local pledge_env = os.getenv("AH_PLEDGE")
+  local sandbox_ro_env = os.getenv("AH_SANDBOX_RO")
 
   if in_sandbox or unveil_env then
-    apply_unveil(fs.getcwd(), unveil_env)
+    local cwd_perms = sandbox_ro_env and "rx" or "rwxc"
+    apply_unveil(fs.getcwd(), unveil_env, cwd_perms)
   end
 
   if in_sandbox or pledge_env then
     local PLEDGE_PENALTY_RETURN_EPERM = 2
-    local promises = pledge_env or "stdio rpath wpath cpath flock tty proc exec execnative unix prot_exec"
-    sandbox.pledge(promises, promises, PLEDGE_PENALTY_RETURN_EPERM)
+    local default_promises = sandbox_ro_env
+    and "stdio rpath flock tty proc exec execnative unix prot_exec"
+    or "stdio rpath wpath cpath flock tty proc exec execnative unix prot_exec"
+    sandbox.pledge(pledge_env or default_promises, pledge_env or default_promises, PLEDGE_PENALTY_RETURN_EPERM)
   end
 
   local parsed, err = args_mod.parse_args(args)
@@ -157,16 +157,18 @@ local function main(args: {string}): integer, string
   local max_tokens = parsed.max_session_tokens
   local remaining = parsed.remaining
 
-  -- Supervisor mode: --sandbox starts proxy, re-execs as sandboxed child.
-  -- --unveil and --pledge alone apply restrictions inline (no fork needed).
-  if not parsed.sandbox and (#parsed.unveil_dirs > 0 or parsed.pledge_promises) then
-    -- Apply unveil/pledge inline without forking a child process.
-    if #parsed.unveil_dirs > 0 then
-      apply_unveil(fs.getcwd(), table.concat(parsed.unveil_dirs, ","))
+  -- --unveil/--pledge/--sandbox-ro alone apply restrictions inline (no fork needed).
+  if not parsed.sandbox and (#parsed.unveil_dirs > 0 or parsed.pledge_promises or parsed.sandbox_ro) then
+    if #parsed.unveil_dirs > 0 or parsed.sandbox_ro then
+      local cwd_perms = parsed.sandbox_ro and "rx" or "rwxc"
+      apply_unveil(fs.getcwd(), table.concat(parsed.unveil_dirs, ","), cwd_perms)
     end
+    local PLEDGE_PENALTY_RETURN_EPERM = 2
     if parsed.pledge_promises then
-      local PLEDGE_PENALTY_RETURN_EPERM = 2
       sandbox.pledge(parsed.pledge_promises, parsed.pledge_promises, PLEDGE_PENALTY_RETURN_EPERM)
+    elseif parsed.sandbox_ro then
+      local ro_promises = "stdio rpath flock tty proc exec execnative unix prot_exec"
+      sandbox.pledge(ro_promises, ro_promises, PLEDGE_PENALTY_RETURN_EPERM)
     end
   end
 
@@ -207,6 +209,9 @@ local function main(args: {string}): integer, string
     if parsed.pledge_promises then
       sbox.env_set(run_env, "AH_PLEDGE", parsed.pledge_promises)
     end
+    if parsed.sandbox_ro then
+      sbox.env_set(run_env, "AH_SANDBOX_RO", "1")
+    end
 
     local child_args: {string} = {}
     local exe = sbox.ah_exe()
@@ -221,6 +226,8 @@ local function main(args: {string}): integer, string
       local a = args[i]
       if a == "--sandbox" then
         -- skip
+      elseif a == "--sandbox-ro" then
+        -- skip (forwarded via AH_SANDBOX_RO env var)
       elseif a == "--timeout" then i = i + 1
       elseif a == "--allow-host" then i = i + 1
       elseif a == "--unveil" then i = i + 1
@@ -250,7 +257,6 @@ local function main(args: {string}): integer, string
     return 0
   end
 
-  -- Handle commands that don't need db
   local cmd = remaining[1]
   if cmd == "sessions" then
     local sessions = sessions_mod.list_sessions(cwd)
@@ -316,37 +322,41 @@ local function main(args: {string}): integer, string
     return limits_mod.cmd_limits()
   end
 
-  -- Session selection
   local session_ulid: string = nil
   if not db_path then
-    local ah_dir = fs.join(cwd, ".ah")
-    fs.makedirs(ah_dir)
-
-    if new_session and session_name then
-      return 1, "--new and --name cannot be used together"
-    elseif session_name then
-      local sessions = sessions_mod.list_sessions(cwd)
-      local found: sessions_mod.Session = nil
-      for _, s in ipairs(sessions) do
-        if s.name == session_name then
-          if found then return 1, "duplicate session name: " .. session_name end
-          found = s
-        end
-      end
-      if found then session_ulid = found.ulid else session_ulid = ulid.generate() end
-    elseif new_session then
+    if parsed.sandbox_ro then
       session_ulid = ulid.generate()
-    elseif session_prefix then
-      local resolved, rerr = sessions_mod.resolve_session(cwd, session_prefix)
-      if not resolved then return 1, rerr end
-      session_ulid = resolved
+      db_path = "/tmp/ah-ro-" .. session_ulid .. ".db"
     else
-      local sessions = sessions_mod.list_sessions(cwd)
-      if #sessions > 0 then session_ulid = sessions[1].ulid
-      else session_ulid = ulid.generate() end
-    end
+      local ah_dir = fs.join(cwd, ".ah")
+      fs.makedirs(ah_dir)
 
-    db_path = fs.join(ah_dir, session_ulid .. ".db")
+      if new_session and session_name then
+        return 1, "--new and --name cannot be used together"
+      elseif session_name then
+        local sessions = sessions_mod.list_sessions(cwd)
+        local found: sessions_mod.Session = nil
+        for _, s in ipairs(sessions) do
+          if s.name == session_name then
+            if found then return 1, "duplicate session name: " .. session_name end
+            found = s
+          end
+        end
+        if found then session_ulid = found.ulid else session_ulid = ulid.generate() end
+      elseif new_session then
+        session_ulid = ulid.generate()
+      elseif session_prefix then
+        local resolved, rerr = sessions_mod.resolve_session(cwd, session_prefix)
+        if not resolved then return 1, rerr end
+        session_ulid = resolved
+      else
+        local sessions = sessions_mod.list_sessions(cwd)
+        if #sessions > 0 then session_ulid = sessions[1].ulid
+        else session_ulid = ulid.generate() end
+      end
+
+      db_path = fs.join(ah_dir, session_ulid .. ".db")
+    end
   end
 
   local queue_path = db_path:gsub("%.db$", ".queue.db")

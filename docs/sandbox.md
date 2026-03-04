@@ -13,12 +13,32 @@ be used independently.
 | flag | effect |
 |------|--------|
 | `--sandbox` | network sandbox only: starts HTTP CONNECT proxy, sets `https_proxy` for agent |
+| `--sandbox-ro` | read-only workspace: unveils cwd as `rx`, redirects session DB to `/tmp`, drops `wpath`/`cpath` from pledge |
 | `--unveil PATH:PERM` | restrict filesystem visibility (repeatable) |
 | `--pledge PROMISES` | restrict syscalls to given pledge promises |
 | `--allow-host H:P` | add host:port to proxy allowlist (repeatable) |
 
 flags can be combined freely. `--sandbox` no longer implies `--unveil` or
 `--pledge`. `--unveil` and `--pledge` no longer require `--sandbox`.
+`--sandbox-ro` can be used standalone or combined with `--sandbox`.
+
+## `--sandbox-ro` mode
+
+when `--sandbox-ro` is passed, ah:
+
+1. unveils cwd as `rx` (read + execute) instead of `rwxc`. write and edit
+   tools receive EPERM from the OS if they attempt to write inside cwd.
+2. redirects the session DB to `/tmp/ah-ro-<ulid>.db` (instead of `.ah/<ulid>.db`
+   under cwd) so session persistence still works.
+3. drops `wpath` and `cpath` from the default pledge promises, allowing only
+   writes to paths already unveil'd with write permission (e.g. `/tmp`).
+
+`--sandbox-ro` can be combined with `--sandbox` (network isolation) or
+`--unveil`/`--pledge` (custom filesystem/syscall restrictions). when combined
+with `--pledge`, the explicit pledge takes precedence over the RO default.
+
+when combined with `--sandbox`, `AH_SANDBOX_RO=1` is forwarded to the child
+process so unveil and pledge are applied there.
 
 ## `--sandbox` mode
 
@@ -83,6 +103,7 @@ non-allowed destinations are rejected.
 | variable | purpose |
 |----------|---------|
 | `AH_SANDBOX` | set to `1` in the child process when `--sandbox` is used; triggers network proxy restrictions |
+| `AH_SANDBOX_RO` | set to `1` when `--sandbox-ro` is used; triggers read-only cwd unveil and RO pledge |
 | `AH_UNVEIL` | comma-separated `path:perms` entries; triggers unveil even without `AH_SANDBOX` |
 | `AH_PLEDGE` | pledge promises string; triggers pledge even without `AH_SANDBOX` |
 | `AH_ALLOW_HOSTS` | additional `host:port` entries for proxy allowlist |
