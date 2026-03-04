@@ -60,35 +60,14 @@ test_colorize_tool_line_empty()
 
 -- format_tokens tests
 
-local function test_format_tokens_zero()
-  local result = cli.format_tokens(0)
-  assert(result == "0", "0 should format as '0', got: " .. result)
+local function test_format_tokens()
+  assert(cli.format_tokens(0) == "0", "0")
+  assert(cli.format_tokens(999) == "999", "999")
+  assert(cli.format_tokens(1000) == "1.0k", "1000")
+  assert(cli.format_tokens(1200) == "1.2k", "1200")
+  assert(cli.format_tokens(1200000) == "1.2m", "1200000")
 end
-test_format_tokens_zero()
-
-local function test_format_tokens_small()
-  local result = cli.format_tokens(999)
-  assert(result == "999", "999 should format as '999', got: " .. result)
-end
-test_format_tokens_small()
-
-local function test_format_tokens_exact_thousand()
-  local result = cli.format_tokens(1000)
-  assert(result == "1.0k", "1000 should format as '1.0k', got: " .. result)
-end
-test_format_tokens_exact_thousand()
-
-local function test_format_tokens_thousands()
-  local result = cli.format_tokens(1200)
-  assert(result == "1.2k", "1200 should format as '1.2k', got: " .. result)
-end
-test_format_tokens_thousands()
-
-local function test_format_tokens_millions()
-  local result = cli.format_tokens(1200000)
-  assert(result == "1.2m", "1200000 should format as '1.2m', got: " .. result)
-end
-test_format_tokens_millions()
+test_format_tokens()
 
 -- make_cli_handler integration tests
 
@@ -215,6 +194,7 @@ test_tool_call_end_shows_output_then_time()
 
 local function test_tool_call_end_error_shows_exit_code()
   local handler = cli.make_cli_handler(nil)
+  -- Error with only "exit code: N" output
   local output = capture_stderr(function()
       handler({
           event_type = "tool_call_end",
@@ -227,17 +207,12 @@ local function test_tool_call_end_error_shows_exit_code()
           tool_count = 1,
         } as events.EventData)
     end)
-  assert(output:match("0%.2s"), "error tool_call_end should show elapsed time, got: " .. output)
-  assert(output:match("exit 1"), "error tool_call_end should show exit code in summary, got: " .. output)
-  assert(not output:match("✗"), "error tool_call_end should not show ✗, got: " .. output)
-  -- "exit code: 1" should be stripped from preview (only shown in ⠜ summary)
+  assert(output:match("0%.2s"), "should show elapsed time, got: " .. output)
+  assert(output:match("exit 1"), "should show exit code in summary, got: " .. output)
+  assert(not output:match("✗"), "should not show ✗, got: " .. output)
   assert(not output:match("exit code: 1"), "exit code line should be stripped from preview, got: " .. output)
-end
-test_tool_call_end_error_shows_exit_code()
-
-local function test_tool_call_end_error_with_output()
-  local handler = cli.make_cli_handler(nil)
-  local output = capture_stderr(function()
+  -- Error with real output + exit code
+  local output2 = capture_stderr(function()
       handler({
           event_type = "tool_call_end",
           tool_name = "bash",
@@ -249,14 +224,15 @@ local function test_tool_call_end_error_with_output()
           tool_count = 1,
         } as events.EventData)
     end)
-  assert(output:match("No such file"), "should show actual error output, got: " .. output)
-  assert(output:match("exit 2"), "should show exit code in summary, got: " .. output)
-  assert(not output:match("exit code: 2"), "exit code line should be stripped, got: " .. output)
+  assert(output2:match("No such file"), "should show actual error output, got: " .. output2)
+  assert(output2:match("exit 2"), "should show exit code in summary, got: " .. output2)
+  assert(not output2:match("exit code: 2"), "exit code line should be stripped, got: " .. output2)
 end
-test_tool_call_end_error_with_output()
+test_tool_call_end_error_shows_exit_code()
 
-local function test_tool_call_end_bash_multiline()
+local function test_tool_call_end_bash_line_counts()
   local handler = cli.make_cli_handler(nil)
+  -- Multi-line output
   local output = capture_stderr(function()
       handler({
           event_type = "tool_call_end",
@@ -269,14 +245,9 @@ local function test_tool_call_end_bash_multiline()
           tool_count = 1,
         } as events.EventData)
     end)
-  assert(output:match("3 lines"), "bash multiline should show '3 lines', got: " .. output)
-  assert(output:match("0%.1s"), "should show elapsed time, got: " .. output)
-end
-test_tool_call_end_bash_multiline()
-
-local function test_tool_call_end_bash_no_output()
-  local handler = cli.make_cli_handler(nil)
-  local output = capture_stderr(function()
+  assert(output:match("3 lines"), "multiline should show '3 lines', got: " .. output)
+  -- No output
+  local output2 = capture_stderr(function()
       handler({
           event_type = "tool_call_end",
           tool_name = "bash",
@@ -288,10 +259,9 @@ local function test_tool_call_end_bash_no_output()
           tool_count = 1,
         } as events.EventData)
     end)
-  assert(output:match("0%.1s"), "no-output bash should show elapsed time, got: " .. output)
-  assert(not output:match("line"), "no-output bash should not show line count, got: " .. output)
+  assert(not output2:match("line"), "no-output should not show line count, got: " .. output2)
 end
-test_tool_call_end_bash_no_output()
+test_tool_call_end_bash_line_counts()
 
 -- find_difftool tests
 

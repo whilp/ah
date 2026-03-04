@@ -214,6 +214,8 @@ local function make_cli_handler(skill_name: string, session_ulid?: string): even
   local is_tty = tty.isatty(2)
   local is_stdout_tty = tty.isatty(1)
   local is_ci = os.getenv("GITHUB_ACTIONS") == "true"
+  local term = os.getenv("TERM") or ""
+  local is_dumb = term == "dumb" or term == ""
   local DIM = is_tty and "\27[2m" or ""
   local RESET = is_tty and "\27[0m" or ""
   local has_text = false
@@ -333,7 +335,7 @@ local function make_cli_handler(skill_name: string, session_ulid?: string): even
 
       if event.tool_name == "bash" then
         -- Bash: single line with braille bracket, "⠋ $ command"
-        local prefix = is_tty and "⠋ " or ""
+        local prefix = is_dumb and "> " or "⠋ "
         local term_width = 80
         local ws = tty.winsize(2)
         if ws then term_width = ws.cols as integer end
@@ -343,7 +345,7 @@ local function make_cli_handler(skill_name: string, session_ulid?: string): even
         io.stderr:write(string.format("%s%s$ %s%s\n", DIM, prefix, wrapped, RESET))
       else
         -- Non-bash: tool name with optional key
-        local prefix = is_tty and "⠋ " or ""
+        local prefix = is_tty and (is_dumb and "> " or "⠋ ") or ""
         if key ~= "" then
           io.stderr:write(string.format("%s%s%s %s%s\n", DIM, prefix, event.tool_name, key, RESET))
         else
@@ -442,7 +444,7 @@ local function make_cli_handler(skill_name: string, session_ulid?: string): even
           for _ in result:gmatch("\n") do line_count = line_count + 1 end
           if result:sub(-1) ~= "\n" then line_count = line_count + 1 end
         end
-        local suffix = is_tty and "⠜ " or "  "
+        local suffix = is_dumb and "< " or "⠜ "
         local parts: {string} = {}
         table.insert(parts, string.format("%.1fs", elapsed))
         if line_count > 0 then
