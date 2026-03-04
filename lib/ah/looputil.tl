@@ -90,7 +90,7 @@ local function wrap_command(cmd: string, width: integer, indent: string): string
   local current = ""
   for token in cmd:gmatch("%S+") do
     local is_comment = token:sub(1, 1) == "#" and current ~= ""
-    local is_flag = #parts > 0 and token:sub(1, 1) == "-" and #current + 1 + #token > width
+    local is_flag = current ~= "" and token:sub(1, 1) == "-" and #current + 1 + #token > width
     if is_comment or is_flag then
       table.insert(parts, current)
       current = indent .. token
@@ -98,8 +98,8 @@ local function wrap_command(cmd: string, width: integer, indent: string): string
       current = token
     else
       local candidate = current .. " " .. token
-      if #candidate > width and #parts > 0 then
-        -- Even without a flag boundary, line is too long
+      if #candidate > width then
+        -- Line is too long; break before this token
         table.insert(parts, current)
         current = indent .. token
       else
