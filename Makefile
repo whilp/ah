@@ -88,6 +88,7 @@ help:
 	@echo "  check-format        Run format checker on all .tl files"
 	@echo "  lint                Run linter on all tracked files"
 	@echo "  ci                  Run tests, type checks, format checks, and linter"
+	@echo "  install             Install ah binary to \$$(PREFIX)/bin"
 	@echo "  clean               Remove all build artifacts"
 
 .PHONY: test
@@ -237,6 +238,15 @@ release: $(release_assets) $(o)/bin/SHA256SUMS
 		$(release_assets) \
 		$(o)/bin/SHA256SUMS
 
+
+PREFIX ?= /persist/whilp/.local
+
+.PHONY: install
+## Install ah binary to $(PREFIX)/bin
+install: $(o)/bin/ah
+	@mkdir -p $(PREFIX)/bin
+	@cp $(o)/bin/ah $(PREFIX)/bin/ah
+	@echo "==> installed $(PREFIX)/bin/ah"
 
 .PHONY: clean
 ## Remove all build artifacts
