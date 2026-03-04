@@ -1,4 +1,4 @@
--- sys/tools/protect.tl: shared path protection check for AH_PROTECT_DIRS
+-- ah/protect.tl: shared path protection check for AH_PROTECT_DIRS
 local fs = require("cosmic.fs")
 
 local function is_protected(path: string): boolean

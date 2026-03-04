@@ -1,6 +1,6 @@
 -- sys/tools/edit.tl: edit file tool
 local cio = require("cosmic.io")
-local protect = require("protect")
+local protect = require("ah.protect")
 local pathutil = require("ah.pathutil")
 
 return {
