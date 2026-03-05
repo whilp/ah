@@ -53,12 +53,10 @@ end
 local record ChildMod
   spawn: function({string}, {string: any}): ChildHandle, string
 end
-
 local record ChildHandle
   stderr: StderrHandle
   read: function(ChildHandle): boolean, string, string
 end
-
 local record StderrHandle
   read: function(StderrHandle): string
 end
@@ -102,7 +100,6 @@ local function main(args: {string}): integer, string
 
   -- Enable core dumps for crash debugging
   proc.setrlimit(4, -1, -1)
-
   -- Sandbox mode: when AH_SANDBOX=1, apply network sandbox restrictions.
   -- When AH_UNVEIL is set (with or without AH_SANDBOX), apply unveil.
   -- When AH_PLEDGE is set (with or without AH_SANDBOX), apply pledge.
@@ -210,10 +207,6 @@ local function main(args: {string}): integer, string
 
     local child_args: {string} = {}
     local exe = sbox.ah_exe()
-    if parsed.timeout and parsed.timeout > 0 then
-      table.insert(child_args, "timeout")
-      table.insert(child_args, tostring(parsed.timeout))
-    end
     table.insert(child_args, exe)
 
     local i = 1
@@ -221,7 +214,6 @@ local function main(args: {string}): integer, string
       local a = args[i]
       if a == "--sandbox" then
         -- skip
-      elseif a == "--timeout" then i = i + 1
       elseif a == "--allow-host" then i = i + 1
       elseif a == "--unveil" then i = i + 1
       elseif a == "--pledge" then i = i + 1
@@ -449,6 +441,9 @@ local function main(args: {string}): integer, string
   if parsed.must_produce then
     effective_system = effective_system .. "\n\nIMPORTANT: You must write the file `" .. parsed.must_produce .. "` before finishing."
   end
+  if parsed.timeout and parsed.timeout > 0 then
+    effective_system = effective_system .. "\n\nYou have " .. tostring(parsed.timeout) .. " seconds of wall-clock time. Budget your turns accordingly."
+  end
 
   local lock_acquired, lock_err = queue.try_acquire_lock(qdb)
   if not lock_acquired then
@@ -458,11 +453,16 @@ local function main(args: {string}): integer, string
     return 0
   end
 
-  signal.sigaction(signal.SIGINT, function()
-      interrupted = true
-      tools.abort_running_tools()
-      queue.release_lock(qdb)
-    end)
+  local function on_interrupt()
+    interrupted = true
+    tools.abort_running_tools()
+    queue.release_lock(qdb)
+  end
+  signal.sigaction(signal.SIGINT, on_interrupt)
+  if parsed.timeout and parsed.timeout > 0 then
+    signal.sigaction(signal.SIGALRM, on_interrupt)
+    signal.setitimer({which = signal.ITIMER_REAL, valuesec = parsed.timeout, valuens = 0, intervalsec = 0, intervalns = 0})
+  end
 
   local effective_model = api.resolve_model(model or os.getenv("AH_MODEL"))
   local on_event = cli_mod.make_cli_handler(parsed.skill, session_ulid)
