@@ -78,10 +78,9 @@ local function run_piped(tool: string, content: string, extra_args: {string}): s
   if not h then
     return nil
   end
-  local ok, stdout, _ = h:read()
-  if not ok then
-    return nil
-  end
+  -- Ignore ok and exit code: tools like delta exit 1 when showing diffs,
+  -- but their stdout is still valid output. Empty stdout means no output.
+  local _, stdout, _ = h:read()
   local output = (stdout as string) or ""
   if output == "" then
     return nil
