@@ -454,17 +454,17 @@ local function test_run_pager_empty_filename()
 end
 test_run_pager_empty_filename()
 
-local function test_find_pager_prefers_dat()
+local function test_find_pager_finds_bat()
   cli.reset_pager_cache()
   local unix = require("cosmo.unix")
-  local has_dat = unix.commandv("dat")
-  if has_dat then
+  local has_bat = unix.commandv("bat")
+  if has_bat then
     local result = cli.find_pager()
-    assert(result ~= nil and result:find("dat") ~= nil, "find_pager should prefer dat, got: " .. tostring(result))
+    assert(result ~= nil and result:find("bat") ~= nil, "find_pager should find bat, got: " .. tostring(result))
   end
   cli.reset_pager_cache()
 end
-test_find_pager_prefers_dat()
+test_find_pager_finds_bat()
 
 local function test_make_cli_handler_agent_end_shows_session_id()
   local fake_ulid = "01ABCDEFGHIJKLMNOPQRSTUVWX"

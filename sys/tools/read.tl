@@ -91,31 +91,31 @@ return {
     local offset = (input.offset as integer) or 1
     local limit = (input.limit as integer) or 0
 
-    local total_lines = 0
-    for _ in content:gmatch("[^\n]*") do
-      total_lines = total_lines + 1
+    -- Split content into lines, dropping the phantom empty match after a
+    -- trailing newline so files ending with \n don't get a spurious extra line.
+    local all_lines: {string} = {}
+    for line in content:gmatch("[^\n]*") do
+      table.insert(all_lines, line)
     end
+    if #all_lines > 0 and all_lines[#all_lines] == "" and content:sub(-1) == "\n" then
+      table.remove(all_lines)
+    end
+    local total_lines = #all_lines
 
     if offset > 1 or limit > 0 then
       local lines: {string} = {}
-      local line_num = 0
-      for line in content:gmatch("[^\n]*") do
-        line_num = line_num + 1
-        if line_num >= offset then
-          if limit > 0 and line_num >= offset + limit then
-            break
-          end
-          table.insert(lines, string.format("%d\t%s", line_num, line))
+      for i = offset, #all_lines do
+        if limit > 0 and i >= offset + limit then
+          break
         end
+        table.insert(lines, string.format("%d\t%s", i, all_lines[i]))
       end
       return table.concat(lines, "\n"), false, {path = file_path, line_count = total_lines}
     end
 
     local lines: {string} = {}
-    local line_num = 0
-    for line in content:gmatch("[^\n]*") do
-      line_num = line_num + 1
-      table.insert(lines, string.format("%d\t%s", line_num, line))
+    for i = 1, #all_lines do
+      table.insert(lines, string.format("%d\t%s", i, all_lines[i]))
     end
     return table.concat(lines, "\n"), false, {path = file_path, line_count = total_lines}
   end,
