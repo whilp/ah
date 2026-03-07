@@ -210,4 +210,90 @@ local function test_truncate_chars_notice_content()
 end
 test_truncate_chars_notice_content()
 
+-- sanitize_utf8 tests
+local function test_sanitize_utf8_ascii()
+  local result, changed = truncate.sanitize_utf8("hello world")
+  assert(result == "hello world", "ascii unchanged")
+  assert(not changed, "no change for ascii")
+  print("✓ sanitize_utf8 ascii passthrough")
+end
+test_sanitize_utf8_ascii()
+
+local function test_sanitize_utf8_valid_multibyte()
+  local s = "café résumé"
+  local result, changed = truncate.sanitize_utf8(s)
+  assert(result == s, "valid utf8 unchanged")
+  assert(not changed, "no change for valid utf8")
+  print("✓ sanitize_utf8 valid multibyte passthrough")
+end
+test_sanitize_utf8_valid_multibyte()
+
+local function test_sanitize_utf8_invalid_bytes()
+  -- 0x80 is an invalid leading byte (continuation byte without leader)
+  local s = "hello\x80world"
+  local result, changed = truncate.sanitize_utf8(s)
+  assert(changed, "should detect invalid bytes")
+  assert(result == "hello\xEF\xBF\xBDworld", "should replace with U+FFFD: got " .. result)
+  print("✓ sanitize_utf8 replaces invalid bytes")
+end
+test_sanitize_utf8_invalid_bytes()
+
+local function test_sanitize_utf8_null_byte()
+  -- Null bytes are valid ASCII but let's verify they pass through
+  local s = "hello\0world"
+  local result, changed = truncate.sanitize_utf8(s)
+  assert(result == s, "null byte is valid ascii")
+  assert(not changed, "no change for null byte")
+  print("✓ sanitize_utf8 null byte passthrough")
+end
+test_sanitize_utf8_null_byte()
+
+local function test_sanitize_utf8_gzip_header()
+  -- Simulate gzip magic bytes: 1f 8b 08 00
+  local s = "\x1f\x8b\x08\x00binary data"
+  local result, changed = truncate.sanitize_utf8(s)
+  assert(changed, "gzip bytes should be replaced")
+  assert(not result:find("\x8b"), "invalid bytes should be gone")
+  print("✓ sanitize_utf8 handles gzip-like binary")
+end
+test_sanitize_utf8_gzip_header()
+
+local function test_sanitize_utf8_truncated_sequence()
+  -- 2-byte sequence leader at end of string (truncated)
+  local s = "hello\xC3"
+  local result, changed = truncate.sanitize_utf8(s)
+  assert(changed, "truncated sequence should be replaced")
+  assert(result == "hello\xEF\xBF\xBD", "should replace truncated sequence")
+  print("✓ sanitize_utf8 handles truncated sequences")
+end
+test_sanitize_utf8_truncated_sequence()
+
+local function test_sanitize_utf8_empty()
+  local result, changed = truncate.sanitize_utf8("")
+  assert(result == "", "empty string unchanged")
+  assert(not changed, "no change for empty")
+  print("✓ sanitize_utf8 empty string")
+end
+test_sanitize_utf8_empty()
+
+local function test_sanitize_utf8_overlong()
+  -- 0xC0 0x80 is an overlong encoding of NUL — should be rejected
+  local s = "a\xC0\x80b"
+  local result, changed = truncate.sanitize_utf8(s)
+  assert(changed, "overlong should be replaced")
+  -- 0xC0 is invalid leader (< 0xC2), 0x80 is continuation without leader
+  assert(result:find("\xEF\xBF\xBD"), "should contain replacement char")
+  print("✓ sanitize_utf8 rejects overlong encodings")
+end
+test_sanitize_utf8_overlong()
+
+local function test_truncate_output_sanitizes()
+  -- Verify truncate_output applies sanitization
+  local s = "hello\x80world"
+  local r = truncate.truncate_output(s, "bash")
+  assert(r.content == "hello\xEF\xBF\xBDworld", "truncate_output should sanitize: got " .. r.content)
+  print("✓ truncate_output sanitizes non-utf8")
+end
+test_truncate_output_sanitizes()
+
 print("\nAll truncate tests passed!")
