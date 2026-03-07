@@ -148,13 +148,12 @@ local function reset_difftool_cache()
   _difftool_finder.reset()
 end
 
--- pager_finder: find/reset for dat or bat
+-- pager_finder: find/reset for bat
 local _pager_finder = make_tool_finder("AH_PAGER",
-  {"/usr/bin/dat", "/usr/local/bin/dat", "/opt/homebrew/bin/dat",
-    "/usr/bin/bat", "/usr/local/bin/bat", "/opt/homebrew/bin/bat"},
-  {"dat", "bat"})
+  {"/usr/bin/bat", "/usr/local/bin/bat", "/opt/homebrew/bin/bat"},
+  {"bat"})
 
--- Find a pager. Checks AH_PAGER env var first, then autodetects dat or bat.
+-- Find a pager. Checks AH_PAGER env var first, then autodetects bat.
 local function find_pager(): string
   return _pager_finder.find()
 end
@@ -180,7 +179,7 @@ local function run_pager(pager: string, content: string, file_name: string): str
       return line
     end)
 
-  local highlighted = run_piped(pager, stripped, {"--file-name=" .. file_name, "--color=always", "--style=plain"})
+  local highlighted = run_piped(pager, stripped, {"--file-name=" .. file_name, "--color=always", "--style=plain", "--map-syntax=*.tl:Lua"})
   if not highlighted then
     return nil
   end
