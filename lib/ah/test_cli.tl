@@ -454,6 +454,64 @@ local function test_run_pager_empty_filename()
 end
 test_run_pager_empty_filename()
 
+-- run_pager line-number stripping tests
+
+local function test_run_pager_strips_line_numbers()
+  -- dat/bat are available in this environment; use whichever find_pager returns
+  cli.reset_pager_cache()
+  local pager = cli.find_pager()
+  if not pager then
+    print("SKIP test_run_pager_strips_line_numbers (no pager available)")
+  else
+    local content = "1\tlocal x = 1\n2\tlocal y = 2\n"
+    local result = cli.run_pager(pager, content, "foo.lua")
+    assert(result ~= nil, "run_pager should succeed with a real pager, got nil")
+    -- Line numbers should be re-added to highlighted output
+    assert(result:find("1\t") ~= nil, "output should contain '1\\t' line number prefix, got: " .. tostring(result))
+    assert(result:find("2\t") ~= nil, "output should contain '2\\t' line number prefix, got: " .. tostring(result))
+    -- The content should still be present (with or without ANSI codes)
+    assert(result:find("local") ~= nil, "output should contain 'local' keyword, got: " .. tostring(result))
+    print("PASS test_run_pager_strips_line_numbers (pager: " .. pager .. ")")
+  end
+  cli.reset_pager_cache()
+end
+test_run_pager_strips_line_numbers()
+
+local function test_run_pager_no_line_numbers()
+  -- Content without line number prefixes should still work
+  cli.reset_pager_cache()
+  local pager = cli.find_pager()
+  if not pager then
+    print("SKIP test_run_pager_no_line_numbers (no pager available)")
+  else
+    local content = "local x = 1\nlocal y = 2\n"
+    local result = cli.run_pager(pager, content, "foo.lua")
+    assert(result ~= nil, "run_pager should succeed without line numbers, got nil")
+    assert(result:find("local") ~= nil, "output should contain 'local' keyword, got: " .. tostring(result))
+    print("PASS test_run_pager_no_line_numbers (pager: " .. pager .. ")")
+  end
+  cli.reset_pager_cache()
+end
+test_run_pager_no_line_numbers()
+
+local function test_find_pager_prefers_dat()
+  -- If both dat and bat are on PATH, find_pager should prefer dat
+  cli.reset_pager_cache()
+  local result = cli.find_pager()
+  if result then
+    -- Just verify it found something; can't guarantee both are installed
+    assert(type(result) == "string", "find_pager should return a string")
+    -- If dat is available, it should be preferred
+    local unix = require("cosmo.unix")
+    local has_dat = unix.commandv("dat")
+    if has_dat then
+      assert(result:find("dat") ~= nil, "find_pager should prefer dat over bat, got: " .. result)
+    end
+  end
+  cli.reset_pager_cache()
+end
+test_find_pager_prefers_dat()
+
 local function test_make_cli_handler_agent_end_shows_session_id()
   local fake_ulid = "01ABCDEFGHIJKLMNOPQRSTUVWX"
   local handler = cli.make_cli_handler(nil, fake_ulid)

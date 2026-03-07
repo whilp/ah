@@ -15,8 +15,9 @@ end
 
 -- make_tool_finder returns a ToolFinder that checks env_var first, then walks
 -- candidates via io.open, then falls back to unix.commandv for PATH lookup.
+-- tool_names is a list of command names to try via commandv, in priority order.
 -- Each finder maintains its own independent cache.
-local function make_tool_finder(env_var: string, candidates: {string}, tool_name: string): ToolFinder
+local function make_tool_finder(env_var: string, candidates: {string}, tool_names: {string}): ToolFinder
   local cache: string | boolean = nil
 
   local function find(): string
@@ -42,10 +43,12 @@ local function make_tool_finder(env_var: string, candidates: {string}, tool_name
       end
     end
 
-    local result = unix.commandv(tool_name)
-    if result then
-      cache = result
-      return result
+    for _, name in ipairs(tool_names) do
+      local result = unix.commandv(name)
+      if result then
+        cache = result
+        return result
+      end
     end
 
     cache = false
@@ -89,29 +92,23 @@ local function run_piped(tool: string, content: string, extra_args: {string}): s
 end
 
 -- difftool_finder: find/reset for delta
-local _difftool_finder = make_tool_finder("AH_DIFFTOOL", {
-    "/usr/bin/delta",
-    "/usr/local/bin/delta",
-    "/opt/homebrew/bin/delta",
-  }, "delta")
+local _difftool_finder = make_tool_finder("AH_DIFFTOOL",
+  {"/usr/bin/delta", "/usr/local/bin/delta", "/opt/homebrew/bin/delta"},
+  {"delta"})
 
--- Find a difftool for rendering diff output.
--- Checks AH_DIFFTOOL env var first, then autodetects delta on PATH.
--- Returns the tool command string, or nil if none available.
+-- Find a difftool. Checks AH_DIFFTOOL env var first, then autodetects delta.
 local function find_difftool(): string
   return _difftool_finder.find()
 end
 
--- Run diff text through a difftool subprocess.
--- Passes diff_text via stdin to the difftool with optional extra_args.
+-- Run diff text through a difftool subprocess with optional extra_args.
 -- Returns rendered output string, or nil on failure.
 local function run_difftool(difftool: string, diff_text: string, extra_args?: {string}): string
   return run_piped(difftool, diff_text, extra_args or {})
 end
 
--- Convert the edit tool's pseudo-diff ("- "/"+ " prefixed lines) to unified diff format.
--- Adds --- a/path, +++ b/path, and @@ hunk headers so tools like delta can parse
--- and syntax-highlight the output.
+-- Convert the edit tool's pseudo-diff ("- "/"+ " prefixed lines) to unified diff format
+-- so tools like delta can parse and syntax-highlight the output.
 -- Returns nil if the input doesn't look like edit tool output.
 local function to_unified_diff(pseudo_diff: string, file_path: string): string
   if not pseudo_diff or pseudo_diff == "" or not file_path or file_path == "" then
@@ -151,27 +148,51 @@ local function reset_difftool_cache()
   _difftool_finder.reset()
 end
 
--- pager_finder: find/reset for bat
-local _pager_finder = make_tool_finder("AH_PAGER", {
-    "/usr/bin/bat",
-    "/usr/local/bin/bat",
-    "/opt/homebrew/bin/bat",
-  }, "bat")
+-- pager_finder: find/reset for dat or bat
+local _pager_finder = make_tool_finder("AH_PAGER",
+  {"/usr/bin/dat", "/usr/local/bin/dat", "/opt/homebrew/bin/dat",
+   "/usr/bin/bat", "/usr/local/bin/bat", "/opt/homebrew/bin/bat"},
+  {"dat", "bat"})
 
--- Find a pager for rendering read tool output with syntax highlighting.
--- Checks AH_PAGER env var first, then autodetects bat. Returns command or nil.
+-- Find a pager. Checks AH_PAGER env var first, then autodetects dat or bat.
 local function find_pager(): string
   return _pager_finder.find()
 end
 
 -- Run content through a pager subprocess with syntax highlighting.
--- Passes content via stdin to the pager with --file-name.
+-- Strips N\t line number prefixes before piping (for better highlighting),
+-- then re-adds them to the highlighted output.
 -- Returns rendered output string, or nil on failure.
 local function run_pager(pager: string, content: string, file_name: string): string
   if not file_name or file_name == "" then
     return nil
   end
-  return run_piped(pager, content, {"--file-name=" .. file_name, "--color=always", "--style=plain"})
+
+  -- Strip line number prefixes (N\t) and collect them for re-insertion
+  local prefixes: {string} = {}
+  local stripped = content:gsub("([^\n]*)", function(line: string): string
+    local num, rest = line:match("^(%d+)\t(.*)$")
+    if num then
+      table.insert(prefixes, num .. "\t")
+      return rest
+    end
+    table.insert(prefixes, "")
+    return line
+  end)
+
+  local highlighted = run_piped(pager, stripped, {"--file-name=" .. file_name, "--color=always", "--style=plain"})
+  if not highlighted then
+    return nil
+  end
+
+  -- Re-add line number prefixes to highlighted output lines
+  local i = 0
+  local result = highlighted:gsub("([^\n]*)", function(line: string): string
+    i = i + 1
+    local pfx = i <= #prefixes and prefixes[i] or ""
+    return pfx .. line
+  end)
+  return result
 end
 
 -- Reset the pager cache (for testing).
