@@ -104,10 +104,10 @@ local function find_difftool(): string
 end
 
 -- Run diff text through a difftool subprocess.
--- Passes diff_text via stdin to the difftool, avoiding shell quoting issues.
+-- Passes diff_text via stdin to the difftool with optional extra_args.
 -- Returns rendered output string, or nil on failure.
-local function run_difftool(difftool: string, diff_text: string): string
-  return run_piped(difftool, diff_text, {})
+local function run_difftool(difftool: string, diff_text: string, extra_args?: {string}): string
+  return run_piped(difftool, diff_text, extra_args or {})
 end
 
 -- Convert the edit tool's pseudo-diff ("- "/"+ " prefixed lines) to unified diff format.
@@ -367,7 +367,11 @@ local function make_cli_handler(skill_name: string, session_ulid?: string): even
           if difftool then
             local file_path = key ~= "" and key or nil
             local unified = to_unified_diff(result, file_path)
-            local rendered = run_difftool(difftool, unified or result)
+            local rendered = run_difftool(difftool, unified or result, {
+                "--file-style=omit",
+                "--hunk-header-style=omit",
+                "--paging=never",
+              })
             if rendered then
               io.stderr:write(rendered)
               difftool_rendered = true
