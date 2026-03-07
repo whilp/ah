@@ -88,6 +88,90 @@ local function truncate_lines(output: string, max_lines: integer): string, boole
   .. table.concat(tail_lines, "\n"), true
 end
 
+-- Sanitize non-UTF-8 bytes by replacing them with the Unicode replacement
+-- character (U+FFFD). Acts as a safety net to prevent invalid JSON when
+-- binary content slips past tool-level checks.
+local function sanitize_utf8(s: string): string, boolean
+  local out: {string} = {}
+  local changed = false
+  local i = 1
+  local len = #s
+  while i <= len do
+    local b = s:byte(i)
+    if b < 0x80 then
+      -- ASCII
+      table.insert(out, s:sub(i, i))
+      i = i + 1
+    elseif b >= 0xC2 and b <= 0xDF then
+      -- 2-byte sequence
+      if i + 1 <= len then
+        local b2 = s:byte(i + 1)
+        if b2 >= 0x80 and b2 <= 0xBF then
+          table.insert(out, s:sub(i, i + 1))
+          i = i + 2
+        else
+          table.insert(out, "\xEF\xBF\xBD")
+          changed = true
+          i = i + 1
+        end
+      else
+        table.insert(out, "\xEF\xBF\xBD")
+        changed = true
+        i = i + 1
+      end
+    elseif b >= 0xE0 and b <= 0xEF then
+      -- 3-byte sequence
+      if i + 2 <= len then
+        local b2 = s:byte(i + 1)
+        local b3 = s:byte(i + 2)
+        local valid = b2 >= 0x80 and b2 <= 0xBF and b3 >= 0x80 and b3 <= 0xBF
+        if b == 0xE0 then valid = valid and b2 >= 0xA0 end
+        if b == 0xED then valid = valid and b2 <= 0x9F end
+        if valid then
+          table.insert(out, s:sub(i, i + 2))
+          i = i + 3
+        else
+          table.insert(out, "\xEF\xBF\xBD")
+          changed = true
+          i = i + 1
+        end
+      else
+        table.insert(out, "\xEF\xBF\xBD")
+        changed = true
+        i = i + 1
+      end
+    elseif b >= 0xF0 and b <= 0xF4 then
+      -- 4-byte sequence
+      if i + 3 <= len then
+        local b2 = s:byte(i + 1)
+        local b3 = s:byte(i + 2)
+        local b4 = s:byte(i + 3)
+        local valid = b2 >= 0x80 and b2 <= 0xBF and b3 >= 0x80 and b3 <= 0xBF and b4 >= 0x80 and b4 <= 0xBF
+        if b == 0xF0 then valid = valid and b2 >= 0x90 end
+        if b == 0xF4 then valid = valid and b2 <= 0x8F end
+        if valid then
+          table.insert(out, s:sub(i, i + 3))
+          i = i + 4
+        else
+          table.insert(out, "\xEF\xBF\xBD")
+          changed = true
+          i = i + 1
+        end
+      else
+        table.insert(out, "\xEF\xBF\xBD")
+        changed = true
+        i = i + 1
+      end
+    else
+      -- Invalid leading byte (0x80-0xBF, 0xC0-0xC1, 0xF5-0xFF)
+      table.insert(out, "\xEF\xBF\xBD")
+      changed = true
+      i = i + 1
+    end
+  end
+  return table.concat(out), changed
+end
+
 -- Truncate tool output: character-based first, then line-based.
 -- Returns a TruncateResult with the (possibly truncated) content and metadata.
 local function truncate_output(output: string, tool_name: string): TruncateResult
@@ -103,6 +187,10 @@ local function truncate_output(output: string, tool_name: string): TruncateResul
     result, line_truncated = truncate_lines(result, max_lines)
   end
 
+  -- Safety net: replace any non-UTF-8 bytes that survived tool-level checks.
+  -- This prevents invalid JSON when binary content reaches the API.
+  result = sanitize_utf8(result)
+
   return {
     content = result,
     truncated = char_truncated or line_truncated,
@@ -115,6 +203,7 @@ return {
   truncate_output = truncate_output,
   truncate_chars = truncate_chars,
   truncate_lines = truncate_lines,
+  sanitize_utf8 = sanitize_utf8,
   count_lines = count_lines,
   TruncateResult = TruncateResult,
   DEFAULT_CHAR_LIMITS = DEFAULT_CHAR_LIMITS,

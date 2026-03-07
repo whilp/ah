@@ -5,6 +5,29 @@ local child = require("cosmic.child")
 -- Exported as .running_processes so tools.tl can abort them.
 local running_processes: {integer: any} = {}
 
+-- Check if output contains binary (non-text) content.
+-- Mirrors the is_binary check in sys/tools/read.tl.
+local function is_binary(content: string): boolean
+  local sample_size = math.min(#content, 8192)
+  local sample = content:sub(1, sample_size)
+
+  if sample:find("\0") then
+    return true
+  end
+
+  local non_printable = 0
+  for i = 1, #sample do
+    local b = sample:byte(i)
+    if not ((b >= 32 and b <= 126) or b == 9 or b == 10 or b == 13) then
+      if b < 128 then
+        non_printable = non_printable + 1
+      end
+    end
+  end
+
+  return non_printable > sample_size * 0.1
+end
+
 -- Find executable in PATH or common locations
 local function find_executable(name: string): string
   local env_override = os.getenv("AH_" .. name:upper())
@@ -73,6 +96,12 @@ return {
 
     local stdout_str = (stdout as string) or ""
     local exit_code = tonumber(exit_str) as integer or 0
+
+    -- Replace binary output with an error message to prevent invalid
+    -- UTF-8 from being stored in the session DB and sent to the API.
+    if stdout_str ~= "" and is_binary(stdout_str) then
+      stdout_str = string.format("error: command produced binary output (%d bytes), which cannot be displayed", #stdout_str)
+    end
 
     local result_parts: {string} = {}
     if stdout_str ~= "" then
