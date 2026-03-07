@@ -13,10 +13,7 @@ local record ToolFinder
   reset: function()
 end
 
--- make_tool_finder returns a ToolFinder that checks env_var first, then walks
--- candidates via io.open, then falls back to unix.commandv for PATH lookup.
--- tool_names is a list of command names to try via commandv, in priority order.
--- Each finder maintains its own independent cache.
+-- make_tool_finder returns a ToolFinder that checks env_var, then candidates, then PATH.
 local function make_tool_finder(env_var: string, candidates: {string}, tool_names: {string}): ToolFinder
   local cache: string | boolean = nil
 
@@ -63,13 +60,12 @@ local function make_tool_finder(env_var: string, candidates: {string}, tool_name
 end
 
 -- run_piped passes content via stdin to tool with extra_args.
--- Returns rendered output string, or nil on failure.
 local function run_piped(tool: string, content: string, extra_args: {string}): string
   if not tool or content == "" then
     return nil
   end
 
-  -- Build argv: tool is always a bare path, append extra_args elements
+  -- Build argv
   local argv: {string} = {tool}
   if extra_args then
     for _, arg in ipairs(extra_args) do
@@ -81,8 +77,7 @@ local function run_piped(tool: string, content: string, extra_args: {string}): s
   if not h then
     return nil
   end
-  -- Ignore ok and exit code: tools like delta exit 1 when showing diffs,
-  -- but their stdout is still valid output. Empty stdout means no output.
+  -- Ignore exit code: tools like delta exit 1 on diffs but stdout is valid.
   local _, stdout, _ = h:read()
   local output = (stdout as string) or ""
   if output == "" then
@@ -91,25 +86,18 @@ local function run_piped(tool: string, content: string, extra_args: {string}): s
   return output
 end
 
--- difftool_finder: find/reset for delta
-local _difftool_finder = make_tool_finder("AH_DIFFTOOL",
-  {"/usr/bin/delta", "/usr/local/bin/delta", "/opt/homebrew/bin/delta"},
-  {"delta"})
+-- difftool: delta
+local _difftool = make_tool_finder("AH_DIFFTOOL",
+  {"/usr/bin/delta", "/usr/local/bin/delta", "/opt/homebrew/bin/delta"}, {"delta"})
 
--- Find a difftool. Checks AH_DIFFTOOL env var first, then autodetects delta.
-local function find_difftool(): string
-  return _difftool_finder.find()
-end
+local function find_difftool(): string return _difftool.find() end
+local function reset_difftool_cache() _difftool.reset() end
 
--- Run diff text through a difftool subprocess with optional extra_args.
--- Returns rendered output string, or nil on failure.
 local function run_difftool(difftool: string, diff_text: string, extra_args?: {string}): string
   return run_piped(difftool, diff_text, extra_args or {})
 end
 
--- Convert the edit tool's pseudo-diff ("- "/"+ " prefixed lines) to unified diff format
--- so tools like delta can parse and syntax-highlight the output.
--- Returns nil if the input doesn't look like edit tool output.
+-- Convert edit tool pseudo-diff to unified diff for delta.
 local function to_unified_diff(pseudo_diff: string, file_path: string): string
   if not pseudo_diff or pseudo_diff == "" or not file_path or file_path == "" then
     return nil
@@ -143,25 +131,25 @@ local function to_unified_diff(pseudo_diff: string, file_path: string): string
   return header .. table.concat(unified_lines, "\n") .. "\n"
 end
 
--- Reset the difftool cache (for testing).
-local function reset_difftool_cache()
-  _difftool_finder.reset()
+-- glow: markdown renderer
+local _glow = make_tool_finder("AH_GLOW",
+  {"/usr/bin/glow", "/usr/local/bin/glow", "/opt/homebrew/bin/glow"}, {"glow"})
+
+local function find_glow(): string return _glow.find() end
+local function reset_glow_cache() _glow.reset() end
+
+local function run_glow(glow: string, text: string): string
+  return run_piped(glow, text, {"-"})
 end
 
--- pager_finder: find/reset for bat
-local _pager_finder = make_tool_finder("AH_PAGER",
-  {"/usr/bin/bat", "/usr/local/bin/bat", "/opt/homebrew/bin/bat"},
-  {"bat"})
+-- pager: bat
+local _pager = make_tool_finder("AH_PAGER",
+  {"/usr/bin/bat", "/usr/local/bin/bat", "/opt/homebrew/bin/bat"}, {"bat"})
 
--- Find a pager. Checks AH_PAGER env var first, then autodetects bat.
-local function find_pager(): string
-  return _pager_finder.find()
-end
+local function find_pager(): string return _pager.find() end
+local function reset_pager_cache() _pager.reset() end
 
--- Run content through a pager subprocess with syntax highlighting.
--- Strips N\t line number prefixes before piping (for better highlighting),
--- then re-adds them to the highlighted output.
--- Returns rendered output string, or nil on failure.
+-- Run content through bat with syntax highlighting, preserving line number prefixes.
 local function run_pager(pager: string, content: string, file_name: string): string
   if not file_name or file_name == "" then
     return nil
@@ -194,11 +182,6 @@ local function run_pager(pager: string, content: string, file_name: string): str
   return result
 end
 
--- Reset the pager cache (for testing).
-local function reset_pager_cache()
-  _pager_finder.reset()
-end
-
 -- Format token count as human-friendly string (e.g., 1234 -> "1.2k", 12345 -> "12.3k")
 local function format_tokens(n: integer): string
   if n >= 1000000 then
@@ -210,10 +193,7 @@ local function format_tokens(n: integer): string
   end
 end
 
--- Colorize a single tool output line with ANSI escape codes.
--- Uses blue+bold for success (PASS) and yellow+bold for errors (FAIL, error, exit code).
--- Uses blue/yellow instead of green/red for colorblind accessibility.
--- Returns the line (possibly colored) and a boolean indicating if color was applied.
+-- Colorize tool output lines: blue for PASS, yellow for errors.
 local function colorize_tool_line(line: string): string, boolean
   if line:sub(1, 4) == "PASS" then
     return "\27[1;34m" .. line .. "\27[0m", true
@@ -227,8 +207,7 @@ local function colorize_tool_line(line: string): string, boolean
   return line, false
 end
 
--- CLI display handler: renders structured events to stderr/stdout for terminal use.
--- Other handlers (JSON logging, web UI, etc.) can be substituted.
+-- CLI display handler: renders structured events to stderr/stdout.
 local function make_cli_handler(skill_name: string, session_ulid?: string): events.EventCallback
   local is_tty = tty.isatty(2)
   local is_stdout_tty = tty.isatty(1)
@@ -246,7 +225,13 @@ local function make_cli_handler(skill_name: string, session_ulid?: string): even
     if #text_buffer > 0 then
       local text = table.concat(text_buffer)
       if is_stdout_tty then
-        text = render.render_markdown(text)
+        local glow = find_glow()
+        if glow then
+          local rendered = run_glow(glow, text)
+          if rendered then
+            text = rendered
+          end
+        end
       end
       io.write(text)
       io.flush()
@@ -493,6 +478,9 @@ return {
   run_difftool = run_difftool,
   to_unified_diff = to_unified_diff,
   reset_difftool_cache = reset_difftool_cache,
+  find_glow = find_glow,
+  run_glow = run_glow,
+  reset_glow_cache = reset_glow_cache,
   find_pager = find_pager,
   run_pager = run_pager,
   reset_pager_cache = reset_pager_cache,
