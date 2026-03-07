@@ -332,10 +332,9 @@ local function make_cli_handler(skill_name: string, session_ulid?: string): even
       end
 
       local key = event.tool_key or ""
+      local prefix = is_dumb and "> " or "⠋ "
 
       if event.tool_name == "bash" then
-        -- Bash: single line with braille bracket, "⠋ $ command"
-        local prefix = is_dumb and "> " or "⠋ "
         local term_width = 80
         local ws = tty.winsize(2)
         if ws then term_width = ws.cols as integer end
@@ -343,14 +342,10 @@ local function make_cli_handler(skill_name: string, session_ulid?: string): even
         local available = term_width - #prefix - 2 -- 2 for "$ "
         local wrapped = loop.wrap_command(key, available, wrap_indent)
         io.stderr:write(string.format("%s%s$ %s%s\n", DIM, prefix, wrapped, RESET))
+      elseif key ~= "" then
+        io.stderr:write(string.format("%s%s%s %s%s\n", DIM, prefix, event.tool_name, key, RESET))
       else
-        -- Non-bash: tool name with optional key
-        local prefix = is_tty and (is_dumb and "> " or "⠋ ") or ""
-        if key ~= "" then
-          io.stderr:write(string.format("%s%s%s %s%s\n", DIM, prefix, event.tool_name, key, RESET))
-        else
-          io.stderr:write(string.format("%s%s%s%s\n", DIM, prefix, event.tool_name, RESET))
-        end
+        io.stderr:write(string.format("%s%s%s%s\n", DIM, prefix, event.tool_name, RESET))
       end
 
     elseif t == "tool_call_end" then
@@ -437,36 +432,29 @@ local function make_cli_handler(skill_name: string, session_ulid?: string): even
         end
       end
 
-      if event.tool_name == "bash" then
-        -- Bash: mirror braille bracket with duration, line count, exit status
-        local line_count = 0
-        if result ~= "" and result ~= "(no output)" then
-          for _ in result:gmatch("\n") do line_count = line_count + 1 end
-          if result:sub(-1) ~= "\n" then line_count = line_count + 1 end
-        end
-        local suffix = is_dumb and "< " or "⠜ "
-        local parts: {string} = {}
-        table.insert(parts, string.format("%.1fs", elapsed))
-        if line_count > 0 then
-          table.insert(parts, string.format("%d line%s", line_count, line_count == 1 and "" or "s"))
-        end
-        if event.is_error then
+      -- Summary line with braille bracket: duration, line count, error status
+      local line_count = 0
+      if result ~= "" and result ~= "(no output)" then
+        for _ in result:gmatch("\n") do line_count = line_count + 1 end
+        if result:sub(-1) ~= "\n" then line_count = line_count + 1 end
+      end
+      local suffix = is_dumb and "< " or "⠜ "
+      local parts: {string} = {}
+      table.insert(parts, string.format("%.1fs", elapsed))
+      if line_count > 0 then
+        table.insert(parts, string.format("%d line%s", line_count, line_count == 1 and "" or "s"))
+      end
+      if event.is_error then
+        if event.tool_name == "bash" then
           local code = result:match("exit code: (%d+)")
-          if code then
-            table.insert(parts, "exit " .. code)
-          else
-            table.insert(parts, "error")
-          end
-        end
-        local summary = table.concat(parts, ", ")
-        io.stderr:write(string.format("%s%s%s%s\n", DIM, suffix, summary, RESET))
-      else
-        if is_tty and event.is_error then
-          io.stderr:write(string.format("%s\27[1;33m✗ %.1fs\27[0m\n", indent, elapsed))
+          if code then table.insert(parts, "exit " .. code)
+          else table.insert(parts, "error") end
         else
-          io.stderr:write(string.format("%s%s%.1fs%s\n", indent, DIM, elapsed, RESET))
+          table.insert(parts, "error")
         end
       end
+      local summary = table.concat(parts, ", ")
+      io.stderr:write(string.format("%s%s%s%s\n", DIM, suffix, summary, RESET))
 
       -- Blank line after tool block
       io.stderr:write("\n")
