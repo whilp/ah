@@ -151,7 +151,7 @@ end
 -- pager_finder: find/reset for dat or bat
 local _pager_finder = make_tool_finder("AH_PAGER",
   {"/usr/bin/dat", "/usr/local/bin/dat", "/opt/homebrew/bin/dat",
-   "/usr/bin/bat", "/usr/local/bin/bat", "/opt/homebrew/bin/bat"},
+    "/usr/bin/bat", "/usr/local/bin/bat", "/opt/homebrew/bin/bat"},
   {"dat", "bat"})
 
 -- Find a pager. Checks AH_PAGER env var first, then autodetects dat or bat.
@@ -171,14 +171,14 @@ local function run_pager(pager: string, content: string, file_name: string): str
   -- Strip line number prefixes (N\t) and collect them for re-insertion
   local prefixes: {string} = {}
   local stripped = content:gsub("([^\n]*)", function(line: string): string
-    local num, rest = line:match("^(%d+)\t(.*)$")
-    if num then
-      table.insert(prefixes, num .. "\t")
-      return rest
-    end
-    table.insert(prefixes, "")
-    return line
-  end)
+      local num, rest = line:match("^(%d+)\t(.*)$")
+      if num then
+        table.insert(prefixes, num .. "\t")
+        return rest
+      end
+      table.insert(prefixes, "")
+      return line
+    end)
 
   local highlighted = run_piped(pager, stripped, {"--file-name=" .. file_name, "--color=always", "--style=plain"})
   if not highlighted then
@@ -188,10 +188,10 @@ local function run_pager(pager: string, content: string, file_name: string): str
   -- Re-add line number prefixes to highlighted output lines
   local i = 0
   local result = highlighted:gsub("([^\n]*)", function(line: string): string
-    i = i + 1
-    local pfx = i <= #prefixes and prefixes[i] or ""
-    return pfx .. line
-  end)
+      i = i + 1
+      local pfx = i <= #prefixes and prefixes[i] or ""
+      return pfx .. line
+    end)
   return result
 end
 
