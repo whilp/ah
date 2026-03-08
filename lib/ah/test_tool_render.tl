@@ -116,4 +116,99 @@ local function test_tool_call_start_no_key()
 end
 test_tool_call_start_no_key()
 
+-- Head/tail preview tests
+
+local function test_tool_call_end_read_strips_line_numbers()
+  local handler = cli.make_cli_handler(nil)
+  local output = capture_stderr(function()
+      handler({
+          event_type = "tool_call_end",
+          tool_name = "read",
+          tool_key = "foo.tl",
+          tool_output = "1\tlocal x = 1\n2\tlocal y = 2\n3\treturn x + y\n",
+          is_error = false,
+          duration_ms = 50,
+          tool_index = 1,
+          tool_count = 1,
+        } as events.EventData)
+    end)
+  assert(output:match("local x = 1"), "should show content without line number, got: " .. output)
+  assert(not output:match("1\t"), "should strip line number prefix, got: " .. output)
+  print("✓ read tool strips line number prefixes from display")
+end
+test_tool_call_end_read_strips_line_numbers()
+
+local function test_tool_call_end_small_output_shows_all()
+  local handler = cli.make_cli_handler(nil)
+  local output = capture_stderr(function()
+      handler({
+          event_type = "tool_call_end",
+          tool_name = "read",
+          tool_key = "foo.tl",
+          tool_output = "line1\nline2\nline3\nline4\nline5\n",
+          is_error = false,
+          duration_ms = 50,
+          tool_index = 1,
+          tool_count = 1,
+        } as events.EventData)
+    end)
+  assert(output:match("line1"), "should show line1, got: " .. output)
+  assert(output:match("line5"), "should show line5, got: " .. output)
+  assert(not output:match("hidden"), "should not show hidden for <=5 lines, got: " .. output)
+  assert(not output:match("more lines"), "should not show more lines for <=5 lines, got: " .. output)
+  print("✓ small output (<=5 lines) shows all lines")
+end
+test_tool_call_end_small_output_shows_all()
+
+local function test_tool_call_end_medium_output_shows_head()
+  local handler = cli.make_cli_handler(nil)
+  local lines: {string} = {}
+  for i = 1, 8 do table.insert(lines, "line" .. tostring(i)) end
+  local output = capture_stderr(function()
+      handler({
+          event_type = "tool_call_end",
+          tool_name = "bash",
+          tool_key = "seq 8",
+          tool_output = table.concat(lines, "\n"),
+          is_error = false,
+          duration_ms = 50,
+          tool_index = 1,
+          tool_count = 1,
+        } as events.EventData)
+    end)
+  assert(output:match("line1"), "should show line1, got: " .. output)
+  assert(output:match("line5"), "should show line5, got: " .. output)
+  assert(not output:match("line6"), "should not show line6, got: " .. output)
+  assert(output:match("3 more lines"), "should show '3 more lines', got: " .. output)
+  print("✓ medium output (6-10 lines) shows first 5 + summary")
+end
+test_tool_call_end_medium_output_shows_head()
+
+local function test_tool_call_end_large_output_shows_head_tail()
+  local handler = cli.make_cli_handler(nil)
+  local lines: {string} = {}
+  for i = 1, 20 do table.insert(lines, "line" .. tostring(i)) end
+  local output = capture_stderr(function()
+      handler({
+          event_type = "tool_call_end",
+          tool_name = "read",
+          tool_key = "big.tl",
+          tool_output = table.concat(lines, "\n"),
+          is_error = false,
+          duration_ms = 50,
+          tool_index = 1,
+          tool_count = 1,
+        } as events.EventData)
+    end)
+  assert(output:match("line1"), "should show line1, got: " .. output)
+  assert(output:match("line5"), "should show line5, got: " .. output)
+  assert(not output:match("line6"), "should not show line6, got: " .. output)
+  assert(not output:match("line15"), "should not show line15, got: " .. output)
+  assert(output:match("line16"), "should show line16, got: " .. output)
+  assert(output:match("line20"), "should show line20, got: " .. output)
+  assert(output:match("10 lines hidden"), "should show '10 lines hidden', got: " .. output)
+  print("✓ large output (>10 lines) shows first 5 + last 5 with hidden count")
+end
+test_tool_call_end_large_output_shows_head_tail()
+
 print("PASS")

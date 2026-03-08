@@ -328,10 +328,20 @@ local function test_delta_base_args()
     end
     return false
   end
+  local function has_arg_matching(pattern: string): boolean
+    for _, arg in ipairs(cli.DELTA_BASE_ARGS) do
+      if arg:match(pattern) then return true end
+    end
+    return false
+  end
   assert(has_arg("--no-gitconfig"), "DELTA_BASE_ARGS should contain --no-gitconfig")
   assert(has_arg("--diff-so-fancy"), "DELTA_BASE_ARGS should contain --diff-so-fancy")
   assert(has_arg("--paging=never"), "DELTA_BASE_ARGS should contain --paging=never")
-  -- Verify no green color styles (use blue/red instead)
+  assert(has_arg("--syntax-theme=base16"), "DELTA_BASE_ARGS should contain --syntax-theme=base16")
+  -- Verify syntax highlighting with background colors
+  assert(has_arg_matching("minus%-style"), "DELTA_BASE_ARGS should have minus-style")
+  assert(has_arg_matching("plus%-style"), "DELTA_BASE_ARGS should have plus-style")
+  -- Verify no green color styles
   for _, arg in ipairs(cli.DELTA_BASE_ARGS) do
     assert(not arg:match("=green"),
       "DELTA_BASE_ARGS should not use green colors: " .. arg)

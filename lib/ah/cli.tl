@@ -94,15 +94,18 @@ local function find_difftool(): string return _difftool.find() end
 local function reset_difftool_cache() _difftool.reset() end
 
 -- Base delta args: no external config, diff-so-fancy style.
--- Uses blue for additions, red for removals.
+-- Syntax-highlighted with muted background colors:
+--   removed lines: dark red background (#3f1515), emphasis (#6b2020)
+--   added lines: dark blue background (#0d2744), emphasis (#133d6b)
 local DELTA_BASE_ARGS: {string} = {
   "--no-gitconfig",
   "--diff-so-fancy",
   "--paging=never",
-  "--minus-style=red bold",
-  "--minus-emph-style=red bold ul",
-  "--plus-style=blue bold",
-  "--plus-emph-style=blue bold ul",
+  "--syntax-theme=base16",
+  '--minus-style=syntax "#3f1515"',
+  '--minus-emph-style=syntax "#6b2020"',
+  '--plus-style=syntax "#0d2744"',
+  '--plus-emph-style=syntax "#133d6b"',
   "--file-decoration-style=yellow ul",
   "--hunk-header-decoration-style=blue",
 }
@@ -158,7 +161,12 @@ local function find_glow(): string return _glow.find() end
 local function reset_glow_cache() _glow.reset() end
 
 local function run_glow(glow: string, text: string): string
-  return run_piped(glow, text, {"-"})
+  local width = "0"
+  local ws = tty.winsize(1)  -- stdout
+  if ws then
+    width = tostring(ws.cols as integer)
+  end
+  return run_piped(glow, text, {"-s", "dark", "-w", width, "-"})
 end
 
 -- pager: bat
@@ -391,7 +399,10 @@ local function make_cli_handler(skill_name: string, session_ulid?: string): even
             local out = run_difftool(difftool, unified or result, {
                 "--file-style=omit", "--hunk-header-style=omit",
               })
-            if out then io.stderr:write(out); rendered = true end
+            if out then
+              if out:sub(-1) ~= "\n" then out = out .. "\n" end
+              io.stderr:write(out); rendered = true
+            end
           end
 
           -- read tool: syntax highlighting via bat
@@ -399,7 +410,10 @@ local function make_cli_handler(skill_name: string, session_ulid?: string): even
             local pager = find_pager()
             if pager and key ~= "" then
               local out = run_pager(pager, result, key)
-              if out then io.stderr:write(out); rendered = true end
+              if out then
+                if out:sub(-1) ~= "\n" then out = out .. "\n" end
+                io.stderr:write(out); rendered = true
+              end
             end
           end
 
@@ -410,7 +424,10 @@ local function make_cli_handler(skill_name: string, session_ulid?: string): even
             or key:match("log %-p") ~= nil
             if is_diff_cmd then
               local out = run_difftool(difftool, result)
-              if out then io.stderr:write(out); rendered = true end
+              if out then
+                if out:sub(-1) ~= "\n" then out = out .. "\n" end
+                io.stderr:write(out); rendered = true
+              end
             end
           end
         end
@@ -425,9 +442,16 @@ local function make_cli_handler(skill_name: string, session_ulid?: string): even
               table.remove(lines)
             end
           end
-          local max_lines = 3
-          for j = 1, math.min(max_lines, #lines) do
-            local line = lines[j]
+
+          -- Strip read tool line number prefixes (N\t) for display
+          if event.tool_name == "read" then
+            for j = 1, #lines do
+              lines[j] = lines[j]:gsub("^%d+\t", "")
+            end
+          end
+
+          -- Display helper: print a single line with optional colorization
+          local function print_line(line: string)
             if render.display_width(line) > 80 then
               line = render.utf8_truncate(line, 77, "...")
             end
@@ -442,8 +466,29 @@ local function make_cli_handler(skill_name: string, session_ulid?: string): even
               io.stderr:write(string.format("%s%s%s%s\n", DIM, indent, line, RESET))
             end
           end
-          if #lines > max_lines then
-            io.stderr:write(string.format("%s%s... (%d more lines)%s\n", DIM, indent, #lines - max_lines, RESET))
+
+          local head_count = 5
+          local tail_count = 5
+          if #lines > head_count + tail_count then
+            -- Large output: show first 5 and last 5
+            for j = 1, head_count do
+              print_line(lines[j])
+            end
+            io.stderr:write(string.format("%s%s... (%d lines hidden) ...%s\n", DIM, indent, #lines - head_count - tail_count, RESET))
+            for j = #lines - tail_count + 1, #lines do
+              print_line(lines[j])
+            end
+          elseif #lines > head_count then
+            -- Medium output: show first 5 + summary
+            for j = 1, head_count do
+              print_line(lines[j])
+            end
+            io.stderr:write(string.format("%s%s... (%d more lines)%s\n", DIM, indent, #lines - head_count, RESET))
+          else
+            -- Small output: show all
+            for j = 1, #lines do
+              print_line(lines[j])
+            end
           end
         end
       end
