@@ -93,8 +93,27 @@ local _difftool = make_tool_finder("AH_DIFFTOOL",
 local function find_difftool(): string return _difftool.find() end
 local function reset_difftool_cache() _difftool.reset() end
 
+-- Base delta args: no external config, diff-so-fancy style, colorblind-safe colors.
+-- Uses blue for additions, yellow for removals (no red/green).
+local DELTA_BASE_ARGS: {string} = {
+  "--no-gitconfig",
+  "--diff-so-fancy",
+  "--paging=never",
+  "--minus-style=yellow bold",
+  "--minus-emph-style=yellow bold ul",
+  "--plus-style=blue bold",
+  "--plus-emph-style=blue bold ul",
+  "--file-decoration-style=yellow ul",
+  "--hunk-header-decoration-style=blue",
+}
+
 local function run_difftool(difftool: string, diff_text: string, extra_args?: {string}): string
-  return run_piped(difftool, diff_text, extra_args or {})
+  local args: {string} = {}
+  for _, a in ipairs(DELTA_BASE_ARGS) do table.insert(args, a) end
+  if extra_args then
+    for _, a in ipairs(extra_args) do table.insert(args, a) end
+  end
+  return run_piped(difftool, diff_text, args)
 end
 
 -- Convert edit tool pseudo-diff to unified diff for delta.
@@ -359,52 +378,48 @@ local function make_cli_handler(skill_name: string, session_ulid?: string): even
 
       local result = event.tool_output or ""
       if result ~= "" and result ~= "(no output)" then
-        -- For edit tool on a TTY, try to pipe through a difftool
-        local difftool_rendered = false
-        if is_tty and event.tool_name == "edit" then
+        local rendered = false
+
+        -- TTY rendering: try specialized tools first
+        if is_tty then
           local difftool = find_difftool()
-          if difftool then
+
+          -- edit tool: pipe through delta with compact headers
+          if not rendered and event.tool_name == "edit" and difftool then
             local file_path = key ~= "" and key or nil
             local unified = to_unified_diff(result, file_path)
-            local rendered = run_difftool(difftool, unified or result, {
-                "--file-style=omit",
-                "--hunk-header-style=omit",
-                "--paging=never",
+            local out = run_difftool(difftool, unified or result, {
+                "--file-style=omit", "--hunk-header-style=omit",
               })
-            if rendered then
-              io.stderr:write(rendered)
-              difftool_rendered = true
+            if out then io.stderr:write(out); rendered = true end
+          end
+
+          -- read tool: syntax highlighting via bat
+          if not rendered and event.tool_name == "read" then
+            local pager = find_pager()
+            if pager and key ~= "" then
+              local out = run_pager(pager, result, key)
+              if out then io.stderr:write(out); rendered = true end
             end
           end
-        end
 
-        -- For read tool on a TTY, try to pipe through a pager for syntax highlighting
-        local pager_rendered = false
-        if is_tty and event.tool_name == "read" and not difftool_rendered then
-          local pager = find_pager()
-          if pager and key ~= "" then
-            local rendered = run_pager(pager, result, key)
-            if rendered then
-              io.stderr:write(rendered)
-              pager_rendered = true
-            end
-          end
-        end
-
-        if not difftool_rendered and not pager_rendered then
-          -- Detect diff-like commands for colorization
-          local is_diff_cmd = false
-          if is_tty and event.tool_name == "bash" and key ~= "" then
-            is_diff_cmd = key:match("diff") ~= nil
+          -- bash diff commands: pipe through delta
+          if not rendered and event.tool_name == "bash" and difftool and key ~= "" then
+            local is_diff_cmd = key:match("diff") ~= nil
             or key:match("show") ~= nil
             or key:match("log %-p") ~= nil
+            if is_diff_cmd then
+              local out = run_difftool(difftool, result)
+              if out then io.stderr:write(out); rendered = true end
+            end
           end
+        end
 
+        if not rendered then
           local lines: {string} = {}
           for line in result:gmatch("[^\n]+") do
             table.insert(lines, line)
           end
-          -- For bash, strip trailing "exit code: N" / timeout lines (shown in ⠜ summary)
           if event.tool_name == "bash" then
             while #lines > 0 and (lines[#lines]:match("^exit code: %d+$") or lines[#lines]:match("^error: command timed out")) do
               table.remove(lines)
@@ -416,14 +431,7 @@ local function make_cli_handler(skill_name: string, session_ulid?: string): even
             if render.display_width(line) > 80 then
               line = render.utf8_truncate(line, 77, "...")
             end
-            if is_diff_cmd then
-              local colored = render.colorize_diff_line(line)
-              if colored ~= line then
-                io.stderr:write(string.format("%s%s%s\n", indent, colored, ""))
-              else
-                io.stderr:write(string.format("%s%s%s%s\n", DIM, indent, line, RESET))
-              end
-            elseif is_tty then
+            if is_tty then
               local colored, was_colored = colorize_tool_line(line)
               if was_colored then
                 io.stderr:write(string.format("%s%s%s\n", indent, colored, ""))
@@ -478,6 +486,7 @@ return {
   run_difftool = run_difftool,
   to_unified_diff = to_unified_diff,
   reset_difftool_cache = reset_difftool_cache,
+  DELTA_BASE_ARGS = DELTA_BASE_ARGS,
   find_glow = find_glow,
   run_glow = run_glow,
   reset_glow_cache = reset_glow_cache,

@@ -301,22 +301,6 @@ test_find_difftool_cached()
 
 -- run_difftool tests
 
-local function test_run_difftool_cat_passthrough()
-  local input = "- old line\n+ new line"
-  local result = cli.run_difftool("cat", input)
-  assert(result ~= nil, "run_difftool with cat should succeed")
-  assert(result:find("old line") ~= nil, "output should contain input text, got: " .. tostring(result))
-end
-test_run_difftool_cat_passthrough()
-
-local function test_run_difftool_preserves_multiline_diff()
-  local input = "--- a/foo.tl\n+++ b/foo.tl\n@@ -1,3 +1,3 @@\n line1\n-old\n+new\n line3\n"
-  local result = cli.run_difftool("cat", input)
-  assert(result ~= nil, "run_difftool should succeed with multiline diff")
-  assert(result == input, "run_difftool should preserve diff content exactly, got: " .. tostring(result))
-end
-test_run_difftool_preserves_multiline_diff()
-
 local function test_run_difftool_invalid_tool()
   local result = cli.run_difftool("/nonexistent/tool/xyz", "- old\n+ new")
   assert(result == nil, "run_difftool with nonexistent tool should return nil, got: " .. tostring(result))
@@ -334,6 +318,40 @@ local function test_run_difftool_nil_tool()
   assert(result == nil, "run_difftool with nil tool should return nil")
 end
 test_run_difftool_nil_tool()
+
+-- DELTA_BASE_ARGS tests
+
+local function test_delta_base_args()
+  local function has_arg(name: string): boolean
+    for _, arg in ipairs(cli.DELTA_BASE_ARGS) do
+      if arg == name then return true end
+    end
+    return false
+  end
+  assert(has_arg("--no-gitconfig"), "DELTA_BASE_ARGS should contain --no-gitconfig")
+  assert(has_arg("--diff-so-fancy"), "DELTA_BASE_ARGS should contain --diff-so-fancy")
+  assert(has_arg("--paging=never"), "DELTA_BASE_ARGS should contain --paging=never")
+  for _, arg in ipairs(cli.DELTA_BASE_ARGS) do
+    assert(not arg:match("=red") and not arg:match("=green"),
+      "DELTA_BASE_ARGS should not use red or green colors: " .. arg)
+  end
+end
+test_delta_base_args()
+
+local function test_run_difftool_with_delta()
+  -- If delta is available, verify it processes diff content
+  cli.reset_difftool_cache()
+  local difftool = cli.find_difftool()
+  if difftool then
+    local input = "--- a/foo.tl\n+++ b/foo.tl\n@@ -1,1 +1,1 @@\n-old\n+new\n"
+    local result = cli.run_difftool(difftool, input)
+    assert(result ~= nil, "run_difftool with delta should produce output")
+    assert(result:find("old") ~= nil, "delta output should contain 'old', got: " .. tostring(result))
+    assert(result:find("new") ~= nil, "delta output should contain 'new', got: " .. tostring(result))
+  end
+  cli.reset_difftool_cache()
+end
+test_run_difftool_with_delta()
 
 -- to_unified_diff tests
 
@@ -371,15 +389,25 @@ local function test_to_unified_diff_non_diff_input()
 end
 test_to_unified_diff_non_diff_input()
 
-local function test_to_unified_diff_roundtrip_with_cat()
+local function test_to_unified_diff_roundtrip_with_delta()
+  -- run_difftool now always passes base args (--no-gitconfig, etc.), so cat
+  -- cannot be used as a mock. test with delta if available; otherwise just
+  -- verify to_unified_diff output format.
   local pseudo = "- local y = 2\n+ local y = 42"
   local unified = cli.to_unified_diff(pseudo, "lib/ah/cli.tl")
   assert(unified ~= nil, "should produce unified diff")
-  local result = cli.run_difftool("cat", unified)
-  assert(result ~= nil, "cat should succeed")
-  assert(result == unified, "cat roundtrip should preserve content exactly")
+  assert(unified:find("%-%-%-") ~= nil, "unified diff should have --- header")
+  assert(unified:find("%+%+%+") ~= nil, "unified diff should have +++ header")
+  cli.reset_difftool_cache()
+  local difftool = cli.find_difftool()
+  if difftool then
+    local result = cli.run_difftool(difftool, unified)
+    assert(result ~= nil, "delta should produce output from unified diff")
+    assert(result:find("local y") ~= nil, "delta output should contain diff content")
+  end
+  cli.reset_difftool_cache()
 end
-test_to_unified_diff_roundtrip_with_cat()
+test_to_unified_diff_roundtrip_with_delta()
 
 -- find_pager tests
 
@@ -414,45 +442,16 @@ test_find_pager_cached()
 
 -- run_pager tests
 
-local function test_run_pager_cat_passthrough()
-  local content = "local x = 1\nlocal y = 2\n"
-  -- run_pager passes bat-style flags (--file-name=, --color=, --style=) to the
-  -- pager binary. cat does not recognize these flags and exits non-zero, so
-  -- run_pager should return nil rather than crashing.
-  local result = cli.run_pager("cat", content, "foo.tl")
-  assert(result == nil, "run_pager should return nil when pager rejects its flags, got: " .. tostring(result))
+local function test_run_pager_edge_cases()
+  -- cat rejects bat-style flags, so run_pager returns nil
+  assert(cli.run_pager("cat", "local x = 1\n", "foo.tl") == nil, "cat should return nil with bat flags")
+  assert(cli.run_pager("cat", "", "foo.tl") == nil, "empty content should return nil")
+  assert(cli.run_pager(nil, "content", "foo.tl") == nil, "nil pager should return nil")
+  assert(cli.run_pager("/nonexistent/tool/xyz", "content", "foo.tl") == nil, "nonexistent tool should return nil")
+  assert(cli.run_pager("cat", "content", nil) == nil, "nil file_name should return nil")
+  assert(cli.run_pager("cat", "content", "") == nil, "empty file_name should return nil")
 end
-test_run_pager_cat_passthrough()
-
-local function test_run_pager_empty_input()
-  local result = cli.run_pager("cat", "", "foo.tl")
-  assert(result == nil, "run_pager with empty content should return nil")
-end
-test_run_pager_empty_input()
-
-local function test_run_pager_nil_pager()
-  local result = cli.run_pager(nil, "content", "foo.tl")
-  assert(result == nil, "run_pager with nil pager should return nil")
-end
-test_run_pager_nil_pager()
-
-local function test_run_pager_invalid_tool()
-  local result = cli.run_pager("/nonexistent/tool/xyz", "content", "foo.tl")
-  assert(result == nil, "run_pager with nonexistent tool should return nil, got: " .. tostring(result))
-end
-test_run_pager_invalid_tool()
-
-local function test_run_pager_nil_filename()
-  local result = cli.run_pager("cat", "content", nil)
-  assert(result == nil, "run_pager with nil file_name should return nil")
-end
-test_run_pager_nil_filename()
-
-local function test_run_pager_empty_filename()
-  local result = cli.run_pager("cat", "content", "")
-  assert(result == nil, "run_pager with empty file_name should return nil")
-end
-test_run_pager_empty_filename()
+test_run_pager_edge_cases()
 
 local function test_find_pager_finds_bat()
   cli.reset_pager_cache()
