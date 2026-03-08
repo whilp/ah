@@ -331,9 +331,10 @@ local function test_delta_base_args()
   assert(has_arg("--no-gitconfig"), "DELTA_BASE_ARGS should contain --no-gitconfig")
   assert(has_arg("--diff-so-fancy"), "DELTA_BASE_ARGS should contain --diff-so-fancy")
   assert(has_arg("--paging=never"), "DELTA_BASE_ARGS should contain --paging=never")
+  -- Verify no green color styles (use blue/red instead)
   for _, arg in ipairs(cli.DELTA_BASE_ARGS) do
-    assert(not arg:match("=red") and not arg:match("=green"),
-      "DELTA_BASE_ARGS should not use red or green colors: " .. arg)
+    assert(not arg:match("=green"),
+      "DELTA_BASE_ARGS should not use green colors: " .. arg)
   end
 end
 test_delta_base_args()

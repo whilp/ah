@@ -93,14 +93,14 @@ local _difftool = make_tool_finder("AH_DIFFTOOL",
 local function find_difftool(): string return _difftool.find() end
 local function reset_difftool_cache() _difftool.reset() end
 
--- Base delta args: no external config, diff-so-fancy style, colorblind-safe colors.
--- Uses blue for additions, yellow for removals (no red/green).
+-- Base delta args: no external config, diff-so-fancy style.
+-- Uses blue for additions, red for removals.
 local DELTA_BASE_ARGS: {string} = {
   "--no-gitconfig",
   "--diff-so-fancy",
   "--paging=never",
-  "--minus-style=yellow bold",
-  "--minus-emph-style=yellow bold ul",
+  "--minus-style=red bold",
+  "--minus-emph-style=red bold ul",
   "--plus-style=blue bold",
   "--plus-emph-style=blue bold ul",
   "--file-decoration-style=yellow ul",
