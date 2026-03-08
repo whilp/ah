@@ -551,9 +551,15 @@ print("all infer_language tests passed")
 local function test_glow_style_returns_string()
   local style = cli.glow_style()
   assert(type(style) == "string", "glow_style should return string, got: " .. type(style))
-  -- Should be either the embedded path or "dark" fallback
-  assert(style == "/zip/embed/sys/glow.json" or style == "dark",
-    "glow_style should return embedded path or 'dark', got: " .. style)
+  -- Should be either a temp file path (extracted from /zip/) or "dark" fallback
+  assert(style:match("glow%-style%.json$") or style == "dark",
+    "glow_style should return extracted temp path or 'dark', got: " .. style)
+  -- If extracted, the file should exist on the real filesystem
+  if style ~= "dark" then
+    local f = io.open(style, "r")
+    assert(f ~= nil, "extracted glow style file should exist at: " .. style)
+    if f then f:close() end
+  end
 end
 test_glow_style_returns_string()
 
@@ -564,4 +570,33 @@ local function test_glow_style_cached()
 end
 test_glow_style_cached()
 
-print("all glow_style tests passed")
+-- run_glow tests
+
+local function test_run_glow_with_glow()
+  cli.reset_glow_cache()
+  local glow = cli.find_glow()
+  if glow then
+    local result = cli.run_glow(glow, "# Hello\n\n- item one\n- item two\n")
+    assert(result ~= nil, "run_glow should produce output, got nil")
+    -- Strip ANSI escape codes for content matching (glow inserts codes between words)
+    local plain = result:gsub("\27%[[%d;]*m", "")
+    assert(plain:find("Hello") ~= nil, "glow output should contain 'Hello', got: " .. plain)
+    assert(plain:find("item one") ~= nil, "glow output should contain 'item one', got: " .. plain)
+  end
+  cli.reset_glow_cache()
+end
+test_run_glow_with_glow()
+
+local function test_run_glow_nil_tool()
+  local result = cli.run_glow(nil, "# test")
+  assert(result == nil, "run_glow with nil tool should return nil")
+end
+test_run_glow_nil_tool()
+
+local function test_run_glow_empty_content()
+  local result = cli.run_glow("glow", "")
+  assert(result == nil, "run_glow with empty content should return nil")
+end
+test_run_glow_empty_content()
+
+print("all glow tests passed")

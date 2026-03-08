@@ -216,18 +216,29 @@ local _glow = make_tool_finder("AH_GLOW",
 local function find_glow(): string return _glow.find() end
 local function reset_glow_cache() _glow.reset() end
 
--- Resolve the glow style: use embedded JSON style if available, fall back to "dark".
+-- Resolve the glow style: extract embedded JSON to a temp file (external glow
+-- cannot read /zip/ paths), or fall back to "dark".
 local _glow_style: string = nil
 local function glow_style(): string
   if _glow_style then return _glow_style end
   local embedded = "/zip/embed/sys/glow.json"
   local f = io.open(embedded, "r")
   if f then
+    local content = f:read("*a")
     f:close()
-    _glow_style = embedded
-  else
-    _glow_style = "dark"
+    if content and content ~= "" then
+      local tmpdir = os.getenv("TMPDIR") or "/tmp"
+      local tmppath = tmpdir .. "/ah-glow-style.json"
+      local out = io.open(tmppath, "w")
+      if out then
+        out:write(content)
+        out:close()
+        _glow_style = tmppath
+        return _glow_style
+      end
+    end
   end
+  _glow_style = "dark"
   return _glow_style
 end
 
