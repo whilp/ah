@@ -66,16 +66,9 @@ local function display_command(cmd: string): string
   return cmd
 end
 
--- Wrap a long command at flag boundaries with \ continuations.
--- Normalizes multi-line commands to a single display line first.
+-- Wrap a single command segment (no && chains) at flag/space boundaries.
 -- Returns cmd unchanged if it fits within width.
--- Otherwise splits at spaces before -- or - flags, joining with \<newline> + indent.
--- Falls back to splitting at any space if no flag boundaries found.
-local function wrap_command(cmd: string, width: integer, indent: string): string
-  width = width or 80
-  indent = indent or "    "
-  -- Normalize multi-line commands before any length checks or tokenization
-  cmd = display_command(cmd)
+local function wrap_segment(cmd: string, width: integer, indent: string): string
   if #cmd <= width and not cmd:find(" #") then
     return cmd
   end
@@ -94,7 +87,6 @@ local function wrap_command(cmd: string, width: integer, indent: string): string
     else
       local candidate = current .. " " .. token
       if #candidate > width then
-        -- Line is too long; break before this token
         table.insert(parts, current)
         current = indent .. token
       else
@@ -132,6 +124,45 @@ local function wrap_command(cmd: string, width: integer, indent: string): string
   end
 
   return cmd
+end
+
+-- Wrap a long command at && boundaries and flag boundaries with \ continuations.
+-- Normalizes multi-line commands to a single display line first.
+-- Always breaks && chains onto separate indented lines.
+-- Within each segment, wraps at flag/space boundaries if it exceeds width.
+local function wrap_command(cmd: string, width: integer, indent: string): string
+  width = width or 80
+  indent = indent or "    "
+  -- Normalize multi-line commands before any length checks or tokenization
+  cmd = display_command(cmd)
+
+  -- Split on && chains: always break these onto separate lines
+  if cmd:find(" && ") then
+    local segments: {string} = {}
+    local rest = cmd
+    while true do
+      local pos = rest:find(" && ", 1, true)
+      if not pos then
+        table.insert(segments, rest)
+        break
+      end
+      table.insert(segments, rest:sub(1, pos - 1))
+      rest = rest:sub(pos + 4)
+    end
+    -- Wrap each segment individually, indent continuations
+    local lines: {string} = {}
+    for i, seg in ipairs(segments) do
+      local trimmed = seg:match("^%s*(.-)%s*$") or seg
+      if i == 1 then
+        table.insert(lines, wrap_segment(trimmed, width, indent))
+      else
+        table.insert(lines, indent .. wrap_segment(trimmed, width - #indent, indent))
+      end
+    end
+    return table.concat(lines, " && \\\n")
+  end
+
+  return wrap_segment(cmd, width, indent)
 end
 
 -- Compute a turn signature from a list of tool calls.
