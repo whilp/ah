@@ -7,6 +7,7 @@ MAKEFLAGS += --no-print-directory
 MAKEFLAGS += --no-builtin-rules
 MAKEFLAGS += --no-builtin-variables
 MAKEFLAGS += --output-sync
+MAKEFLAGS += -j$(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)
 export COSMIC_NO_WELCOME = 1
 
 o := o
@@ -57,12 +58,13 @@ ah_version := $(shell \
   echo "$$v")
 ah_version_lua := $(o)/embed/.lua/ah/version.lua
 
-TL_PATH := lib/?.tl;lib/?/init.tl;/zip/.tl/?.tl;/zip/.tl/?/init.tl;/zip/.lua/types/?.d.tl;/zip/.lua/types/?/init.d.tl
+INCLUDE_DIRS ?= lib
+include_dir_flags := $(foreach d,$(INCLUDE_DIRS),--include-dir $(d))
 
 # compile .tl to .lua
 $(o)/%.lua: %.tl $(cosmic)
 	@mkdir -p $(@D)
-	@TL_PATH='$(TL_PATH)' $(cosmic) --compile $< > $@
+	@$(cosmic) $(include_dir_flags) --compile $< > $@
 
 # tests
 all_tested := $(patsubst %,$(o)/%.test.ok,$(ah_tests))
@@ -124,7 +126,7 @@ $(ah_version_lua):
 # sys files: copy non-.tl files, compile .tl to .lua
 $(o)/embed/embed/sys/%.lua: sys/%.tl $(cosmic)
 	@mkdir -p $(@D)
-	@TL_PATH='$(TL_PATH)' $(cosmic) --compile $< > $@
+	@$(cosmic) $(include_dir_flags) --compile $< > $@
 
 $(o)/embed/embed/sys/%: sys/%
 	@mkdir -p $(@D)
@@ -179,7 +181,7 @@ $(o)/teal-summary.txt: $(all_teals) $(cosmic)
 
 $(o)/%.tl.teal.ok: %.tl $(cosmic)
 	@mkdir -p $(@D)
-	@TL_PATH='$(TL_PATH)' $(cosmic) --test $@ $(cosmic) --check-types "$<"
+	@$(cosmic) --test $@ $(cosmic) $(include_dir_flags) --check-types "$<"
 
 lint_files := $(shell git ls-files 2>/dev/null)
 

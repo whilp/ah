@@ -62,45 +62,27 @@ local function ensure_tl_searcher(): {string: any}
   return tl
 end
 
--- Check whether source code looks like a tool module by parsing the AST.
--- Guards against os.exit() and other dangerous top-level side effects.
--- Conservative: returns true for variable/call returns that can't be verified.
-local function looks_like_tool(source: string, is_lua: boolean): boolean
-  local tl = ensure_tl_searcher()
-  local process_string = tl.process_string as function(string, boolean): {string: any}
-  local result = process_string(source, is_lua)
-
-  if result.syntax_errors and #(result.syntax_errors as {any}) > 0 then
-    return false
+-- Check whether source code looks like a tool module using lightweight pattern
+-- matching. Guards against loading files that aren't tool definitions.
+-- Checks for table key assignments (name = ..., execute = ...) and a trailing
+-- brace. Conservative: returns true for ambiguous cases (variable returns,
+-- function calls, return nil) rather than rejecting valid tools.
+local function looks_like_tool(source: string, _is_lua: boolean): boolean
+  if #source == 0 then return false end
+  -- reject scripts with no return statement
+  if not source:find('return') then return false end
+  -- strip trailing whitespace
+  local trimmed = source:gsub("%s+$", "")
+  -- if it ends with a table brace, check for required key assignments
+  if trimmed:match("}%s*$") then
+    -- look for key = value patterns (table field assignments)
+    local name_pat = '[%s,{]name%s*='
+    local has_name = source:find(name_pat) ~= nil or source:find('^name%s*=') ~= nil
+    local exec_pat = '[%s,{]execute%s*='
+    local has_execute = source:find(exec_pat) ~= nil or source:find('^execute%s*=') ~= nil
+    return has_name and has_execute
   end
-
-  local ast = result.ast as {any}
-  if not ast or #ast == 0 then
-    return false
-  end
-
-  local last = ast[#ast] as {string: any}
-  if not last or last.kind ~= "return" then
-    return false
-  end
-
-  local exps = last.exps as {any}
-  if exps and #exps > 0 then
-    local ret = exps[1] as {string: any}
-    if ret.kind == "literal_table" then
-      local keys: {string: boolean} = {}
-      for _, entry in ipairs(ret as {any}) do
-        local e = entry as {string: any}
-        if e.key then
-          local key = e.key as {string: any}
-          local k = (key.conststr or key.tk) as string
-          if k then keys[k] = true end
-        end
-      end
-      return (keys["name"] and keys["execute"]) as boolean
-    end
-  end
-
+  -- non-table returns (variable, function call, nil): accept optimistically
   return true
 end
 
