@@ -14,5 +14,3 @@ jobs:
 
       - name: Run tests and type checks
         run: make ci
-        env:
-          COSMIC_INSTRUMENTATION: "1"
