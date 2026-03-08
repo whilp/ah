@@ -372,6 +372,7 @@ local function test_to_unified_diff_basic()
   local pseudo = "- old line\n+ new line"
   local result = cli.to_unified_diff(pseudo, "lib/ah/cli.tl")
   assert(result ~= nil, "to_unified_diff should succeed")
+  assert(result:find("diff %-%-git a/lib/ah/cli%.tl b/lib/ah/cli%.tl") ~= nil, "should have diff --git header")
   assert(result:find("--- a/lib/ah/cli.tl") ~= nil, "should have --- header")
   assert(result:find("%+%+%+ b/lib/ah/cli.tl") ~= nil, "should have +++ header")
   assert(result:find("@@ %-1,1 %+1,1 @@") ~= nil, "should have @@ hunk header")
@@ -544,3 +545,23 @@ end
 test_infer_language_nil_inputs()
 
 print("all infer_language tests passed")
+
+-- glow_style tests
+
+local function test_glow_style_returns_string()
+  local style = cli.glow_style()
+  assert(type(style) == "string", "glow_style should return string, got: " .. type(style))
+  -- Should be either the embedded path or "dark" fallback
+  assert(style == "/zip/embed/sys/glow.json" or style == "dark",
+    "glow_style should return embedded path or 'dark', got: " .. style)
+end
+test_glow_style_returns_string()
+
+local function test_glow_style_cached()
+  local s1 = cli.glow_style()
+  local s2 = cli.glow_style()
+  assert(s1 == s2, "glow_style should return same cached result")
+end
+test_glow_style_cached()
+
+print("all glow_style tests passed")

@@ -177,7 +177,8 @@ local function to_unified_diff(pseudo_diff: string, file_path: string): string
     return nil
   end
 
-  local header = "--- a/" .. file_path .. "\n"
+  local header = "diff --git a/" .. file_path .. " b/" .. file_path .. "\n"
+  .. "--- a/" .. file_path .. "\n"
   .. "+++ b/" .. file_path .. "\n"
   .. "@@ -1," .. old_count .. " +1," .. new_count .. " @@\n"
 
@@ -191,13 +192,28 @@ local _glow = make_tool_finder("AH_GLOW",
 local function find_glow(): string return _glow.find() end
 local function reset_glow_cache() _glow.reset() end
 
+-- Resolve the glow style: use embedded JSON style if available, fall back to "dark".
+local _glow_style: string = nil
+local function glow_style(): string
+  if _glow_style then return _glow_style end
+  local embedded = "/zip/embed/sys/glow.json"
+  local f = io.open(embedded, "r")
+  if f then
+    f:close()
+    _glow_style = embedded
+  else
+    _glow_style = "dark"
+  end
+  return _glow_style
+end
+
 local function run_glow(glow: string, text: string): string
   local width = "0"
   local ws = tty.winsize(1)  -- stdout
   if ws then
     width = tostring(ws.cols as integer)
   end
-  return run_piped(glow, text, {"-s", "dark", "-w", width, "-"})
+  return run_piped(glow, text, {"-s", glow_style(), "-w", width, "-"})
 end
 
 -- pager: bat
@@ -416,7 +432,7 @@ local function make_cli_handler(skill_name: string, session_ulid?: string): even
             local unified = to_unified_diff(result, file_path)
             local lang = infer_language(file_path)
             local out = run_difftool(difftool, unified or result, {
-                "--file-style=omit", "--hunk-header-style=omit",
+                "--hunk-header-style=omit",
               }, lang)
             if out then
               if out:sub(-1) ~= "\n" then out = out .. "\n" end
@@ -585,6 +601,7 @@ return {
   infer_language = infer_language,
   find_glow = find_glow,
   run_glow = run_glow,
+  glow_style = glow_style,
   reset_glow_cache = reset_glow_cache,
   find_pager = find_pager,
   run_pager = run_pager,
