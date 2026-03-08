@@ -60,7 +60,8 @@ local function make_tool_finder(env_var: string, candidates: {string}, tool_name
 end
 
 -- run_piped passes content via stdin to tool with extra_args.
-local function run_piped(tool: string, content: string, extra_args: {string}): string
+-- Optional env_overrides: {"KEY=VALUE", ...} merged into the current environment.
+local function run_piped(tool: string, content: string, extra_args: {string}, env_overrides?: {string}): string
   if not tool or content == "" then
     return nil
   end
@@ -73,7 +74,30 @@ local function run_piped(tool: string, content: string, extra_args: {string}): s
     end
   end
 
-  local h, _ = child.spawn(argv, {stdin = content})
+  -- Build environment if overrides specified
+  local env: {string} = nil
+  if env_overrides then
+    env = unix.environ() as {string}
+    for _, override in ipairs(env_overrides) do
+      local key = (override as string):match("^([^=]+)=")
+      if key then
+        local prefix = key .. "="
+        local found = false
+        for i, entry in ipairs(env) do
+          if (entry as string):sub(1, #prefix) == prefix then
+            env[i] = override
+            found = true
+            break
+          end
+        end
+        if not found then
+          table.insert(env, override)
+        end
+      end
+    end
+  end
+
+  local h, _ = child.spawn(argv, {stdin = content, env = env})
   if not h then
     return nil
   end
@@ -213,7 +237,8 @@ local function run_glow(glow: string, text: string): string
   if ws then
     width = tostring(ws.cols as integer)
   end
-  return run_piped(glow, text, {"-s", glow_style(), "-w", width, "-"})
+  -- CLICOLOR_FORCE=1 ensures glow emits ANSI colors even when piped.
+  return run_piped(glow, text, {"-s", glow_style(), "-w", width, "-"}, {"CLICOLOR_FORCE=1"})
 end
 
 -- pager: bat
