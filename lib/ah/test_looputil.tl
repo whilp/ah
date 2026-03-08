@@ -72,8 +72,8 @@ test_display_command_empty()
 local function test_display_command_ampersand()
   local cmd = "cd /tmp && ls -la && pwd"
   local result = looputil.display_command(cmd)
-  assert(result == "cd /tmp ...", "should truncate at first &&: " .. result)
-  print("PASS: display_command truncates at &&")
+  assert(result == cmd, "single-line && command should be unchanged: " .. result)
+  print("PASS: display_command preserves && commands")
 end
 test_display_command_ampersand()
 
@@ -110,14 +110,14 @@ local function test_wrap_command_long_with_flags()
 end
 test_wrap_command_long_with_flags()
 
-local function test_wrap_command_ampersand_shows_first()
+local function test_wrap_command_ampersand_wraps()
   local cmd = "cd /tmp && ls -la && pwd"
-  local result = looputil.wrap_command(cmd, 80, "    ")
-  -- display_command should have collapsed to first segment
-  assert(result == "cd /tmp ...", "wrap_command with && should show first segment: " .. result)
-  print("PASS: wrap_command shows first segment of && command")
+  local result = looputil.wrap_command(cmd, 20, "    ")
+  -- Should wrap at width boundaries, not truncate at &&
+  assert(result:find("\\\n"), "long && command should wrap: " .. result)
+  print("PASS: wrap_command wraps && command at width boundary")
 end
-test_wrap_command_ampersand_shows_first()
+test_wrap_command_ampersand_wraps()
 
 local function test_wrap_command_first_line_width()
   -- First line should respect width, not accumulate unlimited tokens
