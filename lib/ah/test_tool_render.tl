@@ -138,6 +138,26 @@ local function test_tool_call_end_read_strips_line_numbers()
 end
 test_tool_call_end_read_strips_line_numbers()
 
+local function test_tool_call_end_write_shows_content()
+  local handler = cli.make_cli_handler(nil)
+  local output = capture_stderr(function()
+      handler({
+          event_type = "tool_call_end",
+          tool_name = "write",
+          tool_key = "foo.tl",
+          tool_output = "1\tlocal x = 1\n2\tlocal y = 2\n3\treturn x + y\n",
+          is_error = false,
+          duration_ms = 50,
+          tool_index = 1,
+          tool_count = 1,
+        } as events.EventData)
+    end)
+  assert(output:match("local x = 1"), "should show written content, got: " .. output)
+  assert(not output:match("1\t"), "should strip line number prefix, got: " .. output)
+  print("✓ write tool shows content preview with line numbers stripped")
+end
+test_tool_call_end_write_shows_content()
+
 local function test_tool_call_end_small_output_shows_all()
   local handler = cli.make_cli_handler(nil)
   local output = capture_stderr(function()

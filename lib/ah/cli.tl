@@ -176,37 +176,24 @@ local _pager = make_tool_finder("AH_PAGER",
 local function find_pager(): string return _pager.find() end
 local function reset_pager_cache() _pager.reset() end
 
--- Run content through bat with syntax highlighting, preserving line number prefixes.
+-- Run content through bat with syntax highlighting.
+-- Strips line number prefixes (N\t) before highlighting; does not re-add them.
 local function run_pager(pager: string, content: string, file_name: string): string
   if not file_name or file_name == "" then
     return nil
   end
 
-  -- Strip line number prefixes (N\t) and collect them for re-insertion
-  local prefixes: {string} = {}
+  -- Strip line number prefixes (N\t) from tool output
   local stripped = content:gsub("([^\n]*)", function(line: string): string
-      local num, rest = line:match("^(%d+)\t(.*)$")
-      if num then
-        table.insert(prefixes, num .. "\t")
+      local _, rest = line:match("^(%d+)\t(.*)$")
+      if rest then
         return rest
       end
-      table.insert(prefixes, "")
       return line
     end)
 
   local highlighted = run_piped(pager, stripped, {"--file-name=" .. file_name, "--color=always", "--style=plain", "--map-syntax=*.tl:Lua"})
-  if not highlighted then
-    return nil
-  end
-
-  -- Re-add line number prefixes to highlighted output lines
-  local i = 0
-  local result = highlighted:gsub("([^\n]*)", function(line: string): string
-      i = i + 1
-      local pfx = i <= #prefixes and prefixes[i] or ""
-      return pfx .. line
-    end)
-  return result
+  return highlighted
 end
 
 -- Format token count as human-friendly string (e.g., 1234 -> "1.2k", 12345 -> "12.3k")
@@ -405,14 +392,39 @@ local function make_cli_handler(skill_name: string, session_ulid?: string): even
             end
           end
 
-          -- read tool: syntax highlighting via bat
-          if not rendered and event.tool_name == "read" then
+          -- read/write tool: syntax highlighting via bat, then head/tail
+          if not rendered and (event.tool_name == "read" or event.tool_name == "write") then
             local pager = find_pager()
             if pager and key ~= "" then
               local out = run_pager(pager, result, key)
               if out then
                 if out:sub(-1) ~= "\n" then out = out .. "\n" end
-                io.stderr:write(out); rendered = true
+                -- Apply head/tail compression on highlighted output
+                local hlines: {string} = {}
+                for hline in out:gmatch("([^\n]*)\n") do
+                  table.insert(hlines, hline)
+                end
+                local head_n = 5
+                local tail_n = 5
+                if #hlines > head_n + tail_n then
+                  for j = 1, head_n do
+                    io.stderr:write(indent .. hlines[j] .. "\n")
+                  end
+                  io.stderr:write(string.format("%s%s... (%d lines hidden) ...%s\n", DIM, indent, #hlines - head_n - tail_n, RESET))
+                  for j = #hlines - tail_n + 1, #hlines do
+                    io.stderr:write(indent .. hlines[j] .. "\n")
+                  end
+                elseif #hlines > head_n then
+                  for j = 1, head_n do
+                    io.stderr:write(indent .. hlines[j] .. "\n")
+                  end
+                  io.stderr:write(string.format("%s%s... (%d more lines)%s\n", DIM, indent, #hlines - head_n, RESET))
+                else
+                  for j = 1, #hlines do
+                    io.stderr:write(indent .. hlines[j] .. "\n")
+                  end
+                end
+                rendered = true
               end
             end
           end
@@ -443,8 +455,8 @@ local function make_cli_handler(skill_name: string, session_ulid?: string): even
             end
           end
 
-          -- Strip read tool line number prefixes (N\t) for display
-          if event.tool_name == "read" then
+          -- Strip read/write tool line number prefixes (N\t) for display
+          if event.tool_name == "read" or event.tool_name == "write" then
             for j = 1, #lines do
               lines[j] = lines[j]:gsub("^%d+\t", "")
             end
