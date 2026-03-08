@@ -1,205 +1,10 @@
 -- ah/cli.tl: CLI display handler and output formatting
 local tty = require("cosmic.tty")
-local child = require("cosmic.child")
-local unix = require("cosmo.unix")
 local events = require("ah.events")
 local loop = require("ah.loop")
 local render = require("ah.render")
 local compact = require("ah.compact")
-
--- ToolFinder holds a find function and a reset function for a cached tool lookup.
-local record ToolFinder
-  find: function(): string
-  reset: function()
-end
-
--- make_tool_finder returns a ToolFinder that checks env_var, then candidates, then PATH.
-local function make_tool_finder(env_var: string, candidates: {string}, tool_names: {string}): ToolFinder
-  local cache: string | boolean = nil
-
-  local function find(): string
-    if cache ~= nil then
-      if cache == false then
-        return nil
-      end
-      return cache as string
-    end
-
-    local env_tool = os.getenv(env_var)
-    if env_tool and env_tool ~= "" then
-      cache = env_tool
-      return env_tool
-    end
-
-    for _, path in ipairs(candidates) do
-      local f = io.open(path, "r")
-      if f then
-        f:close()
-        cache = path
-        return path
-      end
-    end
-
-    for _, name in ipairs(tool_names) do
-      local result = unix.commandv(name)
-      if result then
-        cache = result
-        return result
-      end
-    end
-
-    cache = false
-    return nil
-  end
-
-  local function reset()
-    cache = nil
-  end
-
-  return {find = find, reset = reset}
-end
-
--- run_piped passes content via stdin to tool with extra_args.
-local function run_piped(tool: string, content: string, extra_args: {string}): string
-  if not tool or content == "" then
-    return nil
-  end
-
-  -- Build argv
-  local argv: {string} = {tool}
-  if extra_args then
-    for _, arg in ipairs(extra_args) do
-      table.insert(argv, arg)
-    end
-  end
-
-  local h, _ = child.spawn(argv, {stdin = content})
-  if not h then
-    return nil
-  end
-  -- Ignore exit code: tools like delta exit 1 on diffs but stdout is valid.
-  local _, stdout, _ = h:read()
-  local output = (stdout as string) or ""
-  if output == "" then
-    return nil
-  end
-  return output
-end
-
--- difftool: delta
-local _difftool = make_tool_finder("AH_DIFFTOOL",
-  {"/usr/bin/delta", "/usr/local/bin/delta", "/opt/homebrew/bin/delta"}, {"delta"})
-
-local function find_difftool(): string return _difftool.find() end
-local function reset_difftool_cache() _difftool.reset() end
-
--- Base delta args: no external config, diff-so-fancy style.
--- Uses blue for additions, red for removals.
-local DELTA_BASE_ARGS: {string} = {
-  "--no-gitconfig",
-  "--diff-so-fancy",
-  "--paging=never",
-  "--minus-style=red bold",
-  "--minus-emph-style=red bold ul",
-  "--plus-style=blue bold",
-  "--plus-emph-style=blue bold ul",
-  "--file-decoration-style=yellow ul",
-  "--hunk-header-decoration-style=blue",
-}
-
-local function run_difftool(difftool: string, diff_text: string, extra_args?: {string}): string
-  local args: {string} = {}
-  for _, a in ipairs(DELTA_BASE_ARGS) do table.insert(args, a) end
-  if extra_args then
-    for _, a in ipairs(extra_args) do table.insert(args, a) end
-  end
-  return run_piped(difftool, diff_text, args)
-end
-
--- Convert edit tool pseudo-diff to unified diff for delta.
-local function to_unified_diff(pseudo_diff: string, file_path: string): string
-  if not pseudo_diff or pseudo_diff == "" or not file_path or file_path == "" then
-    return nil
-  end
-
-  local old_count = 0
-  local new_count = 0
-  local unified_lines: {string} = {}
-
-  for line in pseudo_diff:gmatch("([^\n]*)\n?") do
-    if line:sub(1, 2) == "- " then
-      old_count = old_count + 1
-      table.insert(unified_lines, "-" .. line:sub(3))
-    elseif line:sub(1, 2) == "+ " then
-      new_count = new_count + 1
-      table.insert(unified_lines, "+" .. line:sub(3))
-    elseif line ~= "" then
-      -- Not a pseudo-diff line; bail out
-      return nil
-    end
-  end
-
-  if old_count == 0 and new_count == 0 then
-    return nil
-  end
-
-  local header = "--- a/" .. file_path .. "\n"
-  .. "+++ b/" .. file_path .. "\n"
-  .. "@@ -1," .. old_count .. " +1," .. new_count .. " @@\n"
-
-  return header .. table.concat(unified_lines, "\n") .. "\n"
-end
-
--- glow: markdown renderer
-local _glow = make_tool_finder("AH_GLOW",
-  {"/usr/bin/glow", "/usr/local/bin/glow", "/opt/homebrew/bin/glow"}, {"glow"})
-
-local function find_glow(): string return _glow.find() end
-local function reset_glow_cache() _glow.reset() end
-
-local function run_glow(glow: string, text: string): string
-  return run_piped(glow, text, {"-"})
-end
-
--- pager: bat
-local _pager = make_tool_finder("AH_PAGER",
-  {"/usr/bin/bat", "/usr/local/bin/bat", "/opt/homebrew/bin/bat"}, {"bat"})
-
-local function find_pager(): string return _pager.find() end
-local function reset_pager_cache() _pager.reset() end
-
--- Run content through bat with syntax highlighting, preserving line number prefixes.
-local function run_pager(pager: string, content: string, file_name: string): string
-  if not file_name or file_name == "" then
-    return nil
-  end
-
-  -- Strip line number prefixes (N\t) and collect them for re-insertion
-  local prefixes: {string} = {}
-  local stripped = content:gsub("([^\n]*)", function(line: string): string
-      local num, rest = line:match("^(%d+)\t(.*)$")
-      if num then
-        table.insert(prefixes, num .. "\t")
-        return rest
-      end
-      table.insert(prefixes, "")
-      return line
-    end)
-
-  local highlighted = run_piped(pager, stripped, {"--file-name=" .. file_name, "--color=always", "--style=plain", "--map-syntax=*.tl:Lua"})
-  if not highlighted then
-    return nil
-  end
-
-  -- Re-add line number prefixes to highlighted output lines
-  local i = 0
-  local result = highlighted:gsub("([^\n]*)", function(line: string): string
-      i = i + 1
-      local pfx = i <= #prefixes and prefixes[i] or ""
-      return pfx .. line
-    end)
-  return result
-end
+local hl = require("ah.highlight")
 
 -- Format token count as human-friendly string (e.g., 1234 -> "1.2k", 12345 -> "12.3k")
 local function format_tokens(n: integer): string
@@ -244,9 +49,9 @@ local function make_cli_handler(skill_name: string, session_ulid?: string): even
     if #text_buffer > 0 then
       local text = table.concat(text_buffer)
       if is_stdout_tty then
-        local glow = find_glow()
+        local glow = hl.find_glow()
         if glow then
-          local rendered = run_glow(glow, text)
+          local rendered = hl.run_glow(glow, text)
           if rendered then
             text = rendered
           end
@@ -382,24 +187,56 @@ local function make_cli_handler(skill_name: string, session_ulid?: string): even
 
         -- TTY rendering: try specialized tools first
         if is_tty then
-          local difftool = find_difftool()
+          local difftool = hl.find_difftool()
 
           -- edit tool: pipe through delta with compact headers
           if not rendered and event.tool_name == "edit" and difftool then
             local file_path = key ~= "" and key or nil
-            local unified = to_unified_diff(result, file_path)
-            local out = run_difftool(difftool, unified or result, {
-                "--file-style=omit", "--hunk-header-style=omit",
-              })
-            if out then io.stderr:write(out); rendered = true end
+            local unified = hl.to_unified_diff(result, file_path)
+            local lang = hl.infer_language(file_path)
+            local out = hl.run_difftool(difftool, unified or result, {
+                "--hunk-header-style=omit",
+              }, lang)
+            if out then
+              if out:sub(-1) ~= "\n" then out = out .. "\n" end
+              io.stderr:write(out); rendered = true
+            end
           end
 
-          -- read tool: syntax highlighting via bat
-          if not rendered and event.tool_name == "read" then
-            local pager = find_pager()
+          -- read/write tool: syntax highlighting via bat, then head/tail
+          if not rendered and (event.tool_name == "read" or event.tool_name == "write") then
+            local pager = hl.find_pager()
             if pager and key ~= "" then
-              local out = run_pager(pager, result, key)
-              if out then io.stderr:write(out); rendered = true end
+              local out = hl.run_pager(pager, result, key)
+              if out then
+                if out:sub(-1) ~= "\n" then out = out .. "\n" end
+                -- Apply head/tail compression on highlighted output
+                local hlines: {string} = {}
+                for hline in out:gmatch("([^\n]*)\n") do
+                  table.insert(hlines, hline)
+                end
+                local head_n = 5
+                local tail_n = 5
+                if #hlines > head_n + tail_n then
+                  for j = 1, head_n do
+                    io.stderr:write(indent .. hlines[j] .. "\n")
+                  end
+                  io.stderr:write(string.format("%s%s... (%d lines hidden) ...%s\n", DIM, indent, #hlines - head_n - tail_n, RESET))
+                  for j = #hlines - tail_n + 1, #hlines do
+                    io.stderr:write(indent .. hlines[j] .. "\n")
+                  end
+                elseif #hlines > head_n then
+                  for j = 1, head_n do
+                    io.stderr:write(indent .. hlines[j] .. "\n")
+                  end
+                  io.stderr:write(string.format("%s%s... (%d more lines)%s\n", DIM, indent, #hlines - head_n, RESET))
+                else
+                  for j = 1, #hlines do
+                    io.stderr:write(indent .. hlines[j] .. "\n")
+                  end
+                end
+                rendered = true
+              end
             end
           end
 
@@ -409,8 +246,17 @@ local function make_cli_handler(skill_name: string, session_ulid?: string): even
             or key:match("show") ~= nil
             or key:match("log %-p") ~= nil
             if is_diff_cmd then
-              local out = run_difftool(difftool, result)
-              if out then io.stderr:write(out); rendered = true end
+              -- Infer language from first file path in diff headers or shebang
+              local first_file = result:match("%-%-%- a/([^\n]+)")
+              -- Extract first content line after @@ header for shebang detection.
+              -- Strip the leading diff prefix (space, +, or -) to get the raw line.
+              local raw_first = result:match("@@[^\n]*\n[ +-]([^\n]*\n)")
+              local lang = hl.infer_language(first_file, raw_first)
+              local out = hl.run_difftool(difftool, result, nil, lang)
+              if out then
+                if out:sub(-1) ~= "\n" then out = out .. "\n" end
+                io.stderr:write(out); rendered = true
+              end
             end
           end
         end
@@ -425,9 +271,16 @@ local function make_cli_handler(skill_name: string, session_ulid?: string): even
               table.remove(lines)
             end
           end
-          local max_lines = 3
-          for j = 1, math.min(max_lines, #lines) do
-            local line = lines[j]
+
+          -- Strip read/write tool line number prefixes (N\t) for display
+          if event.tool_name == "read" or event.tool_name == "write" then
+            for j = 1, #lines do
+              lines[j] = lines[j]:gsub("^%d+\t", "")
+            end
+          end
+
+          -- Display helper: print a single line with optional colorization
+          local function print_line(line: string)
             if render.display_width(line) > 80 then
               line = render.utf8_truncate(line, 77, "...")
             end
@@ -442,8 +295,29 @@ local function make_cli_handler(skill_name: string, session_ulid?: string): even
               io.stderr:write(string.format("%s%s%s%s\n", DIM, indent, line, RESET))
             end
           end
-          if #lines > max_lines then
-            io.stderr:write(string.format("%s%s... (%d more lines)%s\n", DIM, indent, #lines - max_lines, RESET))
+
+          local head_count = 5
+          local tail_count = 5
+          if #lines > head_count + tail_count then
+            -- Large output: show first 5 and last 5
+            for j = 1, head_count do
+              print_line(lines[j])
+            end
+            io.stderr:write(string.format("%s%s... (%d lines hidden) ...%s\n", DIM, indent, #lines - head_count - tail_count, RESET))
+            for j = #lines - tail_count + 1, #lines do
+              print_line(lines[j])
+            end
+          elseif #lines > head_count then
+            -- Medium output: show first 5 + summary
+            for j = 1, head_count do
+              print_line(lines[j])
+            end
+            io.stderr:write(string.format("%s%s... (%d more lines)%s\n", DIM, indent, #lines - head_count, RESET))
+          else
+            -- Small output: show all
+            for j = 1, #lines do
+              print_line(lines[j])
+            end
           end
         end
       end
@@ -482,15 +356,4 @@ return {
   format_tokens = format_tokens,
   colorize_tool_line = colorize_tool_line,
   make_cli_handler = make_cli_handler,
-  find_difftool = find_difftool,
-  run_difftool = run_difftool,
-  to_unified_diff = to_unified_diff,
-  reset_difftool_cache = reset_difftool_cache,
-  DELTA_BASE_ARGS = DELTA_BASE_ARGS,
-  find_glow = find_glow,
-  run_glow = run_glow,
-  reset_glow_cache = reset_glow_cache,
-  find_pager = find_pager,
-  run_pager = run_pager,
-  reset_pager_cache = reset_pager_cache,
 }

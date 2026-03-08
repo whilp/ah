@@ -99,7 +99,7 @@ local function test_truncate_lines_long()
   assert(result:match("line16\n"), "line 16 preserved")
   assert(result:match("line20"), "last line preserved")
   -- Omission notice
-  assert(result:match("%[%.%.%.10 lines omitted%.%.%.%]"), "omission notice: " .. result)
+  assert(result:match("%[%.%.%.10 lines omitted%. narrow your command output to see more%]"), "omission notice: " .. result)
   print("✓ truncate_lines head/tail split")
 end
 test_truncate_lines_long()
@@ -161,19 +161,30 @@ end
 test_truncate_output_unknown_tool()
 
 local function test_truncate_output_bash_line_limit()
-  -- bash has 256 line limit
+  -- bash has a 500-line limit
   local lines = {}
   for i = 1, 300 do
     table.insert(lines, "line" .. tostring(i))
   end
   local s = table.concat(lines, "\n")
   local r = truncate.truncate_output(s, "bash")
-  assert(r.truncated, "should be truncated by line limit")
-  assert(r.content:match("lines omitted"), "has line omission notice")
-  -- First and last lines preserved
+  assert(not r.truncated, "300 short lines should not be truncated (under 500 line limit)")
+  assert(not r.content:match("lines omitted"), "should have no line omission notice")
   assert(r.content:match("line1\n"), "first line preserved")
   assert(r.content:match("line300"), "last line preserved")
-  print("✓ truncate_output applies bash line limit")
+
+  -- Over the line limit
+  local many_lines = {}
+  for i = 1, 700 do
+    table.insert(many_lines, "L" .. tostring(i))
+  end
+  local s2 = table.concat(many_lines, "\n")
+  local r2 = truncate.truncate_output(s2, "bash")
+  assert(r2.truncated, "700 lines should be truncated at 500 line limit")
+  assert(r2.content:match("lines omitted"), "should have line omission notice")
+  assert(r2.content:match("^L1\n"), "first line preserved")
+  assert(r2.content:match("L700$"), "last line preserved")
+  print("✓ truncate_output bash line limit")
 end
 test_truncate_output_bash_line_limit()
 

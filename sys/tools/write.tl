@@ -46,10 +46,20 @@ return {
       return "error: failed to write file: " .. file_path, true
     end
 
-    local line_count = 1
-    for _ in content:gmatch("\n") do line_count = line_count + 1 end
+    -- Return written content with line numbers (same format as read tool)
+    local all_lines: {string} = {}
+    for line in content:gmatch("[^\n]*") do
+      table.insert(all_lines, line)
+    end
+    if #all_lines > 0 and all_lines[#all_lines] == "" and content:sub(-1) == "\n" then
+      table.remove(all_lines)
+    end
+    local numbered: {string} = {}
+    for i = 1, #all_lines do
+      table.insert(numbered, string.format("%d\t%s", i, all_lines[i]))
+    end
 
-    return string.format("%d lines", line_count), false,
-    {path = file_path, bytes = #content, line_count = line_count}
+    return table.concat(numbered, "\n"), false,
+    {path = file_path, bytes = #content, line_count = #all_lines}
   end,
 }

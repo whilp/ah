@@ -55,7 +55,7 @@ end
 return {
   name = "bash",
   description = "Execute a bash command",
-  system_prompt = "Use bash for system commands, not for file operations.\nAll tools run in the working directory. Use relative paths for project files.\nPrefer one command per bash call over chaining with &&. Avoid shell line continuations (\\); use multiple calls instead.",
+  system_prompt = "Use bash for system commands, not for file operations.\nAll tools run in the working directory. Use relative paths for project files.\nPrefer one command per bash call over chaining with &&. Avoid shell line continuations (\\); use multiple calls instead.\nKeep commands short. Break long pipelines into separate calls or use intermediate variables/files.\nLarge output is truncated. To avoid truncation, limit output: use head/tail, pipe through grep, or redirect to a file and read selectively.\nIf output was truncated, do not re-run the same command. Narrow the output or use a different approach.",
   running_processes = running_processes,
   input_schema = {
     type = "object",
