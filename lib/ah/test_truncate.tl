@@ -160,22 +160,21 @@ local function test_truncate_output_unknown_tool()
 end
 test_truncate_output_unknown_tool()
 
-local function test_truncate_output_bash_line_limit()
-  -- bash has 256 line limit
+local function test_truncate_output_bash_no_line_limit()
+  -- bash has no line limit, only char limit
   local lines = {}
   for i = 1, 300 do
     table.insert(lines, "line" .. tostring(i))
   end
   local s = table.concat(lines, "\n")
   local r = truncate.truncate_output(s, "bash")
-  assert(r.truncated, "should be truncated by line limit")
-  assert(r.content:match("lines omitted"), "has line omission notice")
-  -- First and last lines preserved
+  assert(not r.truncated, "300 short lines should not be truncated")
+  assert(not r.content:match("lines omitted"), "should have no line omission notice")
   assert(r.content:match("line1\n"), "first line preserved")
   assert(r.content:match("line300"), "last line preserved")
-  print("✓ truncate_output applies bash line limit")
+  print("✓ truncate_output bash has no line limit")
 end
-test_truncate_output_bash_line_limit()
+test_truncate_output_bash_no_line_limit()
 
 local function test_truncate_output_read_no_line_limit()
   -- read has no line limit, only char limit

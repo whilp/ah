@@ -106,13 +106,44 @@ local DELTA_BASE_ARGS: {string} = {
   '--minus-emph-style=syntax "#6b2020"',
   '--plus-style=syntax "#0d2744"',
   '--plus-emph-style=syntax "#133d6b"',
-  "--file-decoration-style=yellow ul",
+  "--file-style=omit",
   "--hunk-header-decoration-style=blue",
 }
 
-local function run_difftool(difftool: string, diff_text: string, extra_args?: {string}): string
+-- Map file extensions to delta --default-language values.
+-- Only needed for extensions delta/syntect don't recognize natively.
+local EXT_LANG_MAP: {string: string} = {
+  tl = "Lua",
+}
+
+-- Map shebang interpreters to delta --default-language values.
+local SHEBANG_LANG_MAP: {string: string} = {
+  cosmic = "Lua",
+}
+
+-- Infer language from a file path's extension via EXT_LANG_MAP,
+-- falling back to shebang detection in content.
+local function infer_language(path: string, content?: string): string
+  if path then
+    local ext = path:match("%.([^%.]+)$")
+    if ext and EXT_LANG_MAP[ext] then return EXT_LANG_MAP[ext] end
+  end
+  if content then
+    local interp = content:match("^#!.-/([%w_%-]+)%s*\n")
+      or content:match("^#!.-/env%s+([%w_%-]+)")
+    if interp and SHEBANG_LANG_MAP[interp] then
+      return SHEBANG_LANG_MAP[interp]
+    end
+  end
+  return nil
+end
+
+local function run_difftool(difftool: string, diff_text: string, extra_args?: {string}, language?: string): string
   local args: {string} = {}
   for _, a in ipairs(DELTA_BASE_ARGS) do table.insert(args, a) end
+  if language then
+    table.insert(args, "--default-language=" .. language)
+  end
   if extra_args then
     for _, a in ipairs(extra_args) do table.insert(args, a) end
   end
@@ -383,9 +414,10 @@ local function make_cli_handler(skill_name: string, session_ulid?: string): even
           if not rendered and event.tool_name == "edit" and difftool then
             local file_path = key ~= "" and key or nil
             local unified = to_unified_diff(result, file_path)
+            local lang = infer_language(file_path)
             local out = run_difftool(difftool, unified or result, {
                 "--file-style=omit", "--hunk-header-style=omit",
-              })
+              }, lang)
             if out then
               if out:sub(-1) ~= "\n" then out = out .. "\n" end
               io.stderr:write(out); rendered = true
@@ -435,7 +467,13 @@ local function make_cli_handler(skill_name: string, session_ulid?: string): even
             or key:match("show") ~= nil
             or key:match("log %-p") ~= nil
             if is_diff_cmd then
-              local out = run_difftool(difftool, result)
+              -- Infer language from first file path in diff headers or shebang
+              local first_file = result:match("%-%-%- a/([^\n]+)")
+              -- Extract first content line after @@ header for shebang detection.
+              -- Strip the leading diff prefix (space, +, or -) to get the raw line.
+              local raw_first = result:match("@@[^\n]*\n[ +-]([^\n]*\n)")
+              local lang = infer_language(first_file, raw_first)
+              local out = run_difftool(difftool, result, nil, lang)
               if out then
                 if out:sub(-1) ~= "\n" then out = out .. "\n" end
                 io.stderr:write(out); rendered = true
@@ -544,6 +582,7 @@ return {
   to_unified_diff = to_unified_diff,
   reset_difftool_cache = reset_difftool_cache,
   DELTA_BASE_ARGS = DELTA_BASE_ARGS,
+  infer_language = infer_language,
   find_glow = find_glow,
   run_glow = run_glow,
   reset_glow_cache = reset_glow_cache,

@@ -338,6 +338,8 @@ local function test_delta_base_args()
   assert(has_arg("--diff-so-fancy"), "DELTA_BASE_ARGS should contain --diff-so-fancy")
   assert(has_arg("--paging=never"), "DELTA_BASE_ARGS should contain --paging=never")
   assert(has_arg("--syntax-theme=base16"), "DELTA_BASE_ARGS should contain --syntax-theme=base16")
+  -- Verify file heading suppression
+  assert(has_arg("--file-style=omit"), "DELTA_BASE_ARGS should contain --file-style=omit")
   -- Verify syntax highlighting with background colors
   assert(has_arg_matching("minus%-style"), "DELTA_BASE_ARGS should have minus-style")
   assert(has_arg_matching("plus%-style"), "DELTA_BASE_ARGS should have plus-style")
@@ -508,3 +510,37 @@ end
 test_make_cli_handler_agent_end_no_session_id_when_nil()
 
 print("all cli tests passed")
+
+-- infer_language tests
+
+local function test_infer_language_extension()
+  assert(cli.infer_language("lib/ah/cli.tl") == "Lua", ".tl should map to Lua")
+  assert(cli.infer_language("foo.py") == nil, ".py should return nil (not mapped)")
+  assert(cli.infer_language("foo.lua") == nil, ".lua should return nil (delta handles natively)")
+end
+test_infer_language_extension()
+
+local function test_infer_language_shebang()
+  assert(cli.infer_language(nil, "#!/usr/bin/env cosmic\nlocal x = 1\n") == "Lua",
+    "cosmic shebang should map to Lua")
+  assert(cli.infer_language(nil, "#!/usr/local/bin/cosmic\nlocal x = 1\n") == "Lua",
+    "direct cosmic shebang should map to Lua")
+  assert(cli.infer_language(nil, "#!/usr/bin/env python3\nimport os\n") == nil,
+    "python shebang should return nil")
+end
+test_infer_language_shebang()
+
+local function test_infer_language_extension_takes_precedence()
+  assert(cli.infer_language("foo.tl", "#!/usr/bin/env python3\n") == "Lua",
+    "extension should take precedence over shebang")
+end
+test_infer_language_extension_takes_precedence()
+
+local function test_infer_language_nil_inputs()
+  assert(cli.infer_language(nil) == nil, "nil path with no content should return nil")
+  assert(cli.infer_language(nil, nil) == nil, "nil path and nil content should return nil")
+  assert(cli.infer_language("noext") == nil, "no extension should return nil")
+end
+test_infer_language_nil_inputs()
+
+print("all infer_language tests passed")

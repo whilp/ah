@@ -21,7 +21,6 @@ local DEFAULT_CHAR_LIMITS: {string: integer} = {
 
 -- Default per-tool line limits (applied after character truncation)
 local DEFAULT_LINE_LIMITS: {string: integer} = {
-  bash = 256,
 }
 
 -- Fallback limit for tools not in the table
