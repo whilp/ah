@@ -295,7 +295,8 @@ print("all infer_language tests passed")
 local function test_glow_style_returns_string()
   local style = hl.glow_style()
   assert(type(style) == "string", "glow_style should return string, got: " .. type(style))
-  assert(style == "dark" or style:match("%.json$"),
+  local style_ok = style == "dark" or style:match("%.json$") ~= nil
+  assert(style_ok,
     "glow_style should return extracted temp path or 'dark', got: " .. style)
   -- If embedded file exists, should extract to temp
   local f = io.open("/zip/embed/sys/glow.json", "r")
