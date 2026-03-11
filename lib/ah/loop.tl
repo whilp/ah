@@ -11,24 +11,18 @@ local compact = require("ah.compact")
 local looputil = require("ah.looputil")
 local looptool = require("ah.looptool")
 
--- Reference the global interrupted flag (set by application layer)
 global interrupted: boolean
 
--- Loop detection thresholds
 local LOOP_WARN_THRESHOLD = 3
 local LOOP_BREAK_THRESHOLD = 5
-
--- Payload size threshold: warn when outgoing API payload exceeds this many bytes
 local PAYLOAD_WARN_BYTES = 800000
 
--- Emit an event through the callback, silently ignoring if no callback
 local function emit(on_event: events.EventCallback, event: events.EventData)
   if on_event then
     on_event(event)
   end
 end
 
--- Transition session state and emit event
 local function transition_state(d: db.DB, on_event: events.EventCallback, to_state: string)
   local from_state = db.get_session_state(d)
   if from_state ~= to_state then
@@ -38,25 +32,38 @@ local function transition_state(d: db.DB, on_event: events.EventCallback, to_sta
   end
 end
 
--- Measure the byte size of the API messages payload by JSON-encoding it
 local function measure_payload_bytes(api_messages: {any}): integer
   local encoded = json.encode(api_messages)
   return #encoded
 end
 
--- Options for run_agent
 local record AgentOpts
   max_tokens: integer
   max_turn_tokens: integer
   must_produce: string
 end
 
--- Build API messages from ancestry chain, skipping incomplete messages
+-- Build API messages from ancestry. Cuts off at the last [COMPACTION SUMMARY].
 local function build_api_messages(d: db.DB, message_id: string, on_event: events.EventCallback): {any}
   local ancestry = db.get_ancestry(d, message_id)
+  local compaction_start = 1
+  for i, msg in ipairs(ancestry) do
+    local blocks = db.get_content_blocks(d, msg.id)
+    for _, block in ipairs(blocks) do
+      if block.block_type == "text" and block.content then
+        local text = block.content as string
+        if text:sub(1, 20) == "[COMPACTION SUMMARY]" then
+          compaction_start = i
+          break
+        end
+      end
+    end
+  end
+
   local api_messages: {any} = {}
 
-  for _, msg in ipairs(ancestry) do
+  for i = compaction_start, #ancestry do
+    local msg = ancestry[i]
     local blocks = db.get_content_blocks(d, msg.id)
     if #blocks == 0 then
       emit(on_event, events.error_event(string.format("skipping incomplete message %s (no content blocks)", msg.id)))
@@ -66,7 +73,14 @@ local function build_api_messages(d: db.DB, message_id: string, on_event: events
     local content: {any} = {}
     for _, block in ipairs(blocks) do
       if block.block_type == "text" then
-        table.insert(content, {type = "text", text = block.content})
+        local text = block.content as string
+        if text and text:sub(1, 20) == "[COMPACTION SUMMARY]" then
+          text = text:sub(22)
+          if text == "" then
+            goto next_block
+          end
+        end
+        table.insert(content, {type = "text", text = text})
       elseif block.block_type == "tool_use" then
         local input = block.tool_input and json.decode(block.tool_input as string) or {}
         table.insert(content, {type = "tool_use", id = block.tool_id, name = block.tool_name, input = input})
@@ -82,16 +96,18 @@ local function build_api_messages(d: db.DB, message_id: string, on_event: events
         end
         table.insert(content, {type = "tool_result", tool_use_id = block.tool_id, content = api_content, is_error = block.is_error == 1})
       end
+      ::next_block::
     end
 
-    table.insert(api_messages, {role = msg.role, content = content})
+    if #content > 0 then
+      table.insert(api_messages, {role = msg.role, content = content})
+    end
     ::continue::
   end
 
   return api_messages
 end
 
--- Repair dangling tool_use blocks in message history
 local function repair_dangling_tool_use(api_messages: {any}, on_event: events.EventCallback)
   for i = #api_messages, 1, -1 do
     local msg = api_messages[i] as {string: any}
@@ -132,7 +148,6 @@ local function repair_dangling_tool_use(api_messages: {any}, on_event: events.Ev
   end
 end
 
--- Send prompt and run agent loop
 local function run_agent(d: db.DB, qdb: queue.QueueDB, system_prompt: string, model: string, prompt: string, parent_id: string, on_event: events.EventCallback, opts: AgentOpts): string
   opts = opts or {}
   local max_tokens = opts.max_tokens
@@ -160,10 +175,9 @@ local function run_agent(d: db.DB, qdb: queue.QueueDB, system_prompt: string, mo
   local last_error: string = nil
   local turn_history: {string} = {}
   local last_input_tokens: integer = 0
-  -- The API reports total input tokens per turn (including all prior context),
-  -- so the latest value already represents the effective cumulative input.
   local last_effective_input_tokens: integer = 0
   local cumulative_output_tokens: integer = 0
+  local compaction_attempted = false
 
   local function is_interrupted(): boolean
     return interrupted
@@ -171,8 +185,7 @@ local function run_agent(d: db.DB, qdb: queue.QueueDB, system_prompt: string, mo
 
   while not interrupted do
     -- Drain steering queue
-    if qdb then
-      queue.update_heartbeat(qdb)
+    if qdb then queue.update_heartbeat(qdb)
       local steering_msgs = queue.drain_steering(qdb)
       for _, steer_msg in ipairs(steering_msgs) do
         emit(on_event, events.steering_received(steer_msg.content, #steering_msgs))
@@ -186,11 +199,12 @@ local function run_agent(d: db.DB, qdb: queue.QueueDB, system_prompt: string, mo
     end
 
     -- Compaction
-    if last_input_tokens > 0 and compact.needs_compaction(last_input_tokens, model) then
+    if not compaction_attempted and last_input_tokens > 0 and compact.needs_compaction(last_input_tokens, model) then
       local context_limit = compact.get_context_limit(model)
       emit(on_event, events.compaction_triggered(last_input_tokens, context_limit))
       db.log_event(d, "compaction_triggered", nil, events.to_json(events.compaction_triggered(last_input_tokens, context_limit)))
 
+      compaction_attempted = true
       local compact_result, compact_err = compact.compact(api_messages, model, is_interrupted)
       if compact_result then
         db.begin_transaction(d)
@@ -200,12 +214,12 @@ local function run_agent(d: db.DB, qdb: queue.QueueDB, system_prompt: string, mo
         user_msg = compact_msg
         api_messages = {{role = "user", content = {{type = "text", text = compact_result.summary}}}}
         last_input_tokens = 0
+        compaction_attempted = false
         emit(on_event, events.compaction_complete(compact_result.input_tokens, compact_result.output_tokens))
         db.log_event(d, "compaction_complete", nil, events.to_json(events.compaction_complete(compact_result.input_tokens, compact_result.output_tokens)))
       else
         emit(on_event, events.error_event(compact_err))
         db.log_event(d, "error", nil, events.to_json(events.error_event(compact_err)))
-        last_input_tokens = 0
       end
     end
 
