@@ -5,6 +5,7 @@
 -- operation: compaction only affects what is sent to the API. The full
 -- conversation is always preserved in the database.
 
+local json = require("cosmic.json")
 local api = require("ah.api")
 
 -- Model context window limits (tokens) — sourced from api.MODEL_CONTEXT_LIMITS
@@ -49,12 +50,93 @@ local function needs_compaction(input_tokens: integer, model: string, threshold?
   return (input_tokens / limit) > threshold
 end
 
+-- Sanitize api_messages for compaction: convert tool_use and tool_result blocks
+-- to text blocks so the API doesn't reject them (no tools declared in the request).
+-- After conversion, merge consecutive same-role messages and remove empty ones.
+local function sanitize_for_compaction(api_messages: {any}): {any}
+  -- First pass: convert tool_use / tool_result blocks to text blocks
+  local converted: {any} = {}
+  for _, msg in ipairs(api_messages) do
+    local m = msg as {string: any}
+    local role = m.role as string
+    local orig_content = m.content as {any}
+    if not orig_content then
+      goto next_msg
+    end
+
+    local new_content: {any} = {}
+    for _, block in ipairs(orig_content) do
+      local b = block as {string: any}
+      local btype = b.type as string
+      if btype == "tool_use" then
+        local name = (b.name or "") as string
+        local input_str = json.encode(b.input or {})
+        local text = "[Tool: " .. name .. "]\n" .. input_str
+        table.insert(new_content, {type = "text", text = text})
+      elseif btype == "tool_result" then
+        local tid = (b.tool_use_id or "") as string
+        local raw = b.content
+        local content_str: string
+        if type(raw) == "string" then
+          content_str = raw as string
+        elseif type(raw) == "table" then
+          local parts: {string} = {}
+          local raw_arr = raw as {any}
+          for _, item in ipairs(raw_arr) do
+            local it = item as {string: any}
+            if it.type == "text" and it.text then
+              table.insert(parts, it.text as string)
+            end
+          end
+          content_str = table.concat(parts, "\n")
+        else
+          content_str = ""
+        end
+        local text = "[Tool result: " .. tid .. "]\n" .. content_str
+        table.insert(new_content, {type = "text", text = text})
+      else
+        table.insert(new_content, block)
+      end
+    end
+
+    if #new_content > 0 then
+      table.insert(converted, {role = role, content = new_content})
+    end
+    ::next_msg::
+  end
+
+  -- Second pass: merge consecutive same-role messages
+  local merged: {any} = {}
+  for _, msg in ipairs(converted) do
+    local m = msg as {string: any}
+    local role = m.role as string
+    local content = m.content as {any}
+    if #merged > 0 then
+      local prev = merged[#merged] as {string: any}
+      if prev.role == role then
+        local prev_content = prev.content as {any}
+        for _, block in ipairs(content) do
+          table.insert(prev_content, block)
+        end
+        goto next_merged
+      end
+    end
+    table.insert(merged, {role = role, content = content})
+    ::next_merged::
+  end
+
+  return merged
+end
+
 -- Perform compaction: send current conversation to the API with a summarization
 -- prompt (no tools). Returns a CompactResult with the summary text, or nil and
 -- an error string.
 local function compact(api_messages: {any}, model: string, is_interrupted: function(): boolean): CompactResult, string
-  -- Call API with existing messages and compaction system prompt (no tools)
-  local response, err = api.stream(api_messages, {
+  -- Sanitize messages before calling API (removes tool_use/tool_result blocks)
+  local sanitized = sanitize_for_compaction(api_messages)
+
+  -- Call API with sanitized messages and compaction system prompt (no tools)
+  local response, err = api.stream(sanitized, {
       system = COMPACTION_SYSTEM_PROMPT,
       model = model,
     } as {string: any}, nil, is_interrupted)
@@ -103,6 +185,7 @@ end
 return {
   needs_compaction = needs_compaction,
   compact = compact,
+  sanitize_for_compaction = sanitize_for_compaction,
   get_context_limit = get_context_limit,
   CompactResult = CompactResult,
   MODEL_CONTEXT_LIMITS = MODEL_CONTEXT_LIMITS,

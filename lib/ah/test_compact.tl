@@ -165,4 +165,149 @@ local function test_model_limits_all_present()
 end
 test_model_limits_all_present()
 
+-- sanitize_for_compaction tests
+
+local function test_sanitize_text_only_passthrough()
+  local msgs = {
+    {role = "user", content = {{type = "text", text = "hello"}}},
+    {role = "assistant", content = {{type = "text", text = "world"}}},
+  }
+  local result = compact.sanitize_for_compaction(msgs)
+  assert(#result == 2, "should preserve two messages: " .. tostring(#result))
+  local m1 = result[1] as {string: any}
+  assert(m1.role == "user", "first message should be user")
+  local c1 = m1.content as {any}
+  assert(#c1 == 1, "first message should have one block")
+  local b1 = c1[1] as {string: any}
+  assert(b1.type == "text", "block type should be text")
+  assert(b1.text == "hello", "text should be preserved")
+  print("✓ sanitize_for_compaction: text-only messages pass through unchanged")
+end
+test_sanitize_text_only_passthrough()
+
+local function test_sanitize_tool_use_converted_to_text()
+  local tool_block: {string: any} = {type = "tool_use", id = "tu1", name = "bash", input = {command = "ls -la"}}
+  local msgs: {any} = {
+    {role = "user", content = {{type = "text", text = "run this"}}},
+    {role = "assistant", content = {tool_block as any}},
+  }
+  local result = compact.sanitize_for_compaction(msgs)
+  assert(#result == 2, "should have two messages: " .. tostring(#result))
+  local assistant = result[2] as {string: any}
+  assert(assistant.role == "assistant", "second message should be assistant")
+  local content = assistant.content as {any}
+  assert(#content == 1, "should have one block: " .. tostring(#content))
+  local block = content[1] as {string: any}
+  assert(block.type == "text", "block should be text type")
+  local text = block.text as string
+  assert(text:find("Tool: bash"), "text should contain tool name: " .. text)
+  assert(text:find("ls %-la"), "text should contain command: " .. text)
+  print("✓ sanitize_for_compaction: tool_use block converted to text")
+end
+test_sanitize_tool_use_converted_to_text()
+
+local function test_sanitize_tool_result_string_converted_to_text()
+  local result_block: {string: any} = {type = "tool_result", tool_use_id = "tu1", content = "output here"}
+  local msgs: {any} = {
+    {role = "user", content = {result_block as any}},
+  }
+  local result = compact.sanitize_for_compaction(msgs)
+  assert(#result == 1, "should have one message")
+  local m = result[1] as {string: any}
+  local content = m.content as {any}
+  local block = content[1] as {string: any}
+  assert(block.type == "text", "block should be text type")
+  local text = block.text as string
+  assert(text:find("Tool result: tu1"), "text should contain tool_use_id: " .. text)
+  assert(text:find("output here"), "text should contain output: " .. text)
+  print("✓ sanitize_for_compaction: tool_result (string) converted to text")
+end
+test_sanitize_tool_result_string_converted_to_text()
+
+local function test_sanitize_tool_result_array_converted_to_text()
+  local inner_blocks: {any} = {
+    {type = "text", text = "line one"},
+    {type = "text", text = "line two"},
+  }
+  local result_block: {string: any} = {type = "tool_result", tool_use_id = "tu2", content = inner_blocks}
+  local msgs: {any} = {
+    {role = "user", content = {result_block as any}},
+  }
+  local result = compact.sanitize_for_compaction(msgs)
+  assert(#result == 1, "should have one message")
+  local m = result[1] as {string: any}
+  local content = m.content as {any}
+  local block = content[1] as {string: any}
+  assert(block.type == "text", "block should be text type")
+  local text = block.text as string
+  assert(text:find("Tool result: tu2"), "text should contain tool_use_id: " .. text)
+  assert(text:find("line one"), "text should contain first line: " .. text)
+  assert(text:find("line two"), "text should contain second line: " .. text)
+  print("✓ sanitize_for_compaction: tool_result (array) converted to text")
+end
+test_sanitize_tool_result_array_converted_to_text()
+
+local function test_sanitize_consecutive_same_role_merged()
+  -- tool_use (assistant) followed by tool_result (user) then another user text
+  -- After sanitization both user messages should be merged
+  local tool_use: {string: any} = {type = "tool_use", id = "tu1", name = "bash", input = {command = "ls"}}
+  local tool_result: {string: any} = {type = "tool_result", tool_use_id = "tu1", content = "file1"}
+  local msgs: {any} = {
+    {role = "user", content = {{type = "text", text = "start"}}},
+    {role = "assistant", content = {tool_use as any}},
+    {role = "user", content = {tool_result as any}},
+    {role = "user", content = {{type = "text", text = "extra user msg"}}},
+  }
+  local result = compact.sanitize_for_compaction(msgs)
+  -- user, assistant, user+user merged = 3 messages
+  assert(#result == 3, "should have 3 messages after merge: " .. tostring(#result))
+  local last = result[3] as {string: any}
+  assert(last.role == "user", "last message should be user")
+  local content = last.content as {any}
+  assert(#content == 2, "merged user message should have 2 blocks: " .. tostring(#content))
+  print("✓ sanitize_for_compaction: consecutive same-role messages merged")
+end
+test_sanitize_consecutive_same_role_merged()
+
+local function test_sanitize_empty_messages_removed()
+  -- A message with empty content (e.g. after stripping tool blocks with no text)
+  -- should not appear in the output
+  local msgs: {any} = {
+    {role = "user", content = {}},
+    {role = "assistant", content = {{type = "text", text = "hello"}}},
+  }
+  local result = compact.sanitize_for_compaction(msgs)
+  assert(#result == 1, "empty message should be removed: " .. tostring(#result))
+  local m = result[1] as {string: any}
+  assert(m.role == "assistant", "remaining message should be assistant")
+  print("✓ sanitize_for_compaction: empty messages removed")
+end
+test_sanitize_empty_messages_removed()
+
+local function test_sanitize_mixed_conversation()
+  -- Full turn: user text → assistant text + tool_use → user tool_result → assistant text
+  local tool_use: {string: any} = {type = "tool_use", id = "tu1", name = "bash", input = {command = "echo hi"}}
+  local tool_result: {string: any} = {type = "tool_result", tool_use_id = "tu1", content = "hi"}
+  local msgs: {any} = {
+    {role = "user", content = {{type = "text", text = "hello"}}},
+    {role = "assistant", content = {{type = "text", text = "I will run bash"}, tool_use as any}},
+    {role = "user", content = {tool_result as any}},
+    {role = "assistant", content = {{type = "text", text = "done"}}},
+  }
+  local result = compact.sanitize_for_compaction(msgs)
+  assert(#result == 4, "should have 4 messages: " .. tostring(#result))
+  local m1 = result[1] as {string: any}
+  assert(m1.role == "user")
+  local m2 = result[2] as {string: any}
+  assert(m2.role == "assistant")
+  local m2c = m2.content as {any}
+  assert(#m2c == 2, "assistant should have 2 blocks (text + converted tool_use): " .. tostring(#m2c))
+  local m3 = result[3] as {string: any}
+  assert(m3.role == "user")
+  local m4 = result[4] as {string: any}
+  assert(m4.role == "assistant")
+  print("✓ sanitize_for_compaction: mixed conversation produces valid alternating structure")
+end
+test_sanitize_mixed_conversation()
+
 print("\nAll compact tests passed!")
