@@ -8,7 +8,7 @@ o/
 .ah/
 
 # work loop sandbox artifacts
-work/
+/work/
 plan.md
 
 # downloaded tools
