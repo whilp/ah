@@ -161,10 +161,8 @@ local function git_diff(): string
 end
 
 -- Revert working tree, preserving a file.
-local function git_revert(preserve: string)
-  local content = cio.slurp(preserve)
+local function git_revert()
   git("checkout", "--", ".")
-  if content then cio.barf(preserve, content) end
 end
 
 -- Commit all changes using a file for the commit message.
@@ -209,7 +207,7 @@ end
 -- Run one work iteration. Returns 0=keep, 1=discard/error.
 local function run_work(
     d: db.DB, cwd: string, work_script: string,
-    prompt: string, model: string, work_md: string
+    prompt: string, model: string
   ): integer
   init_work_db(d)
   local system = build_system(cwd)
@@ -263,7 +261,7 @@ local function run_work(
   if bm_code ~= 0 then
     io.write("work: benchmark crashed, reverting\n")
     io.stderr:write(bm_stderr)
-    git_revert(work_md)
+    git_revert()
     record_iteration(d, {
         status = "crash", baseline_value = best,
         message = "benchmark failed",
@@ -273,7 +271,7 @@ local function run_work(
   local new_value = parse_metric(bm_stdout)
   if not new_value then
     io.write("work: benchmark produced no metric, reverting\n")
-    git_revert(work_md)
+    git_revert()
     record_iteration(d, {
         status = "crash", baseline_value = best,
         message = "no metric output",
@@ -307,7 +305,7 @@ DISCARD: <reason>]], best, new_value, pct, diff)
   local eval_system = "you are evaluating an optimization change. respond with a single line: KEEP: <commit message> or DISCARD: <reason>. nothing else."
   local verdict = run_agent_once(cwd, eval_system, effective_model, evaluate_prompt)
   if not verdict then
-    git_revert(work_md)
+    git_revert()
     return 1
   end
 
@@ -322,7 +320,7 @@ DISCARD: <reason>]], best, new_value, pct, diff)
       } as Iteration)
     return 0
   else
-    git_revert(work_md)
+    git_revert()
     io.write("work: discard — " .. string.format("%.4g → %.4g (%s) %s", best, new_value, pct, msg) .. "\n")
     record_iteration(d, {
         status = "discard", metric_value = new_value,

@@ -468,7 +468,7 @@ local function main(args: {string}): integer, string
   local exit_code: integer = 0
   if parsed.work_script then
     local work_mod = require("ah.work")
-    exit_code = work_mod.run_work(d, cwd, parsed.work_script, prompt, model, "work.md")
+    exit_code = work_mod.run_work(d, cwd, parsed.work_script, prompt, model)
   else
     local stop_reason = loop.run_agent(d, qdb, effective_system, effective_model, prompt, parent_id, on_event, agent_opts)
     if stop_reason == "error" then exit_code = 1 end
