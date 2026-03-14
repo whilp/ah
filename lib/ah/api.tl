@@ -45,7 +45,7 @@ local function get_api_url(): string
     return "https://api.anthropic.com/v1/messages"
   end
 end
-local DEFAULT_MODEL = "claude-opus-4-6"
+local DEFAULT_MODEL = "claude-opus-4-6-1m"
 local DEFAULT_MAX_TOKENS = 16384
 
 local MODELS: {string} = {
@@ -58,9 +58,9 @@ local MODELS: {string} = {
 }
 
 local MODEL_ALIASES: {string: string} = {
-  ["sonnet"] = "claude-sonnet-4-6",
+  ["sonnet"] = "claude-sonnet-4-6-1m",
   ["sonnet-1m"] = "claude-sonnet-4-6-1m",
-  ["opus"] = "claude-opus-4-6",
+  ["opus"] = "claude-opus-4-6-1m",
   ["opus-1m"] = "claude-opus-4-6-1m",
   ["haiku"] = "claude-haiku-4-5-20251001",
 }

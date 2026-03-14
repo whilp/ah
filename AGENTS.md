@@ -107,7 +107,7 @@ Makefile               build system
   ah embed myconfig
   ```
 - **models**: aliases `sonnet`, `opus`, `haiku` resolve to full model names
-  in `api.tl`. default model is `claude-opus-4-6`.
+  in `api.tl`. default model is `claude-opus-4-6-1m`.
 - **accessibility**: terminal colors must be colorblind-friendly. avoid
   red/green distinctions — use blue/yellow or bold/dim instead. all visual
   indicators should be distinguishable without color (e.g. via shape, symbol,

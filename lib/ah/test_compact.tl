@@ -119,8 +119,9 @@ end
 test_needs_compaction_custom_threshold_tight()
 
 local function test_needs_compaction_unknown_model()
-  -- Unknown model uses default limit (200000)
-  assert(compact.needs_compaction(170000, "some-future-model"), "unknown model should use default limit")
+  -- Unknown model uses default limit (1000000), threshold 0.8 = 800000
+  assert(compact.needs_compaction(850000, "some-future-model"), "unknown model should use default limit")
+  assert(not compact.needs_compaction(170000, "some-future-model"), "170k should not trigger with 1M default limit")
   print("✓ needs_compaction with unknown model")
 end
 test_needs_compaction_unknown_model()
@@ -134,8 +135,8 @@ end
 test_default_threshold()
 
 local function test_default_context_limit()
-  assert(compact.DEFAULT_CONTEXT_LIMIT == 200000, "default context limit should be 200000: " .. tostring(compact.DEFAULT_CONTEXT_LIMIT))
-  print("✓ DEFAULT_CONTEXT_LIMIT is 200000")
+  assert(compact.DEFAULT_CONTEXT_LIMIT == 1000000, "default context limit should be 1000000: " .. tostring(compact.DEFAULT_CONTEXT_LIMIT))
+  print("✓ DEFAULT_CONTEXT_LIMIT is 1000000")
 end
 test_default_context_limit()
 
