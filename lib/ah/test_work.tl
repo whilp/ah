@@ -58,28 +58,3 @@ local function test_work_db()
   print("PASS test_work_db")
 end
 test_work_db()
-
--- test: parse_verdict
-local function test_parse_verdict()
-  local decision: string
-  local msg: string
-
-  decision, msg = work.parse_verdict("KEEP: improved hot path")
-  assert(decision == "keep", "keep decision")
-  assert(msg == "improved hot path", "keep msg")
-
-  decision, msg = work.parse_verdict("DISCARD: no real improvement")
-  assert(decision == "discard", "discard decision")
-  assert(msg == "no real improvement", "discard msg")
-
-  -- agent may prefix with text
-  decision, msg = work.parse_verdict("Looking at the diff...\nKEEP: good change")
-  assert(decision == "keep", "keep with prefix")
-  assert(msg == "good change", "keep msg with prefix")
-
-  decision, msg = work.parse_verdict("no verdict here")
-  assert(decision == "discard", "fallback to discard")
-
-  print("PASS test_parse_verdict")
-end
-test_parse_verdict()

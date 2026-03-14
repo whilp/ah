@@ -90,6 +90,14 @@ local function record_iteration(d: db.DB, iter: Iteration)
   ]], iter.status, iter.metric_value, iter.baseline_value, iter.message, os.time())
 end
 
+-- Get iteration count.
+local function get_iteration_count(d: db.DB): integer
+  for row in d._db:query("select count(*) as n from work_iterations") do
+    return row.n as integer
+  end
+  return 0
+end
+
 -- Format recent iteration history for the agent prompt.
 local function format_history(d: db.DB, n: integer): string
   local lines: {string} = {}
@@ -99,7 +107,7 @@ local function format_history(d: db.DB, n: integer): string
     local b = row.baseline_value as number
     local m = row.message as string or ""
     if v then
-      table.insert(lines, 1, string.format("%-8s %.4g (baseline %.4g, %s) %s",
+      table.insert(lines, 1, string.format("%-8s %.4g (was %.4g, %s) %s",
           s, v, b, fmt_pct(v, b), m))
     else
       table.insert(lines, 1, string.format("%-8s %s", s, m))
@@ -110,8 +118,10 @@ local function format_history(d: db.DB, n: integer): string
 end
 
 -- Run an agent in a throwaway session. Returns last assistant text.
+-- If quiet is true, suppress terminal output.
 local function run_agent_once(
-    cwd: string, system: string, model: string, prompt: string
+    cwd: string, system: string, model: string,
+    prompt: string, quiet: boolean
   ): string
   local ah_dir = fs.join(cwd, ".ah")
   local id = ulid.generate()
@@ -128,10 +138,9 @@ local function run_agent_once(
     db.close(d)
     return nil
   end
-  local on_event = cli_mod.make_cli_handler("work", id)
+  local on_event = quiet and function(_: any) end or cli_mod.make_cli_handler("work", id)
   local opts: loop.AgentOpts = {max_tokens = 16384}
   loop.run_agent(d, qdb, system, model, prompt, nil, on_event, opts)
-  -- Extract last assistant text
   local last_text: string = nil
   local last = db.get_last_message(d)
   if last and last.role == "assistant" then
@@ -151,16 +160,15 @@ end
 
 -- Check if working tree has changes.
 local function git_has_changes(): boolean
-  local diff = git("diff", "--quiet", "HEAD")
-  return diff == nil
+  return git("diff", "--quiet", "HEAD") == nil
 end
 
--- Get the diff for the evaluate phase.
+-- Get diff excluding .ah/ directory.
 local function git_diff(): string
-  return git("diff", "HEAD") or ""
+  return git("diff", "HEAD", "--", ".", ":(exclude).ah") or ""
 end
 
--- Revert working tree, preserving a file.
+-- Revert working tree.
 local function git_revert()
   git("checkout", "--", ".")
 end
@@ -178,7 +186,6 @@ end
 local function build_system(cwd: string): string
   local system = prompt_mod.load_system_prompt(cwd)
   tools.init_custom_tools(cwd)
-  -- Work agents get read/write/edit/grep but not bash
   tools.remove_tool("bash")
   tools.load_tool("/zip/sys/tools/grep.tl")
   local tp = tools.format_tools_for_prompt()
@@ -196,17 +203,6 @@ local function build_system(cwd: string): string
   return system
 end
 
--- Parse KEEP or DISCARD from agent verdict text.
-local function parse_verdict(text: string): string, string
-  for line in text:gmatch("[^\n]+") do
-    local keep_msg = line:match("^KEEP:%s*(.+)")
-    if keep_msg then return "keep", keep_msg end
-    local discard_msg = line:match("^DISCARD:%s*(.+)")
-    if discard_msg then return "discard", discard_msg end
-  end
-  return "discard", "agent did not produce a verdict"
-end
-
 -- Run one work iteration. Returns 0=keep, 1=discard/error.
 local function run_work(
     d: db.DB, cwd: string, work_script: string,
@@ -215,6 +211,7 @@ local function run_work(
   init_work_db(d)
   local system = build_system(cwd)
   local effective_model = api.resolve_model(model or os.getenv("AH_MODEL"))
+  local iter_num = get_iteration_count(d) + 1
 
   -- Get or establish baseline metric
   local best_str = db.get_context(d, "work:best")
@@ -237,7 +234,8 @@ local function run_work(
     db.set_context(d, "work:baseline", tostring(best))
   end
   local baseline = tonumber(db.get_context(d, "work:baseline")) or best
-  io.write("work: best = " .. string.format("%.4g", best) .. "\n")
+  local from_baseline = best ~= baseline and " (baseline " .. string.format("%.4g", baseline) .. ", " .. fmt_pct(best, baseline) .. ")" or ""
+  io.write(string.format("work: #%d best=%.4g%s\n", iter_num, best, from_baseline))
 
   -- Phase 1: agent implements a change
   local history = format_history(d, 15)
@@ -245,12 +243,11 @@ local function run_work(
     "%s\n\ncurrent metric: %.4g (lower is better)\n\n## iteration history\n%s",
     prompt, best, history)
 
-  io.write("work: agent implementing change...\n")
-  local impl_result = run_agent_once(cwd, system, effective_model, implement_prompt)
+  local impl_result = run_agent_once(cwd, system, effective_model, implement_prompt, false)
   if not impl_result then return 1 end
 
   if not git_has_changes() then
-    io.write("work: no changes made\n")
+    io.write("work: no changes\n")
     record_iteration(d, {
         status = "skip", baseline_value = best,
         message = "no changes made",
@@ -259,7 +256,7 @@ local function run_work(
   end
 
   -- Phase 2: benchmark the change
-  io.write("work: benchmarking change...\n")
+  io.write("work: benchmarking...\n")
   local bm_stdout, bm_stderr, bm_code = run_script(work_script)
   if bm_code ~= 0 then
     io.write("work: benchmark crashed, reverting\n")
@@ -283,48 +280,33 @@ local function run_work(
   end
 
   local pct = fmt_pct(new_value, best)
-  io.write("work: new = " .. string.format("%.4g", new_value) .. " (" .. pct .. ")\n")
 
-  -- Phase 3: agent evaluates the result
-  local diff = git_diff()
-  local evaluate_prompt = string.format([[evaluate this optimization change.
-
-best metric so far: %.4g
-new metric: %.4g (%s)
-lower is better.
-
-## diff
-```
-%s
-```
-
-if the change should be kept, respond with exactly one line:
-KEEP: <commit message>
-
-if the change should be discarded, respond with exactly one line:
-DISCARD: <reason>]], best, new_value, pct, diff)
-
-  io.write("work: agent evaluating...\n")
-  local eval_system = "you are evaluating an optimization change. respond with a single line: KEEP: <commit message> or DISCARD: <reason>. nothing else."
-  local verdict = run_agent_once(cwd, eval_system, effective_model, evaluate_prompt)
-  if not verdict then
-    git_revert()
-    return 1
-  end
-
-  local decision, msg = parse_verdict(verdict)
-  if decision == "keep" then
+  -- Phase 3: decide keep or discard
+  if new_value < best then
+    -- Improved — ask agent for a commit message (quiet, no terminal output)
+    local diff = git_diff()
+    local msg_prompt = string.format(
+      "write a one-line git commit message for this change.\nmetric: %.4g → %.4g (%s)\n\n```\n%s\n```\n\nrespond with only the commit message, nothing else.",
+      best, new_value, pct, diff)
+    local msg_system = "write a one-line git commit message. respond with only the message."
+    local msg = run_agent_once(cwd, msg_system, effective_model, msg_prompt, true)
+    if not msg or msg == "" then msg = string.format("%.4g → %.4g (%s)", best, new_value, pct) end
+    -- Clean up: take first non-empty line
+    msg = msg:match("^%s*(.-)%s*$") or msg
+    msg = msg:match("^([^\n]+)") or msg
     git_commit(msg)
     db.set_context(d, "work:best", tostring(new_value))
-    io.write("work: keep — " .. string.format("%.4g → %.4g (%s) %s", best, new_value, pct, msg) .. "\n")
+    io.write(string.format("work: keep %.4g → %.4g (%s) — %s\n", best, new_value, pct, msg))
     record_iteration(d, {
         status = "keep", metric_value = new_value,
         baseline_value = best, message = msg,
       } as Iteration)
     return 0
   else
+    -- Not improved — discard directly, no agent call
     git_revert()
-    io.write("work: discard — " .. string.format("%.4g → %.4g (%s) %s", best, new_value, pct, msg) .. "\n")
+    local msg = string.format("%.4g → %.4g (%s)", best, new_value, pct)
+    io.write(string.format("work: discard %.4g → %.4g (%s)\n", best, new_value, pct))
     record_iteration(d, {
         status = "discard", metric_value = new_value,
         baseline_value = best, message = msg,
@@ -340,5 +322,4 @@ return {
   fmt_pct = fmt_pct,
   init_work_db = init_work_db,
   format_history = format_history,
-  parse_verdict = parse_verdict,
 }
