@@ -215,27 +215,34 @@ local function run_work(
   local system = build_system(cwd)
   local effective_model = api.resolve_model(model or os.getenv("AH_MODEL"))
 
-  -- Phase 0: baseline benchmark
-  io.write("work: benchmarking baseline...\n")
-  local bl_stdout, bl_stderr, bl_code = run_script(work_script)
-  if bl_code ~= 0 then
-    io.stderr:write("work: benchmark failed (exit " .. bl_code .. ")\n")
-    io.stderr:write(bl_stderr)
-    return 1
+  -- Get or establish baseline metric
+  local best_str = db.get_context(d, "work:best")
+  local best = best_str and tonumber(best_str)
+  if not best then
+    io.write("work: benchmarking baseline...\n")
+    local bl_stdout, bl_stderr, bl_code = run_script(work_script)
+    if bl_code ~= 0 then
+      io.stderr:write("work: benchmark failed (exit " .. bl_code .. ")\n")
+      io.stderr:write(bl_stderr)
+      return 1
+    end
+    best = parse_metric(bl_stdout)
+    if not best then
+      io.stderr:write("work: benchmark did not print a number to stdout\n")
+      if bl_stdout ~= "" then io.stderr:write("stdout: " .. bl_stdout .. "\n") end
+      return 1
+    end
+    db.set_context(d, "work:best", tostring(best))
+    db.set_context(d, "work:baseline", tostring(best))
   end
-  local baseline = parse_metric(bl_stdout)
-  if not baseline then
-    io.stderr:write("work: benchmark did not print a number to stdout\n")
-    if bl_stdout ~= "" then io.stderr:write("stdout: " .. bl_stdout .. "\n") end
-    return 1
-  end
-  io.write("work: baseline = " .. string.format("%.4g", baseline) .. "\n")
+  local baseline = tonumber(db.get_context(d, "work:baseline")) or best
+  io.write("work: best = " .. string.format("%.4g", best) .. "\n")
 
   -- Phase 1: agent implements a change
   local history = format_history(d, 15)
   local implement_prompt = string.format(
     "%s\n\ncurrent metric: %.4g (lower is better)\n\n## iteration history\n%s",
-    prompt, baseline, history)
+    prompt, best, history)
 
   io.write("work: agent implementing change...\n")
   local impl_result = run_agent_once(cwd, system, effective_model, implement_prompt)
@@ -244,7 +251,7 @@ local function run_work(
   if not git_has_changes() then
     io.write("work: no changes made\n")
     record_iteration(d, {
-        status = "skip", baseline_value = baseline,
+        status = "skip", baseline_value = best,
         message = "no changes made",
       } as Iteration)
     return 1
@@ -258,7 +265,7 @@ local function run_work(
     io.stderr:write(bm_stderr)
     git_revert(work_md)
     record_iteration(d, {
-        status = "crash", baseline_value = baseline,
+        status = "crash", baseline_value = best,
         message = "benchmark failed",
       } as Iteration)
     return 1
@@ -268,20 +275,20 @@ local function run_work(
     io.write("work: benchmark produced no metric, reverting\n")
     git_revert(work_md)
     record_iteration(d, {
-        status = "crash", baseline_value = baseline,
+        status = "crash", baseline_value = best,
         message = "no metric output",
       } as Iteration)
     return 1
   end
 
-  local pct = fmt_pct(new_value, baseline)
+  local pct = fmt_pct(new_value, best)
   io.write("work: new = " .. string.format("%.4g", new_value) .. " (" .. pct .. ")\n")
 
   -- Phase 3: agent evaluates the result
   local diff = git_diff()
   local evaluate_prompt = string.format([[evaluate this optimization change.
 
-baseline metric: %.4g
+best metric so far: %.4g
 new metric: %.4g (%s)
 lower is better.
 
@@ -294,7 +301,7 @@ if the change should be kept, respond with exactly one line:
 KEEP: <commit message>
 
 if the change should be discarded, respond with exactly one line:
-DISCARD: <reason>]], baseline, new_value, pct, diff)
+DISCARD: <reason>]], best, new_value, pct, diff)
 
   io.write("work: agent evaluating...\n")
   local eval_system = "you are evaluating an optimization change. respond with a single line: KEEP: <commit message> or DISCARD: <reason>. nothing else."
@@ -307,18 +314,19 @@ DISCARD: <reason>]], baseline, new_value, pct, diff)
   local decision, msg = parse_verdict(verdict)
   if decision == "keep" then
     git_commit(msg)
-    io.write("work: keep — " .. string.format("%.4g → %.4g (%s) %s", baseline, new_value, pct, msg) .. "\n")
+    db.set_context(d, "work:best", tostring(new_value))
+    io.write("work: keep — " .. string.format("%.4g → %.4g (%s) %s", best, new_value, pct, msg) .. "\n")
     record_iteration(d, {
         status = "keep", metric_value = new_value,
-        baseline_value = baseline, message = msg,
+        baseline_value = best, message = msg,
       } as Iteration)
     return 0
   else
     git_revert(work_md)
-    io.write("work: discard — " .. string.format("%.4g → %.4g (%s) %s", baseline, new_value, pct, msg) .. "\n")
+    io.write("work: discard — " .. string.format("%.4g → %.4g (%s) %s", best, new_value, pct, msg) .. "\n")
     record_iteration(d, {
         status = "discard", metric_value = new_value,
-        baseline_value = baseline, message = msg,
+        baseline_value = best, message = msg,
       } as Iteration)
     return 1
   end
