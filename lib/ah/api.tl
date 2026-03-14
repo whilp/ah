@@ -45,33 +45,28 @@ local function get_api_url(): string
     return "https://api.anthropic.com/v1/messages"
   end
 end
-local DEFAULT_MODEL = "claude-opus-4-6-1m"
+local DEFAULT_MODEL = "claude-opus-4-6"
 local DEFAULT_MAX_TOKENS = 16384
 
 local MODELS: {string} = {
   "claude-sonnet-4-6",
-  "claude-sonnet-4-6-1m",
   "claude-opus-4-5-20251101",
   "claude-opus-4-6",
-  "claude-opus-4-6-1m",
   "claude-haiku-4-5-20251001",
 }
 
 local MODEL_ALIASES: {string: string} = {
-  ["sonnet"] = "claude-sonnet-4-6-1m",
-  ["sonnet-1m"] = "claude-sonnet-4-6-1m",
-  ["opus"] = "claude-opus-4-6-1m",
-  ["opus-1m"] = "claude-opus-4-6-1m",
+  ["sonnet"] = "claude-sonnet-4-6",
+  ["opus"] = "claude-opus-4-6",
   ["haiku"] = "claude-haiku-4-5-20251001",
 }
 
 -- Model context window limits (tokens)
+-- claude-opus-4-6 and claude-sonnet-4-6 support 1M context natively
 local MODEL_CONTEXT_LIMITS: {string: integer} = {
-  ["claude-sonnet-4-6"] = 200000,
-  ["claude-sonnet-4-6-1m"] = 1000000,
+  ["claude-sonnet-4-6"] = 1000000,
   ["claude-opus-4-5-20251101"] = 200000,
-  ["claude-opus-4-6"] = 200000,
-  ["claude-opus-4-6-1m"] = 1000000,
+  ["claude-opus-4-6"] = 1000000,
   ["claude-haiku-4-5-20251001"] = 200000,
 }
 
