@@ -28,7 +28,6 @@ local render_mod = require("ah.render")
 
 -- Global for signal handling
 global interrupted: boolean = false
-
 -- Record types for sandbox supervisor mode (lazy-loaded modules)
 local record SandboxCtx
   enabled: boolean
@@ -36,7 +35,6 @@ local record SandboxCtx
   proxy_pid: number
   tmpdir: string
 end
-
 local record SandboxMod
   start_sandbox: function(): SandboxCtx, string
   stop_sandbox: function(SandboxCtx)
@@ -45,11 +43,9 @@ local record SandboxMod
   setup_git_env: function({string})
   env_set: function({string}, string, string)
 end
-
 local record FetchMod
   unix_proxy: function(string): string, string
 end
-
 local record ChildMod
   spawn: function({string}, {string: any}): ChildHandle, string
 end
@@ -60,7 +56,6 @@ end
 local record StderrHandle
   read: function(StderrHandle): string
 end
-
 -- apply_unveil sets up filesystem visibility restrictions.
 -- cwd is the working directory; extra_dirs is a comma-separated list of "path:perms".
 local function apply_unveil(cwd: string, extra_dirs: string)
@@ -470,15 +465,20 @@ local function main(args: {string}): integer, string
   if max_tokens then agent_opts.max_tokens = max_tokens end
   if parsed.max_turn_tokens then agent_opts.max_turn_tokens = parsed.max_turn_tokens end
   if parsed.must_produce then agent_opts.must_produce = parsed.must_produce end
-  local stop_reason = loop.run_agent(d, qdb, effective_system, effective_model, prompt, parent_id, on_event, agent_opts)
+  local exit_code: integer = 0
+  if parsed.work_script then
+    local work_mod = require("ah.work")
+    exit_code = work_mod.run_work(d, cwd, parsed.work_script, prompt, model)
+  else
+    local stop_reason = loop.run_agent(d, qdb, effective_system, effective_model, prompt, parent_id, on_event, agent_opts)
+    if stop_reason == "error" then exit_code = 1 end
+  end
 
   db.set_session_state(d, "closed")
   queue.release_lock(qdb)
   queue.close(qdb)
   db.close(d)
-
-  if stop_reason == "error" then return 1 end
-  return 0
+  return exit_code
 end
 
 return {

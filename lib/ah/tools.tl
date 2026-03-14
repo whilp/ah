@@ -29,6 +29,7 @@ local record Tool
   input_schema: {string: any}
   system_prompt: string
   running_processes: {integer: any}
+  autoload: boolean -- false = only loaded via load_tool, not by default
   execute: function(input: {string: any}, context?: ToolContext): string, boolean, ToolDetails
 end
 
@@ -206,7 +207,7 @@ local function init_custom_tools(cwd?: string)
   merge_tools(by_name, load_custom_tools_from_dir(project_tools_dir))
   tools = {}
   for _, tool in pairs(by_name) do
-    table.insert(tools, tool)
+    if tool.autoload ~= false then table.insert(tools, tool) end
   end
 end
 
@@ -271,7 +272,19 @@ local function remove_tool(name: string): boolean
   end
   return false
 end
-
+-- Load a tool from a file and add to the active set.
+local function load_tool(tool_path: string): boolean, string
+  local tool, err = load_single_tool(tool_path)
+  if not tool then return false, err end
+  for i, t in ipairs(tools) do
+    if t.name == tool.name then
+      tools[i] = tool
+      return true, nil
+    end
+  end
+  table.insert(tools, tool)
+  return true, nil
+end
 local function get_all_tools(): {Tool}
   return tools
 end
@@ -477,6 +490,7 @@ return {
   load_skill_tools = load_skill_tools,
   add_tool_override = add_tool_override,
   remove_tool = remove_tool,
+  load_tool = load_tool,
   load_custom_tools_from_dir = load_custom_tools_from_dir,
   is_valid_tool = is_valid_tool,
   looks_like_tool = looks_like_tool,
