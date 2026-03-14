@@ -188,7 +188,7 @@ end
 local function build_system(cwd: string): string
   local system = prompt_mod.load_system_prompt(cwd)
   tools.init_custom_tools(cwd)
-  tools.remove_tool("bash")
+  tools.configure({deny = {"bash"}})
   tools.load_tool("/zip/sys/tools/grep.tl")
   local tp = tools.format_tools_for_prompt()
   if tp ~= "" then system = system .. "\n\n" .. tp end

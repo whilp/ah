@@ -45,7 +45,6 @@ local function is_valid_tool(t: any): boolean
 end
 
 -- Add a directory to package.path if not already present.
--- The teal package searcher substitutes .lua with .tl, so dir/?.lua covers both.
 local function add_to_package_path(dir: string)
   local pattern = dir .. "/?.lua"
   if not package.path:find(pattern, 1, true) then
@@ -53,10 +52,8 @@ local function add_to_package_path(dir: string)
   end
 end
 
--- Track whether the teal package searcher has been installed.
 local tl_searcher_installed = false
 
--- Ensure the tl package searcher is installed before any tl.load() usage.
 local function ensure_tl_searcher(): {string: any}
   local tl = require("tl") as {string: any}
   if not tl_searcher_installed then
@@ -67,27 +64,20 @@ local function ensure_tl_searcher(): {string: any}
   return tl
 end
 
--- Check whether source code looks like a tool module using lightweight pattern
--- matching. Guards against loading files that aren't tool definitions.
--- Checks for table key assignments (name = ..., execute = ...) and a trailing
--- brace. Conservative: returns true for ambiguous cases (variable returns,
+-- Check whether source code looks like a tool module. Guards against loading
+-- non-tool files. Conservative: accepts ambiguous cases (variable returns,
 -- function calls, return nil) rather than rejecting valid tools.
 local function looks_like_tool(source: string, _is_lua: boolean): boolean
   if #source == 0 then return false end
-  -- reject scripts with no return statement
   if not source:find('return') then return false end
-  -- strip trailing whitespace
   local trimmed = source:gsub("%s+$", "")
-  -- if it ends with a table brace, check for required key assignments
   if trimmed:match("}%s*$") then
-    -- look for key = value patterns (table field assignments)
     local name_pat = '[%s,{]name%s*='
     local has_name = source:find(name_pat) ~= nil or source:find('^name%s*=') ~= nil
     local exec_pat = '[%s,{]execute%s*='
     local has_execute = source:find(exec_pat) ~= nil or source:find('^execute%s*=') ~= nil
     return has_name and has_execute
   end
-  -- non-table returns (variable, function call, nil): accept optimistically
   return true
 end
 
@@ -106,8 +96,7 @@ local function load_tool_file(tool_path: string): any, string
   return loader(tool_path)
 end
 
--- Load, execute, and validate a single tool file.
--- Returns the Tool on success, or nil and an error message.
+-- Load, execute, and validate a single tool file. Returns Tool or nil+error.
 local function load_single_tool(tool_path: string): Tool, string
   local load_ok, chunk, load_err = pcall(load_tool_file, tool_path)
   if not load_ok then
@@ -130,14 +119,12 @@ end
 -- .tl files take precedence over .lua files with the same basename.
 local function load_custom_tools_from_dir(dir: string): {Tool}
   local loaded: {Tool} = {}
-
   local dh = fs.opendir(dir)
   if not dh then return loaded end
   local candidates: {string: string} = {}
   while true do
     local name = dh:read()
     if not name then break end
-
     if name:match("%.tl$") and not name:match("%.d%.tl$") then
       local base = name:sub(1, -4)
       candidates[base] = fs.join(dir, name)
@@ -151,10 +138,7 @@ local function load_custom_tools_from_dir(dir: string): {Tool}
   dh:close()
   local has_candidates = false
   for _ in pairs(candidates) do has_candidates = true; break end
-  if has_candidates then
-    add_to_package_path(dir)
-  end
-
+  if has_candidates then add_to_package_path(dir) end
   for _, tool_path in pairs(candidates) do
     local source = cio.slurp(tool_path)
     if not source then
@@ -163,14 +147,10 @@ local function load_custom_tools_from_dir(dir: string): {Tool}
       util.debug(string.format("warning: skipping %s: does not look like a tool module", tool_path))
     else
       local tool, err = load_single_tool(tool_path)
-      if tool then
-        table.insert(loaded, tool)
-      else
-        util.debug(string.format("warning: %s", err))
-      end
+      if tool then table.insert(loaded, tool)
+      else util.debug(string.format("warning: %s", err)) end
     end
   end
-
   return loaded
 end
 
@@ -182,11 +162,8 @@ local function merge_tools(by_name: {string: Tool}, new_tools: {Tool})
   for _, tool in ipairs(new_tools) do by_name[tool.name] = tool end
 end
 
--- Initialize tools from standard locations.
--- Later sources override earlier ones by name:
---   1. system (/zip/embed/sys/tools, fallback sys/tools for dev)
---   2. embed  (/zip/embed/tools)
---   3. project (cwd/tools/ — both .lua modules and executables)
+-- Initialize tools from standard locations (system → embed → project).
+-- Later sources override earlier ones by name.
 local function init_custom_tools(cwd?: string)
   cwd = cwd or fs.getcwd()
   local by_name: {string: Tool} = {}
@@ -225,17 +202,14 @@ local function load_skill_tools(base_dir: string)
   for _, tool in pairs(by_name) do table.insert(tools, tool) end
 end
 
--- Add a tool override by name (highest precedence).
--- cmd must end in .tl or .lua.
+-- Add a tool override by name (highest precedence). cmd must be .tl or .lua.
 local function add_tool_override(name: string, cmd: string)
   if not (cmd:match("%.tl$") or cmd:match("%.lua$")) then
     util.debug(string.format("warning: tool %s: only .tl and .lua files are supported (got %s)", name, cmd))
     return
   end
-
   local dir = cmd:match("^(.+)/[^/]+$") or "."
   add_to_package_path(dir)
-
   local source = cio.slurp(cmd)
   if not source then
     util.debug(string.format("warning: failed to read tool %s from %s", name, cmd))
@@ -245,19 +219,11 @@ local function add_tool_override(name: string, cmd: string)
     util.debug(string.format("warning: skipping tool %s from %s: does not look like a tool module", name, cmd))
     return
   end
-
   local tool, err = load_single_tool(cmd)
-  if not tool then
-    util.debug(string.format("warning: %s", err))
-    return
-  end
+  if not tool then util.debug(string.format("warning: %s", err)); return end
   tool.name = name
-
   for i, existing in ipairs(tools) do
-    if existing.name == name then
-      tools[i] = tool
-      return
-    end
+    if existing.name == name then tools[i] = tool; return end
   end
   table.insert(tools, tool)
 end
@@ -272,15 +238,55 @@ local function remove_tool(name: string): boolean
   end
   return false
 end
+
+-- Declaratively configure the active tool set.
+-- only: rebuild using only these names/paths (bare name or file path).
+-- allow: keep only these names from current set.
+-- deny: remove these names. allow+deny may be combined (allow first, then deny).
+-- only takes precedence over allow+deny.
+local function configure(opts: {string: any})
+  local only = opts["only"] as {string}
+  local allow = opts["allow"] as {string}
+  local deny = opts["deny"] as {string}
+
+  if only then
+    local by_name: {string: Tool} = {}
+    for _, t in ipairs(tools) do by_name[t.name] = t end
+    local result: {Tool} = {}
+    for _, entry in ipairs(only) do
+      if by_name[entry] then
+        table.insert(result, by_name[entry])
+      else
+        local t, err = load_single_tool(entry)
+        if t then table.insert(result, t)
+        else util.debug(string.format("configure: %s", tostring(err))) end
+      end
+    end
+    tools = result
+    return
+  end
+
+  if allow then
+    local allow_set: {string: boolean} = {}
+    for _, n in ipairs(allow) do allow_set[n] = true end
+    local result: {Tool} = {}
+    for _, t in ipairs(tools) do
+      if allow_set[t.name] then table.insert(result, t) end
+    end
+    tools = result
+  end
+
+  if deny then
+    for _, n in ipairs(deny) do remove_tool(n) end
+  end
+end
+
 -- Load a tool from a file and add to the active set.
 local function load_tool(tool_path: string): boolean, string
   local tool, err = load_single_tool(tool_path)
   if not tool then return false, err end
   for i, t in ipairs(tools) do
-    if t.name == tool.name then
-      tools[i] = tool
-      return true, nil
-    end
+    if t.name == tool.name then tools[i] = tool; return true, nil end
   end
   table.insert(tools, tool)
   return true, nil
@@ -291,9 +297,7 @@ end
 
 local function get_tool(name: string): Tool
   for _, tool in ipairs(tools) do
-    if tool.name == name then
-      return tool
-    end
+    if tool.name == name then return tool end
   end
   return nil
 end
@@ -301,11 +305,7 @@ end
 local function get_tool_definitions(): {{string: any}}
   local defs: {{string: any}} = {}
   for _, tool in ipairs(tools) do
-    table.insert(defs, {
-        name = tool.name,
-        description = tool.description,
-        input_schema = tool.input_schema,
-      })
+    table.insert(defs, {name = tool.name, description = tool.description, input_schema = tool.input_schema})
   end
   return defs
 end
@@ -344,8 +344,7 @@ local function format_tools_for_prompt(): string
   return table.concat(parts, "\n")
 end
 
--- Validate tool input against its JSON schema.
--- Returns nil on success, or an error string describing all validation failures.
+-- Validate tool input against its JSON schema. Returns nil on success.
 local function validate_input(schema: {string: any}, input: {string: any}): string
   local errors: {string} = {}
 
@@ -392,8 +391,7 @@ local function validate_input(schema: {string: any}, input: {string: any}): stri
   return nil
 end
 
--- Abort all running tool processes with disciplined cleanup:
--- 1. Send SIGTERM, 2. Wait up to 2 seconds, 3. SIGKILL survivors
+-- Abort all running tool processes: SIGTERM, wait 2s, SIGKILL survivors.
 local function abort_running_tools()
   local running_processes: {integer: any} = {}
   for _, tool in ipairs(tools) do
@@ -445,7 +443,6 @@ local function abort_running_tools()
 end
 
 -- Coerce string values to integers where schema expects integer.
--- Claude models sometimes serialize integers as strings in JSON tool calls.
 local function coerce_integer_params(schema: {string: any}, input: {string: any})
   local properties = schema.properties as {string: {string: any}}
   if not properties then return end
@@ -490,6 +487,7 @@ return {
   load_skill_tools = load_skill_tools,
   add_tool_override = add_tool_override,
   remove_tool = remove_tool,
+  configure = configure,
   load_tool = load_tool,
   load_custom_tools_from_dir = load_custom_tools_from_dir,
   is_valid_tool = is_valid_tool,
