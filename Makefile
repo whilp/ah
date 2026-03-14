@@ -18,9 +18,9 @@ export TMPDIR := $(TMP)
 # dependencies
 include deps/cosmic.mk
 
-cosmic := $(o)/bin/cosmic
+cosmic_release := $(o)/bin/cosmic
 
-$(cosmic): deps/cosmic.mk
+$(cosmic_release): deps/cosmic.mk
 	@rm -f $@
 	@mkdir -p $(@D)
 	@echo "==> fetching $(cosmic_url)"
@@ -37,6 +37,12 @@ $(cosmic_debug): deps/cosmic.mk
 	@curl -fsSL -o $@ $(cosmic_debug_url)
 	@echo "$(cosmic_debug_sha)  $@" | sha256sum -c - >/dev/null
 	@chmod +x $@
+
+ifdef DEBUG
+cosmic := $(cosmic_debug)
+else
+cosmic := $(cosmic_release)
+endif
 
 linter := $(cosmic) lib/build/lint.tl
 
@@ -92,6 +98,9 @@ help:
 	@echo "  ci                  Run tests, type checks, format checks, and linter"
 	@echo "  install             Install ah binary to \$$(PREFIX)/bin"
 	@echo "  clean               Remove all build artifacts"
+	@echo ""
+	@echo "Options:"
+	@echo "  DEBUG=1             Use debug cosmic binary (e.g. make ah DEBUG=1)"
 
 .PHONY: test
 ## Run all tests (incremental)
