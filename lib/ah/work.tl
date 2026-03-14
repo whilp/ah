@@ -1,0 +1,331 @@
+-- ah/work.tl: single-iteration autonomous optimization
+local fs = require("cosmic.fs")
+local cio = require("cosmic.io")
+local db = require("ah.db")
+local ulid = require("ulid")
+local api = require("ah.api")
+local tools = require("ah.tools")
+local skills = require("ah.skills")
+local loop = require("ah.loop")
+local queue = require("ah.queue")
+local prompt_mod = require("ah.prompt")
+local cli_mod = require("ah.cli")
+
+local WORK_SCHEMA = [[
+create table if not exists work_iterations (
+  id integer primary key autoincrement,
+  status text not null,
+  metric_value real,
+  baseline_value real,
+  message text,
+  created_at integer not null
+);
+]]
+
+local record Iteration
+  status: string
+  metric_value: number
+  baseline_value: number
+  message: string
+end
+
+-- Parse a single number from stdout. Returns nil if not a clean number.
+local function parse_metric(stdout: string): number
+  local trimmed = stdout:match("^%s*(.-)%s*$")
+  if not trimmed or trimmed == "" then return nil end
+  return tonumber(trimmed)
+end
+
+-- Run a shell script. Returns stdout, stderr, exit_code.
+local function run_script(path: string): string, string, integer
+  local out = os.tmpname()
+  local err = os.tmpname()
+  local cmd = string.format("bash %s > %s 2> %s", path, out, err)
+  local ok, _, code = os.execute(cmd)
+  local stdout = cio.slurp(out) or ""
+  local stderr = cio.slurp(err) or ""
+  os.remove(out)
+  os.remove(err)
+  if not ok then
+    return stdout, stderr, (code as integer) or 1
+  end
+  return stdout, stderr, 0
+end
+
+-- Format a percentage change.
+local function fmt_pct(new_val: number, baseline: number): string
+  if not baseline or baseline == 0 then return "" end
+  local pct = ((new_val - baseline) / math.abs(baseline)) * 100
+  if pct > 0 then
+    return string.format("+%.1f%%", pct)
+  end
+  return string.format("%.1f%%", pct)
+end
+
+-- Initialize work tables in a session db.
+local function init_work_db(d: db.DB)
+  d._db:exec(WORK_SCHEMA)
+end
+
+-- Record an iteration outcome.
+local function record_iteration(d: db.DB, iter: Iteration)
+  d._db:exec([[
+    insert into work_iterations (status, metric_value, baseline_value, message, created_at)
+    values (?, ?, ?, ?, ?)
+  ]], iter.status, iter.metric_value, iter.baseline_value, iter.message, os.time())
+end
+
+-- Format recent iteration history for the agent prompt.
+local function format_history(d: db.DB, n: integer): string
+  local lines: {string} = {}
+  for row in d._db:query("select status, metric_value, baseline_value, message from work_iterations order by id desc limit ?", n) do
+    local s = row.status as string
+    local v = row.metric_value as number
+    local b = row.baseline_value as number
+    local m = row.message as string or ""
+    if v then
+      table.insert(lines, 1, string.format("%-8s %.4g (baseline %.4g, %s) %s",
+          s, v, b, fmt_pct(v, b), m))
+    else
+      table.insert(lines, 1, string.format("%-8s %s", s, m))
+    end
+  end
+  if #lines == 0 then return "no previous iterations." end
+  return table.concat(lines, "\n")
+end
+
+-- Run an agent in a throwaway session. Returns last assistant text.
+local function run_agent_once(
+    cwd: string, system: string, model: string, prompt: string
+  ): string
+  local ah_dir = fs.join(cwd, ".ah")
+  local id = ulid.generate()
+  local dbpath = fs.join(ah_dir, id .. ".db")
+  local d, derr = db.open(dbpath)
+  if not d then
+    io.stderr:write("work: db error: " .. (derr or "") .. "\n")
+    return nil
+  end
+  local qpath = dbpath:gsub("%.db$", ".queue.db")
+  local qdb, qerr = queue.open(qpath)
+  if not qdb then
+    io.stderr:write("work: queue error: " .. (qerr or "") .. "\n")
+    db.close(d)
+    return nil
+  end
+  local on_event = cli_mod.make_cli_handler("work", id)
+  local opts: loop.AgentOpts = {max_tokens = 16384}
+  loop.run_agent(d, qdb, system, model, prompt, nil, on_event, opts)
+  -- Extract last assistant text
+  local last_text: string = nil
+  local last = db.get_last_message(d)
+  if last and last.role == "assistant" then
+    local blocks = db.get_content_blocks(d, last.id)
+    for _, block in ipairs(blocks) do
+      if block.block_type == "text" and block.content then
+        last_text = block.content as string
+      end
+    end
+  end
+  queue.close(qdb)
+  db.close(d)
+  os.remove(dbpath)
+  os.remove(qpath)
+  return last_text or ""
+end
+
+-- Capture git diff for the evaluate phase.
+local function git_diff(): string
+  local tmpfile = os.tmpname()
+  os.execute("git diff HEAD > " .. tmpfile .. " 2>&1")
+  local output = cio.slurp(tmpfile) or ""
+  os.remove(tmpfile)
+  return (output:gsub("%s+$", ""))
+end
+
+-- Check if working tree has changes.
+local function git_has_changes(): boolean
+  local code = os.execute("git diff --quiet HEAD 2>/dev/null")
+  return not code
+end
+
+-- Revert working tree, preserving a file.
+local function git_revert(preserve: string)
+  local content = cio.slurp(preserve)
+  os.execute("git checkout -- .")
+  if content then cio.barf(preserve, content) end
+end
+
+-- Commit all changes.
+local function git_commit(msg: string)
+  os.execute("git add -A")
+  local safe = msg:gsub("'", "'\\''")
+  os.execute("git commit -m '" .. safe .. "' --quiet")
+end
+
+-- Build system prompt with tools and optional skill.
+local function build_system(cwd: string): string
+  local system = prompt_mod.load_system_prompt(cwd)
+  tools.init_custom_tools(cwd)
+  local tp = tools.format_tools_for_prompt()
+  if tp ~= "" then system = system .. "\n\n" .. tp end
+  local loaded = skills.load_skills(cwd)
+  local sk = loaded["autowork"]
+  if sk then
+    local content = cio.slurp(sk.file_path) or ""
+    local fm_end = content:find("\n%-%-%-\n", 4)
+    if content:match("^%-%-%-\n") and fm_end then
+      content = content:sub(fm_end + 5)
+    end
+    if content ~= "" then system = system .. "\n\n" .. content end
+  end
+  return system
+end
+
+-- Run one work iteration. Returns 0=keep, 1=discard/error.
+local function run_work(
+    d: db.DB, cwd: string, work_script: string,
+    prompt: string, model: string, work_md: string
+  ): integer
+  init_work_db(d)
+  local system = build_system(cwd)
+  local effective_model = api.resolve_model(model or os.getenv("AH_MODEL"))
+
+  -- Phase 0: baseline benchmark
+  io.write("work: benchmarking baseline...\n")
+  local bl_stdout, bl_stderr, bl_code = run_script(work_script)
+  if bl_code ~= 0 then
+    io.stderr:write("work: benchmark failed (exit " .. bl_code .. ")\n")
+    io.stderr:write(bl_stderr)
+    return 1
+  end
+  local baseline = parse_metric(bl_stdout)
+  if not baseline then
+    io.stderr:write("work: benchmark did not print a number to stdout\n")
+    if bl_stdout ~= "" then io.stderr:write("stdout: " .. bl_stdout .. "\n") end
+    return 1
+  end
+  io.write("work: baseline = " .. string.format("%.4g", baseline) .. "\n")
+
+  -- Phase 1: agent implements a change
+  local history = format_history(d, 15)
+  local implement_prompt = string.format(
+    "%s\n\ncurrent metric: %.4g (lower is better)\n\n## iteration history\n%s",
+    prompt, baseline, history)
+
+  io.write("work: agent implementing change...\n")
+  local impl_result = run_agent_once(cwd, system, effective_model, implement_prompt)
+  if not impl_result then
+    return 1
+  end
+
+  if not git_has_changes() then
+    io.write("work: no changes made\n")
+    record_iteration(d, {
+        status = "skip", baseline_value = baseline,
+        message = "no changes made",
+      } as Iteration)
+    return 1
+  end
+
+  -- Phase 2: benchmark the change
+  io.write("work: benchmarking change...\n")
+  local bm_stdout, bm_stderr, bm_code = run_script(work_script)
+  if bm_code ~= 0 then
+    io.write("work: benchmark crashed, reverting\n")
+    io.stderr:write(bm_stderr)
+    git_revert(work_md)
+    record_iteration(d, {
+        status = "crash", baseline_value = baseline,
+        message = "benchmark failed",
+      } as Iteration)
+    return 1
+  end
+  local new_value = parse_metric(bm_stdout)
+  if not new_value then
+    io.write("work: benchmark produced no metric, reverting\n")
+    git_revert(work_md)
+    record_iteration(d, {
+        status = "crash", baseline_value = baseline,
+        message = "no metric output",
+      } as Iteration)
+    return 1
+  end
+
+  local pct = fmt_pct(new_value, baseline)
+  io.write("work: new = " .. string.format("%.4g", new_value) .. " (" .. pct .. ")\n")
+
+  -- Phase 3: agent evaluates the result
+  local diff = git_diff()
+  local evaluate_prompt = string.format([[evaluate this optimization change.
+
+baseline metric: %.4g
+new metric: %.4g (%s)
+lower is better.
+
+## diff
+```
+%s
+```
+
+if the change should be kept, respond with exactly one line:
+KEEP: <commit message>
+
+if the change should be discarded, respond with exactly one line:
+DISCARD: <reason>]], baseline, new_value, pct, diff)
+
+  io.write("work: agent evaluating...\n")
+  local eval_system = "you are evaluating an optimization change. respond with a single line: KEEP: <commit message> or DISCARD: <reason>. nothing else."
+  local verdict = run_agent_once(cwd, eval_system, effective_model, evaluate_prompt)
+  if not verdict then
+    git_revert(work_md)
+    return 1
+  end
+
+  -- Parse verdict
+  local keep_msg = verdict:match("^KEEP:%s*(.+)")
+  if not keep_msg then
+    -- Check lines individually in case agent prefixed with text
+    for line in verdict:gmatch("[^\n]+") do
+      keep_msg = line:match("^KEEP:%s*(.+)")
+      if keep_msg then break end
+    end
+  end
+  local discard_msg = verdict:match("^DISCARD:%s*(.+)")
+  if not discard_msg then
+    for line in verdict:gmatch("[^\n]+") do
+      discard_msg = line:match("^DISCARD:%s*(.+)")
+      if discard_msg then break end
+    end
+  end
+
+  if keep_msg then
+    git_commit(keep_msg)
+    local msg = string.format("%.4g → %.4g (%s) %s", baseline, new_value, pct, keep_msg)
+    io.write("work: keep — " .. msg .. "\n")
+    record_iteration(d, {
+        status = "keep", metric_value = new_value,
+        baseline_value = baseline, message = keep_msg,
+      } as Iteration)
+    return 0
+  else
+    git_revert(work_md)
+    local reason = discard_msg or "agent declined"
+    local msg = string.format("%.4g → %.4g (%s) %s", baseline, new_value, pct, reason)
+    io.write("work: discard — " .. msg .. "\n")
+    record_iteration(d, {
+        status = "discard", metric_value = new_value,
+        baseline_value = baseline, message = reason,
+      } as Iteration)
+    return 1
+  end
+end
+
+return {
+  run_work = run_work,
+  parse_metric = parse_metric,
+  run_script = run_script,
+  fmt_pct = fmt_pct,
+  init_work_db = init_work_db,
+  format_history = format_history,
+}
