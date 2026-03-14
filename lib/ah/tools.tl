@@ -19,13 +19,17 @@ local record ToolDetails
   skill_name: string
 end
 
+local record ToolContext
+  db: any -- db.DB; typed as any to avoid circular dependency
+end
+
 local record Tool
   name: string
   description: string
   input_schema: {string: any}
   system_prompt: string
   running_processes: {integer: any}
-  execute: function(input: {string: any}): string, boolean, ToolDetails
+  execute: function(input: {string: any}, context?: ToolContext): string, boolean, ToolDetails
 end
 
 -- Validate that a loaded module is a valid tool
@@ -447,7 +451,7 @@ local function coerce_integer_params(schema: {string: any}, input: {string: any}
   end
 end
 
-local function execute_tool(name: string, input: {string: any}): string, boolean, ToolDetails
+local function execute_tool(name: string, input: {string: any}, context?: ToolContext): string, boolean, ToolDetails
   local tool = get_tool(name)
   if not tool then
     return "error: unknown tool: " .. name, true, nil
@@ -460,7 +464,7 @@ local function execute_tool(name: string, input: {string: any}): string, boolean
     return validation_err, true, nil
   end
 
-  return tool.execute(input)
+  return tool.execute(input, context)
 end
 
 return {
@@ -477,5 +481,6 @@ return {
   is_valid_tool = is_valid_tool,
   looks_like_tool = looks_like_tool,
   Tool = Tool,
+  ToolContext = ToolContext,
   ToolDetails = ToolDetails,
 }

@@ -3,6 +3,9 @@
 -- Truncates tool output before sending to the LLM while preserving full output
 -- in the database and event stream. Two-pass approach: character-based truncation
 -- first (primary size safeguard), then line-based truncation (readability pass).
+--
+-- Aggressive truncation: keeps a small head/tail preview and directs the agent
+-- to use the result tool (with tool_use_id) to read the full output from the DB.
 
 local record TruncateResult
   content: string
@@ -11,21 +14,21 @@ local record TruncateResult
   original_lines: integer
 end
 
--- Default per-tool character limits
+-- Default per-tool character limits (aggressive: just enough for a preview)
 local DEFAULT_CHAR_LIMITS: {string: integer} = {
-  bash = 30000,
-  read = 50000,
-  write = 10000,
-  edit = 10000,
+  bash = 3000,
+  read = 4000,
+  write = 2000,
+  edit = 2000,
 }
 
 -- Default per-tool line limits (applied after character truncation)
 local DEFAULT_LINE_LIMITS: {string: integer} = {
-  bash = 500,
+  bash = 100,
 }
 
 -- Fallback limit for tools not in the table
-local DEFAULT_CHAR_LIMIT = 30000
+local DEFAULT_CHAR_LIMIT = 3000
 
 -- Count lines in a string
 local function count_lines(s: string): integer
@@ -37,17 +40,10 @@ local function count_lines(s: string): integer
   return n
 end
 
--- Tool-specific hints for truncation notices
-local TRUNCATION_HINTS: {string: string} = {
-  bash = "re-run with narrower output: pipe through head/tail/grep, or redirect to a file and use the read tool",
-  read = "re-read with offset/limit to view specific sections",
-}
-local DEFAULT_HINT = "narrow the output or re-run a more targeted command"
-
 -- Truncate by characters using head/tail split: keep the beginning and end,
 -- remove the middle. This preserves context (imports, setup) and results (final output).
--- tool_name is optional; when provided, the notice includes tool-specific recovery advice.
-local function truncate_chars(output: string, max_chars: integer, tool_name?: string): string, boolean
+-- When tool_use_id is provided, the notice directs the agent to the result tool.
+local function truncate_chars(output: string, max_chars: integer, tool_use_id?: string): string, boolean
   if #output <= max_chars then
     return output, false
   end
@@ -57,16 +53,20 @@ local function truncate_chars(output: string, max_chars: integer, tool_name?: st
   local head = output:sub(1, half)
   local tail = output:sub(-half)
 
-  local hint = (tool_name and TRUNCATION_HINTS[tool_name]) or DEFAULT_HINT
+  local notice: string
+  if tool_use_id then
+    notice = "\n\n[output truncated: " .. tostring(removed) .. " bytes removed from middle. "
+    .. "use the result tool with tool_use_id=\"" .. tool_use_id .. "\" to read the full output]\n\n"
+  else
+    notice = "\n\n[output truncated: " .. tostring(removed) .. " bytes removed from middle. "
+    .. "narrow the output or re-run a more targeted command]\n\n"
+  end
 
-  return head
-  .. "\n\n[output truncated: " .. tostring(removed) .. " bytes removed from middle. "
-  .. hint .. "]\n\n"
-  .. tail, true
+  return head .. notice .. tail, true
 end
 
 -- Truncate by line count using head/tail split: keep first and last lines.
-local function truncate_lines(output: string, max_lines: integer): string, boolean
+local function truncate_lines(output: string, max_lines: integer, tool_use_id?: string): string, boolean
   local lines: {string} = {}
   for line in output:gmatch("([^\n]*)\n?") do
     table.insert(lines, line)
@@ -94,8 +94,16 @@ local function truncate_lines(output: string, max_lines: integer): string, boole
     table.insert(tail_lines, lines[i])
   end
 
+  local notice: string
+  if tool_use_id then
+    notice = "\n[..." .. tostring(omitted) .. " lines omitted. "
+    .. "use the result tool with tool_use_id=\"" .. tool_use_id .. "\" to read the full output]\n"
+  else
+    notice = "\n[..." .. tostring(omitted) .. " lines omitted. narrow your command output to see more]\n"
+  end
+
   return table.concat(head_lines, "\n")
-  .. "\n[..." .. tostring(omitted) .. " lines omitted. narrow your command output to see more]\n"
+  .. notice
   .. table.concat(tail_lines, "\n"), true
 end
 
@@ -185,17 +193,18 @@ end
 
 -- Truncate tool output: character-based first, then line-based.
 -- Returns a TruncateResult with the (possibly truncated) content and metadata.
-local function truncate_output(output: string, tool_name: string): TruncateResult
+-- When tool_use_id is provided, truncation notices direct the agent to the result tool.
+local function truncate_output(output: string, tool_name: string, tool_use_id?: string): TruncateResult
   local original_bytes: integer = #output
   local original_lines: integer = count_lines(output)
 
   local max_chars = DEFAULT_CHAR_LIMITS[tool_name] or DEFAULT_CHAR_LIMIT
-  local result, char_truncated = truncate_chars(output, max_chars, tool_name)
+  local result, char_truncated = truncate_chars(output, max_chars, tool_use_id)
 
   local line_truncated = false
   local max_lines = DEFAULT_LINE_LIMITS[tool_name]
   if max_lines then
-    result, line_truncated = truncate_lines(result, max_lines)
+    result, line_truncated = truncate_lines(result, max_lines, tool_use_id)
   end
 
   -- Safety net: replace any non-UTF-8 bytes that survived tool-level checks.

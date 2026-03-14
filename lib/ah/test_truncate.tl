@@ -75,6 +75,26 @@ local function test_truncate_chars_preserves_head_tail()
 end
 test_truncate_chars_preserves_head_tail()
 
+local function test_truncate_chars_with_tool_use_id()
+  local s = string.rep("x", 1000)
+  local result, truncated = truncate.truncate_chars(s, 200, "toolu_abc123")
+  assert(truncated, "should be truncated")
+  assert(result:match('tool_use_id="toolu_abc123"'), "notice should include tool_use_id: " .. result)
+  assert(result:match("result tool"), "notice should mention result tool: " .. result)
+  print("✓ truncate_chars includes tool_use_id in notice")
+end
+test_truncate_chars_with_tool_use_id()
+
+local function test_truncate_chars_without_tool_use_id()
+  local s = string.rep("x", 1000)
+  local result, truncated = truncate.truncate_chars(s, 200)
+  assert(truncated, "should be truncated")
+  assert(result:match("narrow the output"), "should show fallback hint: " .. result)
+  assert(not result:match("result tool"), "should not mention result tool")
+  print("✓ truncate_chars fallback notice without tool_use_id")
+end
+test_truncate_chars_without_tool_use_id()
+
 -- truncate_lines tests
 local function test_truncate_lines_short()
   local result, truncated = truncate.truncate_lines("a\nb\nc", 10)
@@ -99,10 +119,37 @@ local function test_truncate_lines_long()
   assert(result:match("line16\n"), "line 16 preserved")
   assert(result:match("line20"), "last line preserved")
   -- Omission notice
-  assert(result:match("%[%.%.%.10 lines omitted%. narrow your command output to see more%]"), "omission notice: " .. result)
+  assert(result:match("%[%.%.%.10 lines omitted"), "omission notice: " .. result)
   print("✓ truncate_lines head/tail split")
 end
 test_truncate_lines_long()
+
+local function test_truncate_lines_with_tool_use_id()
+  local lines = {}
+  for i = 1, 20 do
+    table.insert(lines, "line" .. tostring(i))
+  end
+  local s = table.concat(lines, "\n")
+  local result, truncated = truncate.truncate_lines(s, 10, "toolu_xyz789")
+  assert(truncated, "should be truncated")
+  assert(result:match('tool_use_id="toolu_xyz789"'), "notice should include tool_use_id: " .. result)
+  assert(result:match("result tool"), "notice should mention result tool")
+  print("✓ truncate_lines includes tool_use_id in notice")
+end
+test_truncate_lines_with_tool_use_id()
+
+local function test_truncate_lines_without_tool_use_id()
+  local lines = {}
+  for i = 1, 20 do
+    table.insert(lines, "line" .. tostring(i))
+  end
+  local s = table.concat(lines, "\n")
+  local result, truncated = truncate.truncate_lines(s, 10)
+  assert(truncated, "should be truncated")
+  assert(result:match("narrow your command"), "fallback notice without tool_use_id: " .. result)
+  print("✓ truncate_lines fallback notice without tool_use_id")
+end
+test_truncate_lines_without_tool_use_id()
 
 local function test_truncate_lines_exact()
   local lines = {}
@@ -128,32 +175,32 @@ end
 test_truncate_output_short()
 
 local function test_truncate_output_bash_limit()
-  -- bash limit is 30000 chars
-  local s = string.rep("x", 40000)
+  -- bash limit is 3000 chars
+  local s = string.rep("x", 5000)
   local r = truncate.truncate_output(s, "bash")
   assert(r.truncated, "should be truncated")
-  assert(r.original_bytes == 40000, "original bytes preserved")
+  assert(r.original_bytes == 5000, "original bytes preserved")
   assert(r.content:match("%[output truncated:"), "has char truncation notice")
   print("✓ truncate_output applies bash char limit")
 end
 test_truncate_output_bash_limit()
 
 local function test_truncate_output_read_limit()
-  -- read limit is 50000 chars
-  local s = string.rep("x", 40000)
+  -- read limit is 4000 chars
+  local s = string.rep("x", 3000)
   local r = truncate.truncate_output(s, "read")
-  assert(not r.truncated, "40K should not exceed read's 50K limit")
+  assert(not r.truncated, "3K should not exceed read's 4K limit")
 
-  local s2 = string.rep("x", 60000)
+  local s2 = string.rep("x", 6000)
   local r2 = truncate.truncate_output(s2, "read")
-  assert(r2.truncated, "60K should exceed read's 50K limit")
+  assert(r2.truncated, "6K should exceed read's 4K limit")
   print("✓ truncate_output applies read char limit")
 end
 test_truncate_output_read_limit()
 
 local function test_truncate_output_unknown_tool()
-  -- Unknown tools use DEFAULT_CHAR_LIMIT (30000)
-  local s = string.rep("x", 40000)
+  -- Unknown tools use DEFAULT_CHAR_LIMIT (3000)
+  local s = string.rep("x", 5000)
   local r = truncate.truncate_output(s, "custom_tool")
   assert(r.truncated, "should truncate unknown tool at default limit")
   print("✓ truncate_output handles unknown tools")
@@ -161,29 +208,25 @@ end
 test_truncate_output_unknown_tool()
 
 local function test_truncate_output_bash_line_limit()
-  -- bash has a 500-line limit
+  -- bash has a 100-line limit
   local lines = {}
-  for i = 1, 300 do
-    table.insert(lines, "line" .. tostring(i))
+  for i = 1, 80 do
+    table.insert(lines, "L" .. tostring(i))
   end
   local s = table.concat(lines, "\n")
   local r = truncate.truncate_output(s, "bash")
-  assert(not r.truncated, "300 short lines should not be truncated (under 500 line limit)")
+  assert(not r.truncated, "80 short lines should not be truncated (under 100 line limit)")
   assert(not r.content:match("lines omitted"), "should have no line omission notice")
-  assert(r.content:match("line1\n"), "first line preserved")
-  assert(r.content:match("line300"), "last line preserved")
 
   -- Over the line limit
   local many_lines = {}
-  for i = 1, 700 do
+  for i = 1, 200 do
     table.insert(many_lines, "L" .. tostring(i))
   end
   local s2 = table.concat(many_lines, "\n")
   local r2 = truncate.truncate_output(s2, "bash")
-  assert(r2.truncated, "700 lines should be truncated at 500 line limit")
+  assert(r2.truncated, "200 lines should be truncated at 100 line limit")
   assert(r2.content:match("lines omitted"), "should have line omission notice")
-  assert(r2.content:match("^L1\n"), "first line preserved")
-  assert(r2.content:match("L700$"), "last line preserved")
   print("✓ truncate_output bash line limit")
 end
 test_truncate_output_bash_line_limit()
@@ -191,12 +234,12 @@ test_truncate_output_bash_line_limit()
 local function test_truncate_output_read_no_line_limit()
   -- read has no line limit, only char limit
   local lines = {}
-  for i = 1, 300 do
+  for i = 1, 100 do
     table.insert(lines, "L" .. tostring(i))
   end
   local s = table.concat(lines, "\n")
   local r = truncate.truncate_output(s, "read")
-  assert(not r.truncated, "300 short lines should be under read's 50K char limit")
+  assert(not r.truncated, "100 short lines should be under read's 4K char limit")
   assert(not r.content:match("lines omitted"), "no line truncation for read")
   print("✓ truncate_output read has no line limit")
 end
@@ -217,56 +260,28 @@ local function test_truncate_chars_notice_content()
   local s = string.rep("a", 500)
   local result, _ = truncate.truncate_chars(s, 200)
   assert(result:match("300 bytes removed from middle"), "notice should show 300 bytes removed: " .. result)
-  assert(result:match("narrow the output"), "default hint for no tool_name")
   print("✓ truncate_chars notice shows correct byte count")
 end
 test_truncate_chars_notice_content()
 
-local function test_truncate_chars_bash_hint()
-  local s = string.rep("x", 1000)
-  local result, truncated = truncate.truncate_chars(s, 200, "bash")
-  assert(truncated, "should be truncated")
-  assert(result:match("head/tail/grep"), "bash hint should mention head/tail/grep: " .. result)
-  assert(result:match("redirect to a file"), "bash hint should mention redirect: " .. result)
-  print("✓ truncate_chars bash-specific hint")
-end
-test_truncate_chars_bash_hint()
-
-local function test_truncate_chars_read_hint()
-  local s = string.rep("x", 1000)
-  local result, truncated = truncate.truncate_chars(s, 200, "read")
-  assert(truncated, "should be truncated")
-  assert(result:match("offset/limit"), "read hint should mention offset/limit: " .. result)
-  print("✓ truncate_chars read-specific hint")
-end
-test_truncate_chars_read_hint()
-
-local function test_truncate_chars_unknown_tool_hint()
-  local s = string.rep("x", 1000)
-  local result, truncated = truncate.truncate_chars(s, 200, "custom_tool")
-  assert(truncated, "should be truncated")
-  assert(result:match("narrow the output"), "unknown tool gets default hint: " .. result)
-  print("✓ truncate_chars unknown tool gets default hint")
-end
-test_truncate_chars_unknown_tool_hint()
-
-local function test_truncate_output_bash_hint()
-  local s = string.rep("x", 40000)
-  local r = truncate.truncate_output(s, "bash")
+local function test_truncate_output_with_tool_use_id()
+  local s = string.rep("x", 5000)
+  local r = truncate.truncate_output(s, "bash", "toolu_test123")
   assert(r.truncated, "should be truncated")
-  assert(r.content:match("head/tail/grep"), "truncate_output passes tool_name for bash hint")
-  print("✓ truncate_output passes bash hint through")
+  assert(r.content:match('tool_use_id="toolu_test123"'), "notice should include tool_use_id: " .. r.content)
+  assert(r.content:match("result tool"), "notice should mention result tool")
+  print("✓ truncate_output passes tool_use_id through")
 end
-test_truncate_output_bash_hint()
+test_truncate_output_with_tool_use_id()
 
-local function test_truncate_output_read_hint()
-  local s = string.rep("x", 60000)
-  local r = truncate.truncate_output(s, "read")
-  assert(r.truncated, "should be truncated")
-  assert(r.content:match("offset/limit"), "truncate_output passes tool_name for read hint")
-  print("✓ truncate_output passes read hint through")
+local function test_truncate_output_no_truncation_no_tool_use_id()
+  -- Even with a tool_use_id, no truncation = no tool_use_id in content
+  local r = truncate.truncate_output("hello", "bash", "toolu_test123")
+  assert(not r.truncated, "should not be truncated")
+  assert(not r.content:match("result tool"), "no tool_use_id when not truncated")
+  print("✓ truncate_output no tool_use_id injected when not truncated")
 end
-test_truncate_output_read_hint()
+test_truncate_output_no_truncation_no_tool_use_id()
 
 -- sanitize_utf8 tests
 local function test_sanitize_utf8_ascii()
