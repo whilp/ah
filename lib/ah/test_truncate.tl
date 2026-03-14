@@ -217,9 +217,56 @@ local function test_truncate_chars_notice_content()
   local s = string.rep("a", 500)
   local result, _ = truncate.truncate_chars(s, 200)
   assert(result:match("300 bytes removed from middle"), "notice should show 300 bytes removed: " .. result)
+  assert(result:match("narrow the output"), "default hint for no tool_name")
   print("✓ truncate_chars notice shows correct byte count")
 end
 test_truncate_chars_notice_content()
+
+local function test_truncate_chars_bash_hint()
+  local s = string.rep("x", 1000)
+  local result, truncated = truncate.truncate_chars(s, 200, "bash")
+  assert(truncated, "should be truncated")
+  assert(result:match("head/tail/grep"), "bash hint should mention head/tail/grep: " .. result)
+  assert(result:match("redirect to a file"), "bash hint should mention redirect: " .. result)
+  print("✓ truncate_chars bash-specific hint")
+end
+test_truncate_chars_bash_hint()
+
+local function test_truncate_chars_read_hint()
+  local s = string.rep("x", 1000)
+  local result, truncated = truncate.truncate_chars(s, 200, "read")
+  assert(truncated, "should be truncated")
+  assert(result:match("offset/limit"), "read hint should mention offset/limit: " .. result)
+  print("✓ truncate_chars read-specific hint")
+end
+test_truncate_chars_read_hint()
+
+local function test_truncate_chars_unknown_tool_hint()
+  local s = string.rep("x", 1000)
+  local result, truncated = truncate.truncate_chars(s, 200, "custom_tool")
+  assert(truncated, "should be truncated")
+  assert(result:match("narrow the output"), "unknown tool gets default hint: " .. result)
+  print("✓ truncate_chars unknown tool gets default hint")
+end
+test_truncate_chars_unknown_tool_hint()
+
+local function test_truncate_output_bash_hint()
+  local s = string.rep("x", 40000)
+  local r = truncate.truncate_output(s, "bash")
+  assert(r.truncated, "should be truncated")
+  assert(r.content:match("head/tail/grep"), "truncate_output passes tool_name for bash hint")
+  print("✓ truncate_output passes bash hint through")
+end
+test_truncate_output_bash_hint()
+
+local function test_truncate_output_read_hint()
+  local s = string.rep("x", 60000)
+  local r = truncate.truncate_output(s, "read")
+  assert(r.truncated, "should be truncated")
+  assert(r.content:match("offset/limit"), "truncate_output passes tool_name for read hint")
+  print("✓ truncate_output passes read hint through")
+end
+test_truncate_output_read_hint()
 
 -- sanitize_utf8 tests
 local function test_sanitize_utf8_ascii()

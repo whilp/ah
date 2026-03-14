@@ -37,9 +37,17 @@ local function count_lines(s: string): integer
   return n
 end
 
+-- Tool-specific hints for truncation notices
+local TRUNCATION_HINTS: {string: string} = {
+  bash = "re-run with narrower output: pipe through head/tail/grep, or redirect to a file and use the read tool",
+  read = "re-read with offset/limit to view specific sections",
+}
+local DEFAULT_HINT = "narrow the output or re-run a more targeted command"
+
 -- Truncate by characters using head/tail split: keep the beginning and end,
 -- remove the middle. This preserves context (imports, setup) and results (final output).
-local function truncate_chars(output: string, max_chars: integer): string, boolean
+-- tool_name is optional; when provided, the notice includes tool-specific recovery advice.
+local function truncate_chars(output: string, max_chars: integer, tool_name?: string): string, boolean
   if #output <= max_chars then
     return output, false
   end
@@ -49,9 +57,11 @@ local function truncate_chars(output: string, max_chars: integer): string, boole
   local head = output:sub(1, half)
   local tail = output:sub(-half)
 
+  local hint = (tool_name and TRUNCATION_HINTS[tool_name]) or DEFAULT_HINT
+
   return head
   .. "\n\n[output truncated: " .. tostring(removed) .. " bytes removed from middle. "
-  .. "to see more, narrow your command (head/tail/grep) or write to a file and use the read tool]\n\n"
+  .. hint .. "]\n\n"
   .. tail, true
 end
 
@@ -180,7 +190,7 @@ local function truncate_output(output: string, tool_name: string): TruncateResul
   local original_lines: integer = count_lines(output)
 
   local max_chars = DEFAULT_CHAR_LIMITS[tool_name] or DEFAULT_CHAR_LIMIT
-  local result, char_truncated = truncate_chars(output, max_chars)
+  local result, char_truncated = truncate_chars(output, max_chars, tool_name)
 
   local line_truncated = false
   local max_lines = DEFAULT_LINE_LIMITS[tool_name]
