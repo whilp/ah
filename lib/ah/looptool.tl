@@ -40,6 +40,8 @@ local function execute_tool_calls(
     on_event: events.EventCallback
   ): ToolExecResult
 
+  local tool_context: tools.ToolContext = {db = d}
+
   local tool_results_content: {any} = {}
   local tool_result_blocks: {{string: any}} = {}
   local tool_count = #tool_calls
@@ -61,7 +63,7 @@ local function execute_tool_calls(
     emit(on_event, events.tool_call_start(tc.name as string, input_json, key, i, tool_count))
 
     local start = now()
-    local result, is_error, details = tools.execute_tool(tc.name as string, (tc.input or {}) as {string: any})
+    local result, is_error, details = tools.execute_tool(tc.name as string, (tc.input or {}) as {string: any}, tool_context)
     local elapsed = now() - start
 
     if interrupted then
@@ -114,7 +116,7 @@ local function execute_tool_calls(
     db.log_event(d, "tool_call_end", assistant_msg_id, events.to_json(events.tool_call_end(tc.name as string, "", is_error, elapsed_ms, key, i, tool_count)))
 
     -- Truncate output for the API (full output preserved in DB and events)
-    local truncation = truncate.truncate_output(result, tc.name as string)
+    local truncation = truncate.truncate_output(result, tc.name as string, tc.id as string)
     local api_result = truncation.content
 
     -- Check if result is structured (image content)

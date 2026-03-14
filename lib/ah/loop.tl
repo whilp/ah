@@ -16,7 +16,6 @@ global interrupted: boolean
 local LOOP_WARN_THRESHOLD = 3
 local LOOP_BREAK_THRESHOLD = 5
 local PAYLOAD_WARN_BYTES = 800000
-
 local function emit(on_event: events.EventCallback, event: events.EventData)
   if on_event then
     on_event(event)
@@ -59,7 +58,6 @@ local function build_api_messages(d: db.DB, message_id: string, on_event: events
       end
     end
   end
-
   local api_messages: {any} = {}
 
   for i = compaction_start, #ancestry do
@@ -86,7 +84,7 @@ local function build_api_messages(d: db.DB, message_id: string, on_event: events
         table.insert(content, {type = "tool_use", id = block.tool_id, name = block.tool_name, input = input})
       elseif block.block_type == "tool_result" then
         local tool_output = block.tool_output as string
-        local truncation = truncate.truncate_output(tool_output or "", block.tool_name as string or "")
+        local truncation = truncate.truncate_output(tool_output or "", block.tool_name as string or "", block.tool_id as string)
         local api_content: any = truncation.content
         if tool_output and tool_output:sub(1, 14) == '{"__image__":' then
           local parsed = json.decode(tool_output) as {string: any}
@@ -104,7 +102,6 @@ local function build_api_messages(d: db.DB, message_id: string, on_event: events
     end
     ::continue::
   end
-
   return api_messages
 end
 
@@ -159,10 +156,8 @@ local function run_agent(d: db.DB, qdb: queue.QueueDB, system_prompt: string, mo
     emit(on_event, events.error_event("credentials: " .. creds_err))
     return "error"
   end
-
   transition_state(d, on_event, "processing")
   emit(on_event, events.agent_start(model, prompt, parent_id))
-
   db.begin_transaction(d)
   local user_msg = db.create_message(d, "user", parent_id)
   db.add_content_block(d, user_msg.id, "text", {content = prompt})
