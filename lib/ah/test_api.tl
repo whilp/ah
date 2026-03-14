@@ -61,7 +61,7 @@ test_extract_tool_calls_mixed()
 local function test_build_request_default_model()
   local req = api.build_request({}, {}, false)
   assert(req.model == api.DEFAULT_MODEL, "should use default model")
-  assert(req.model == "claude-opus-4-6-1m", "default model should be opus 1m")
+  assert(req.model == "claude-opus-4-6", "default model should be opus")
 end
 test_build_request_default_model()
 
@@ -251,14 +251,11 @@ test_extract_retry_delay()
 
 local function test_resolve_model()
   -- Aliases should resolve to full names
-  assert(api.resolve_model("sonnet") == "claude-sonnet-4-6-1m", "sonnet alias")
-  assert(api.resolve_model("sonnet-1m") == "claude-sonnet-4-6-1m", "sonnet-1m alias")
-  assert(api.resolve_model("opus") == "claude-opus-4-6-1m", "opus alias")
-  assert(api.resolve_model("opus-1m") == "claude-opus-4-6-1m", "opus-1m alias")
+  assert(api.resolve_model("sonnet") == "claude-sonnet-4-6", "sonnet alias")
+  assert(api.resolve_model("opus") == "claude-opus-4-6", "opus alias")
   assert(api.resolve_model("haiku") == "claude-haiku-4-5-20251001", "haiku alias")
   -- Full names should pass through
   assert(api.resolve_model("claude-sonnet-4-6") == "claude-sonnet-4-6", "full name passthrough")
-  assert(api.resolve_model("claude-sonnet-4-6-1m") == "claude-sonnet-4-6-1m", "sonnet 4.6 1m passthrough")
   -- Unknown names should pass through
   assert(api.resolve_model("custom-model") == "custom-model", "unknown passthrough")
   -- Nil should return nil
@@ -419,10 +416,8 @@ local function test_model_context_limits_coverage()
   -- every model in api.MODELS must have a context limit entry
   local models: {string} = {
     "claude-sonnet-4-6",
-    "claude-sonnet-4-6-1m",
     "claude-opus-4-5-20251101",
     "claude-opus-4-6",
-    "claude-opus-4-6-1m",
     "claude-haiku-4-5-20251001",
   }
   local limits = api.MODEL_CONTEXT_LIMITS as {string: integer}
@@ -437,12 +432,11 @@ test_model_context_limits_coverage()
 
 local function test_model_context_limits_values()
   local limits = api.MODEL_CONTEXT_LIMITS as {string: integer}
-  -- 1m variants should have 1M token limit
-  assert(limits["claude-sonnet-4-6-1m"] == 1000000, "sonnet 1m limit should be 1000000")
-  assert(limits["claude-opus-4-6-1m"] == 1000000, "opus 1m limit should be 1000000")
-  -- standard variants should have 200k limit
-  assert(limits["claude-sonnet-4-6"] == 200000, "sonnet limit should be 200000")
-  assert(limits["claude-opus-4-6"] == 200000, "opus limit should be 200000")
+  -- opus 4.6 and sonnet 4.6 support 1M context natively
+  assert(limits["claude-sonnet-4-6"] == 1000000, "sonnet limit should be 1000000")
+  assert(limits["claude-opus-4-6"] == 1000000, "opus limit should be 1000000")
+  -- older models stay at 200k
+  assert(limits["claude-opus-4-5-20251101"] == 200000, "opus 4.5 limit should be 200000")
   assert(limits["claude-haiku-4-5-20251001"] == 200000, "haiku limit should be 200000")
   print("PASS test_model_context_limits_values")
 end
