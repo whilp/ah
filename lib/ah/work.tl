@@ -1,6 +1,7 @@
 -- ah/work.tl: single-iteration autonomous optimization
 local fs = require("cosmic.fs")
 local cio = require("cosmic.io")
+local child = require("cosmic.child")
 local db = require("ah.db")
 local ulid = require("ulid")
 local api = require("ah.api")
@@ -36,20 +37,34 @@ local function parse_metric(stdout: string): number
   return tonumber(trimmed)
 end
 
--- Run a shell script. Returns stdout, stderr, exit_code.
+-- Run a shell script via cosmic.child. Returns stdout, stderr, exit_code.
 local function run_script(path: string): string, string, integer
-  local out = os.tmpname()
-  local err = os.tmpname()
-  local cmd = string.format("bash %s > %s 2> %s", path, out, err)
-  local ok, _, code = os.execute(cmd)
-  local stdout = cio.slurp(out) or ""
-  local stderr = cio.slurp(err) or ""
-  os.remove(out)
-  os.remove(err)
-  if not ok then
-    return stdout, stderr, (code as integer) or 1
+  local handle, err = child.spawn({"bash", path})
+  if not handle then
+    return "", err or "spawn failed", 1
+  end
+  local stderr = handle.stderr:read() or ""
+  local ok, stdout_raw, exit_str = handle:read()
+  local stdout = (stdout_raw as string) or ""
+  local exit_code = (tonumber(exit_str) or 0) as integer
+  if not ok or exit_code ~= 0 then
+    return stdout, stderr, exit_code ~= 0 and exit_code or 1
   end
   return stdout, stderr, 0
+end
+
+-- Run a git command via cosmic.child. Returns stdout or nil.
+local function git(...: string): string
+  local argv: {string} = {"git"}
+  for i = 1, select("#", ...) do
+    argv[#argv + 1] = select(i, ...) as string
+  end
+  local handle = child.spawn(argv)
+  if not handle then return nil end
+  handle.stderr:read()
+  local ok, stdout_raw = handle:read()
+  if not ok then return nil end
+  return (((stdout_raw as string) or ""):gsub("%s+$", ""))
 end
 
 -- Format a percentage change.
@@ -134,33 +149,31 @@ local function run_agent_once(
   return last_text or ""
 end
 
--- Capture git diff for the evaluate phase.
-local function git_diff(): string
-  local tmpfile = os.tmpname()
-  os.execute("git diff HEAD > " .. tmpfile .. " 2>&1")
-  local output = cio.slurp(tmpfile) or ""
-  os.remove(tmpfile)
-  return (output:gsub("%s+$", ""))
-end
-
 -- Check if working tree has changes.
 local function git_has_changes(): boolean
-  local code = os.execute("git diff --quiet HEAD 2>/dev/null")
-  return not code
+  local diff = git("diff", "--quiet", "HEAD")
+  return diff == nil
+end
+
+-- Get the diff for the evaluate phase.
+local function git_diff(): string
+  return git("diff", "HEAD") or ""
 end
 
 -- Revert working tree, preserving a file.
 local function git_revert(preserve: string)
   local content = cio.slurp(preserve)
-  os.execute("git checkout -- .")
+  git("checkout", "--", ".")
   if content then cio.barf(preserve, content) end
 end
 
--- Commit all changes.
+-- Commit all changes using a file for the commit message.
 local function git_commit(msg: string)
-  os.execute("git add -A")
-  local safe = msg:gsub("'", "'\\''")
-  os.execute("git commit -m '" .. safe .. "' --quiet")
+  git("add", "-A")
+  local tmpfile = os.tmpname()
+  cio.barf(tmpfile, msg)
+  git("commit", "--quiet", "--file", tmpfile)
+  os.remove(tmpfile)
 end
 
 -- Build system prompt with tools and optional skill.
@@ -180,6 +193,17 @@ local function build_system(cwd: string): string
     if content ~= "" then system = system .. "\n\n" .. content end
   end
   return system
+end
+
+-- Parse KEEP or DISCARD from agent verdict text.
+local function parse_verdict(text: string): string, string
+  for line in text:gmatch("[^\n]+") do
+    local keep_msg = line:match("^KEEP:%s*(.+)")
+    if keep_msg then return "keep", keep_msg end
+    local discard_msg = line:match("^DISCARD:%s*(.+)")
+    if discard_msg then return "discard", discard_msg end
+  end
+  return "discard", "agent did not produce a verdict"
 end
 
 -- Run one work iteration. Returns 0=keep, 1=discard/error.
@@ -215,9 +239,7 @@ local function run_work(
 
   io.write("work: agent implementing change...\n")
   local impl_result = run_agent_once(cwd, system, effective_model, implement_prompt)
-  if not impl_result then
-    return 1
-  end
+  if not impl_result then return 1 end
 
   if not git_has_changes() then
     io.write("work: no changes made\n")
@@ -282,40 +304,21 @@ DISCARD: <reason>]], baseline, new_value, pct, diff)
     return 1
   end
 
-  -- Parse verdict
-  local keep_msg = verdict:match("^KEEP:%s*(.+)")
-  if not keep_msg then
-    -- Check lines individually in case agent prefixed with text
-    for line in verdict:gmatch("[^\n]+") do
-      keep_msg = line:match("^KEEP:%s*(.+)")
-      if keep_msg then break end
-    end
-  end
-  local discard_msg = verdict:match("^DISCARD:%s*(.+)")
-  if not discard_msg then
-    for line in verdict:gmatch("[^\n]+") do
-      discard_msg = line:match("^DISCARD:%s*(.+)")
-      if discard_msg then break end
-    end
-  end
-
-  if keep_msg then
-    git_commit(keep_msg)
-    local msg = string.format("%.4g → %.4g (%s) %s", baseline, new_value, pct, keep_msg)
-    io.write("work: keep — " .. msg .. "\n")
+  local decision, msg = parse_verdict(verdict)
+  if decision == "keep" then
+    git_commit(msg)
+    io.write("work: keep — " .. string.format("%.4g → %.4g (%s) %s", baseline, new_value, pct, msg) .. "\n")
     record_iteration(d, {
         status = "keep", metric_value = new_value,
-        baseline_value = baseline, message = keep_msg,
+        baseline_value = baseline, message = msg,
       } as Iteration)
     return 0
   else
     git_revert(work_md)
-    local reason = discard_msg or "agent declined"
-    local msg = string.format("%.4g → %.4g (%s) %s", baseline, new_value, pct, reason)
-    io.write("work: discard — " .. msg .. "\n")
+    io.write("work: discard — " .. string.format("%.4g → %.4g (%s) %s", baseline, new_value, pct, msg) .. "\n")
     record_iteration(d, {
         status = "discard", metric_value = new_value,
-        baseline_value = baseline, message = reason,
+        baseline_value = baseline, message = msg,
       } as Iteration)
     return 1
   end
@@ -328,4 +331,5 @@ return {
   fmt_pct = fmt_pct,
   init_work_db = init_work_db,
   format_history = format_history,
+  parse_verdict = parse_verdict,
 }
