@@ -11,7 +11,7 @@ local api = require("ah.api")
 -- Model context window limits (tokens) — sourced from api.MODEL_CONTEXT_LIMITS
 local MODEL_CONTEXT_LIMITS = api.MODEL_CONTEXT_LIMITS
 
-local DEFAULT_CONTEXT_LIMIT = 200000
+local DEFAULT_CONTEXT_LIMIT = 1000000
 
 -- Compaction triggers when input_tokens / context_limit exceeds this ratio
 local DEFAULT_THRESHOLD = 0.8

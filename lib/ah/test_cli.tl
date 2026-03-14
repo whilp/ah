@@ -129,7 +129,7 @@ local function test_make_cli_handler_agent_end_nil_model_uses_default()
           total_cache_read_tokens = 0,
         } as events.EventData)
     end)
-  assert(output:match("200%.0k"), "nil model should fall back to 200.0k budget, got: " .. output)
+  assert(output:match("1%.0m"), "nil model should fall back to 1.0m budget, got: " .. output)
   assert(output:match("%%"), "output should contain '%', got: " .. output)
 end
 test_make_cli_handler_agent_end_nil_model_uses_default()
