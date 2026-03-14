@@ -4,6 +4,7 @@ local child = require("cosmic.child")
 return {
   name = "grep",
   description = "Search files for a pattern using grep",
+  autoload = false,
   system_prompt = "Use grep to search for patterns in files. Supports -r (recursive), -n (line numbers), -l (files only), -i (case insensitive), -w (word match).",
   input_schema = {
     type = "object",

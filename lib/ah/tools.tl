@@ -29,6 +29,7 @@ local record Tool
   input_schema: {string: any}
   system_prompt: string
   running_processes: {integer: any}
+  autoload: boolean -- false = only loaded via load_tool, not by default
   execute: function(input: {string: any}, context?: ToolContext): string, boolean, ToolDetails
 end
 
@@ -206,7 +207,7 @@ local function init_custom_tools(cwd?: string)
   merge_tools(by_name, load_custom_tools_from_dir(project_tools_dir))
   tools = {}
   for _, tool in pairs(by_name) do
-    table.insert(tools, tool)
+    if tool.autoload ~= false then table.insert(tools, tool) end
   end
 end
 
