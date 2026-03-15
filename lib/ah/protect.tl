@@ -1,8 +1,9 @@
 -- ah/protect.tl: shared path protection check for AH_PROTECT_DIRS
 local fs = require("cosmic.fs")
+local cenv = require("cosmic.env")
 
 local function is_protected(path: string): boolean
-  local protect_env = os.getenv("AH_PROTECT_DIRS") or ""
+  local protect_env = cenv.get("AH_PROTECT_DIRS") or ""
   if protect_env == "" then return false end
   local cwd = fs.getcwd() or ""
   local abs_path: string

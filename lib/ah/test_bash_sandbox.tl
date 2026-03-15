@@ -4,6 +4,7 @@
 local sandbox = require("cosmic.sandbox")
 local child = require("cosmic.child")
 local fs = require("cosmic.fs")
+local cenv = require("cosmic.env")
 
 print("=== Bash Sandbox Test ===")
 
@@ -21,7 +22,7 @@ local function apply_sandbox()
   sandbox.unveil("/dev/null", "rw")
   sandbox.unveil("/dev/tty", "rw")
   sandbox.unveil("/proc/self", "r")
-  local home = os.getenv("HOME")
+  local home = cenv.get("HOME")
   if home then
     sandbox.unveil(home, "r")
   end
@@ -51,7 +52,7 @@ print("✓ absolute paths work in sandbox")
 print("\nTest 2: find_executable logic")
 
 local function find_executable(name: string): string
-  local env_override = os.getenv("AH_" .. name:upper())
+  local env_override = cenv.get("AH_" .. name:upper())
   if env_override then
     return env_override
   end

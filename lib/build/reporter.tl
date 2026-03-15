@@ -157,5 +157,5 @@ if proc.is_main() then
   if err then
     io.stderr:write(err .. "\n")
   end
-  os.exit(code)
+  proc.exit(code)
 end

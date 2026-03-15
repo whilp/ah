@@ -5,8 +5,9 @@ local cio = require("cosmic.io")
 local cli = require("ah.cli")
 local hl = require("ah.highlight")
 local events = require("ah.events")
+local cenv = require("cosmic.env")
 
-local TEST_TMPDIR = os.getenv("TEST_TMPDIR") or "/tmp"
+local TEST_TMPDIR = cenv.get("TEST_TMPDIR") or "/tmp"
 
 -- Tool output colorization tests
 

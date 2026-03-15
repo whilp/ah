@@ -3,6 +3,7 @@ local sqlite = require("cosmic.sqlite")
 local ulid = require("ulid")
 local proc = require("cosmic.proc")
 local signal = require("cosmic.signal")
+local time = require("cosmic.time")
 
 local SCHEMA = [[
 create table if not exists queue_messages (
@@ -116,7 +117,7 @@ local function is_locked(self: QueueDB): boolean, integer
     return false, nil
   end
 
-  local now = os.time()
+  local now = math.floor((time.now())) as integer
   local age = now - info.heartbeat_at
 
   -- Check if lock is stale
@@ -143,7 +144,7 @@ end
 -- Try to acquire the session lock
 -- Returns: true if acquired, false if already held by another process
 local function try_acquire_lock(self: QueueDB): boolean, string
-  local now = os.time()
+  local now = math.floor((time.now())) as integer
   local my_pid = proc.getpid()
 
   local info = get_lock_info(self)
@@ -201,7 +202,7 @@ end
 
 -- Update heartbeat timestamp (call before each API call)
 local function update_heartbeat(self: QueueDB): boolean
-  local now = os.time()
+  local now = math.floor((time.now())) as integer
   local my_pid = proc.getpid()
 
   local ok = self._db:exec(
@@ -214,7 +215,7 @@ end
 -- Add a steering message to the queue
 local function add_steer(self: QueueDB, content: string): QueueMessage
   local id = ulid.generate()
-  local now = os.time()
+  local now = math.floor((time.now())) as integer
 
   self._db:exec_list(
     "insert into queue_messages (id, message_type, content, created_at) values (?, ?, ?, ?)",
@@ -231,7 +232,7 @@ end
 -- Add a followup message to the queue
 local function add_followup(self: QueueDB, content: string): QueueMessage
   local id = ulid.generate()
-  local now = os.time()
+  local now = math.floor((time.now())) as integer
 
   self._db:exec_list(
     "insert into queue_messages (id, message_type, content, created_at) values (?, ?, ?, ?)",
@@ -248,7 +249,7 @@ end
 -- Drain all unconsumed steering messages (returns them in order, marks as consumed)
 local function drain_steering(self: QueueDB): {QueueMessage}
   local messages: {QueueMessage} = {}
-  local now = os.time()
+  local now = math.floor((time.now())) as integer
 
   local ok = self._db:exec("BEGIN IMMEDIATE")
   if not ok then
@@ -283,7 +284,7 @@ end
 -- Drain all unconsumed followup messages (returns them in order, marks as consumed)
 local function drain_followup(self: QueueDB): {QueueMessage}
   local messages: {QueueMessage} = {}
-  local now = os.time()
+  local now = math.floor((time.now())) as integer
 
   local ok = self._db:exec("BEGIN IMMEDIATE")
   if not ok then

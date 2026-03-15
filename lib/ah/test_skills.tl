@@ -3,8 +3,9 @@
 local skills = require("ah.skills")
 local fs = require("cosmic.fs")
 local cio = require("cosmic.io")
+local cenv = require("cosmic.env")
 
-local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp/test_skills"
+local tmpdir = cenv.get("TEST_TMPDIR") or "/tmp/test_skills"
 fs.makedirs(tmpdir)
 
 -- Tests for parse_frontmatter

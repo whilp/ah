@@ -4,7 +4,7 @@ local cio = require("cosmic.io")
 local tty = require("cosmic.tty")
 local proc = require("cosmic.proc")
 local signal = require("cosmic.signal")
-
+local cenv = require("cosmic.env")
 local zip = require("cosmic.zip")
 local embed = require("cosmic.embed")
 local db = require("ah.db")
@@ -60,7 +60,7 @@ end
 -- cwd is the working directory; extra_dirs is a comma-separated list of "path:perms".
 local function apply_unveil(cwd: string, extra_dirs: string)
   sandbox.unveil(cwd, "rwxc")
-  local protect = args_mod.parse_protect_dirs(os.getenv("AH_PROTECT_DIRS"))
+  local protect = args_mod.parse_protect_dirs(cenv.get("AH_PROTECT_DIRS"))
   for _, dir in ipairs(protect) do
     sandbox.unveil(cwd .. "/" .. dir, "r")
   end
@@ -84,7 +84,7 @@ local function apply_unveil(cwd: string, extra_dirs: string)
   sandbox.unveil("/dev/null", "rw")
   sandbox.unveil("/dev/tty", "rw")
   sandbox.unveil("/proc/self", "r")
-  local home = os.getenv("HOME")
+  local home = cenv.get("HOME")
   if home then sandbox.unveil(home, "r") end
   sandbox.unveil(nil, nil)
 end
@@ -98,9 +98,9 @@ local function main(args: {string}): integer, string
   -- Sandbox mode: when AH_SANDBOX=1, apply network sandbox restrictions.
   -- When AH_UNVEIL is set (with or without AH_SANDBOX), apply unveil.
   -- When AH_PLEDGE is set (with or without AH_SANDBOX), apply pledge.
-  local in_sandbox = os.getenv("AH_SANDBOX")
-  local unveil_env = os.getenv("AH_UNVEIL")
-  local pledge_env = os.getenv("AH_PLEDGE")
+  local in_sandbox = cenv.get("AH_SANDBOX")
+  local unveil_env = cenv.get("AH_UNVEIL")
+  local pledge_env = cenv.get("AH_PLEDGE")
 
   if in_sandbox or unveil_env then
     apply_unveil(fs.getcwd(), unveil_env)
@@ -459,7 +459,7 @@ local function main(args: {string}): integer, string
     signal.setitimer({which = signal.ITIMER_REAL, valuesec = parsed.timeout, valuens = 0, intervalsec = 0, intervalns = 0})
   end
 
-  local effective_model = api.resolve_model(model or os.getenv("AH_MODEL"))
+  local effective_model = api.resolve_model(model or cenv.get("AH_MODEL"))
   local on_event = cli_mod.make_cli_handler(parsed.skill, session_ulid)
   local agent_opts: loop.AgentOpts = {}
   if max_tokens then agent_opts.max_tokens = max_tokens end

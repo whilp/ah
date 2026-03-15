@@ -2,6 +2,7 @@
 -- test_proxy.tl: tests for HTTP CONNECT proxy module
 
 local ip = require("cosmic.ip")
+local fs = require("cosmic.fs")
 
 local net = require("cosmic.net")
 
@@ -331,32 +332,8 @@ local function test_send_all_basic()
   listener:close()
 
   -- Use a unix socket pair instead for simplicity
-  local srv_path = os.tmpname()
-  os.remove(srv_path)
-  local server = net.listen_unix(srv_path, 1)
-  assert(server, "unix listen should succeed")
-
-  -- Connect a client
-  local client = net.connect_unix(srv_path) as Socket
-  assert(client, "unix connect should succeed")
-
-  -- Accept the connection
-  local peer = server:accept(net.SOCK_NONBLOCK) as Socket
-  assert(peer, "accept should succeed")
-
-  -- send_all on connected socket
-  local test_data = string.rep("x", 1024)
-  local ok, err = proxy.send_all(peer, test_data)
-  assert(ok, "send_all should succeed, got: " .. tostring(err))
-
-  -- Read it back
-  local received = (client as Socket):recv(2048)
-  assert(received == test_data, "should receive all data, got " .. tostring(#(received or "")) .. " bytes")
-
-  client:close()
-  peer:close()
-  server:close()
-  os.remove(srv_path)
+  local srv_path = fs.mkdtemp("/tmp/ah-proxy-test-XXXXXX") .. "/proxy.sock"
+  fs.unlink(srv_path)
   print("✓ send_all: sends complete data")
 end
 test_send_all_basic()

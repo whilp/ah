@@ -6,8 +6,9 @@ local init = require("ah.init")
 local db = require("ah.db")
 local prompt_mod = require("ah.prompt")
 local sessions_mod = require("ah.sessions")
+local cenv = require("cosmic.env")
 
-local TEST_TMPDIR = os.getenv("TEST_TMPDIR") or "/tmp"
+local TEST_TMPDIR = cenv.get("TEST_TMPDIR") or "/tmp"
 
 -- Prompt loading tests
 

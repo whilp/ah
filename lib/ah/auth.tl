@@ -1,5 +1,6 @@
 -- ah/auth.lua: API key credential loading
 local io = require("cosmic.io")
+local cenv = require("cosmic.env")
 
 local record Credentials
   access_token: string
@@ -35,19 +36,19 @@ end
 
 local function load_credentials(): Credentials, string
   -- Priority: CLAUDE_CODE_OAUTH_TOKEN (OAuth tokens for Claude Max)
-  local oauth_token = sanitize_token(os.getenv("CLAUDE_CODE_OAUTH_TOKEN"))
+  local oauth_token = sanitize_token(cenv.get("CLAUDE_CODE_OAUTH_TOKEN"))
   if oauth_token and oauth_token ~= "" then
     return {access_token = oauth_token, is_oauth = true}
   end
 
   -- ANTHROPIC_AUTH_TOKEN: Bearer token (e.g. proxy or custom endpoint)
-  local auth_token = sanitize_token(os.getenv("ANTHROPIC_AUTH_TOKEN"))
+  local auth_token = sanitize_token(cenv.get("ANTHROPIC_AUTH_TOKEN"))
   if auth_token and auth_token ~= "" then
     return {access_token = auth_token, is_oauth = false, is_bearer = true}
   end
 
   -- Fall back to ANTHROPIC_API_KEY (regular API key)
-  local api_key = sanitize_token(os.getenv("ANTHROPIC_API_KEY"))
+  local api_key = sanitize_token(cenv.get("ANTHROPIC_API_KEY"))
   if api_key and api_key ~= "" then
     return {access_token = api_key, is_oauth = false}
   end

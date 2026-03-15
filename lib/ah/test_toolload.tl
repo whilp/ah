@@ -3,8 +3,9 @@
 local fs = require("cosmic.fs")
 local cio = require("cosmic.io")
 local tools = require("ah.tools")
+local cenv = require("cosmic.env")
 
-local TEST_TMPDIR = os.getenv("TEST_TMPDIR") or "/tmp"
+local TEST_TMPDIR = cenv.get("TEST_TMPDIR") or "/tmp"
 
 -- is_valid_tool tests
 

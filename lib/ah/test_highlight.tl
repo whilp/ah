@@ -1,13 +1,14 @@
 #!/usr/bin/env cosmic
 -- test_highlight.tl: tests for external tool integration (delta, bat, glow)
 local hl = require("ah.highlight")
+local cenv = require("cosmic.env")
 
 -- find_difftool tests
 
 local function test_find_difftool_env_var()
   hl.reset_difftool_cache()
   -- Save and set env var
-  local old = os.getenv("AH_DIFFTOOL")
+  local old = cenv.get("AH_DIFFTOOL")
   -- We can't unset easily in Lua, but we can use a trick:
   -- set via the C-level isn't available, so just test the logic with a temp var
   -- by checking what happens when we call find_difftool after reset.

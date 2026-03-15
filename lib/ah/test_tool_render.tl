@@ -4,11 +4,13 @@ local fs = require("cosmic.fs")
 local cio = require("cosmic.io")
 local cli = require("ah.cli")
 local events = require("ah.events")
+local cenv = require("cosmic.env")
+local time = require("cosmic.time")
 
-local TEST_TMPDIR = os.getenv("TEST_TMPDIR") or "/tmp"
+local TEST_TMPDIR = cenv.get("TEST_TMPDIR") or "/tmp"
 
 local function capture_stderr(fn: function()): string
-  local tmpfile = fs.join(TEST_TMPDIR, "test_stderr_tr_" .. tostring(os.time()) .. ".txt")
+  local tmpfile = fs.join(TEST_TMPDIR, "test_stderr_tr_" .. tostring((time.now())) .. ".txt")
   local old_stderr = io.stderr
   local new_stderr = io.open(tmpfile, "w")
   io.stderr = new_stderr

@@ -4,6 +4,7 @@ local fetch = require("cosmic.fetch")
 local time = require("cosmic.time")
 local auth = require("ah.auth")
 local util = require("ah.util")
+local cenv = require("cosmic.env")
 
 -- Tool name mapping for Claude Code compatibility (OAuth mode)
 local CLAUDE_CODE_TOOLS: {string: string} = {
@@ -37,7 +38,7 @@ end
 
 -- Resolve API URL lazily so envd.load() has time to set ANTHROPIC_BASE_URL.
 local function get_api_url(): string
-  local base = os.getenv("ANTHROPIC_BASE_URL")
+  local base = cenv.get("ANTHROPIC_BASE_URL")
   if base then
     -- Strip trailing slash before appending path
     return base:gsub("/$", "") .. "/v1/messages"

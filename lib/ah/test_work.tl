@@ -2,8 +2,9 @@
 local db = require("ah.db")
 local work = require("ah.work")
 local fs = require("cosmic.fs")
+local cenv = require("cosmic.env")
 
-local TEST_TMPDIR = os.getenv("TEST_TMPDIR") or "/tmp"
+local TEST_TMPDIR = cenv.get("TEST_TMPDIR") or "/tmp"
 
 -- test: parse_metric
 local function test_parse_metric()
@@ -30,7 +31,7 @@ test_fmt_pct()
 -- test: init_work_db and format_history
 local function test_work_db()
   local db_path = fs.join(TEST_TMPDIR, "test_work.db")
-  os.remove(db_path)
+  fs.unlink(db_path)
   local d = db.open(db_path)
   work.init_work_db(d)
   work.init_work_db(d) -- idempotent
@@ -54,7 +55,7 @@ local function test_work_db()
   assert(h:match("38.1"), "should contain metric")
 
   db.close(d)
-  os.remove(db_path)
+  fs.unlink(db_path)
   print("PASS test_work_db")
 end
 test_work_db()

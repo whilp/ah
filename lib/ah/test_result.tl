@@ -2,8 +2,10 @@
 -- test_result.tl: tests for the result tool (reading truncated output from DB)
 local db = require("ah.db")
 local tools = require("ah.tools")
+local time = require("cosmic.time")
+local fs = require("cosmic.fs")
 
-local test_db_path = "/tmp/test_result_" .. tostring(os.time()) .. ".db"
+local test_db_path = "/tmp/test_result_" .. tostring((time.now())) .. ".db"
 
 local function setup(): db.DB
   local d, err = db.open(test_db_path)
@@ -14,9 +16,9 @@ end
 
 local function teardown(d: db.DB)
   db.close(d)
-  os.remove(test_db_path)
-  os.remove(test_db_path .. "-wal")
-  os.remove(test_db_path .. "-shm")
+  fs.unlink(test_db_path)
+  fs.unlink(test_db_path .. "-wal")
+  fs.unlink(test_db_path .. "-shm")
 end
 
 -- Helper: create a tool_result content block with given tool_id and output

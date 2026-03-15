@@ -1,8 +1,9 @@
 #!/usr/bin/env cosmic
 local fs = require("cosmic.fs")
 local db = require("ah.db")
+local cenv = require("cosmic.env")
 
-local TEST_TMPDIR = os.getenv("TEST_TMPDIR") or "/tmp"
+local TEST_TMPDIR = cenv.get("TEST_TMPDIR") or "/tmp"
 
 local function test_open_close()
   local db_path = fs.join(TEST_TMPDIR, "test.db")

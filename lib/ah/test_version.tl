@@ -1,5 +1,6 @@
 -- test_version: verify --version flag handling
 local ah = require("ah")
+local cenv = require("cosmic.env")
 
 local function test_version_flag()
   -- --version should return exit code 0
@@ -18,7 +19,7 @@ local function test_short_version_flag()
 end
 
 local function test_version_in_usage()
-  local ah_bin = os.getenv("AH_BIN")
+  local ah_bin = cenv.get("AH_BIN")
   assert(ah_bin, "AH_BIN not set — need built binary")
   local f = io.popen(ah_bin .. " --help 2>&1")
   assert(f, "failed to run ah --help")
