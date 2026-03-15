@@ -59,21 +59,3 @@ local function test_work_db()
   print("PASS test_work_db")
 end
 test_work_db()
-
--- test: work_opts_defaults
-local function test_work_opts_defaults()
-  -- nil opts → default timeout
-  local t = work.work_opts_defaults(nil)
-  assert(t == 300, "default timeout should be 300, got " .. tostring(t))
-
-  -- empty opts → default timeout
-  t = work.work_opts_defaults({timeout = nil})
-  assert(t == 300, "empty opts: default timeout")
-
-  -- explicit timeout overrides default
-  t = work.work_opts_defaults({timeout = 60})
-  assert(t == 60, "explicit timeout")
-
-  print("PASS test_work_opts_defaults")
-end
-test_work_opts_defaults()

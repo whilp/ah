@@ -431,6 +431,10 @@ local function main(args: {string}): integer, string
   if parsed.must_produce then
     effective_system = effective_system .. "\n\nIMPORTANT: You must write the file `" .. parsed.must_produce .. "` before finishing."
   end
+  -- Default --work timeout to 300s if not explicitly set.
+  if parsed.work_script and not parsed.timeout then
+    parsed.timeout = 300
+  end
   if parsed.timeout and parsed.timeout > 0 then
     effective_system = effective_system .. "\n\nYou have " .. tostring(parsed.timeout) .. " seconds of wall-clock time. Budget your turns accordingly."
   end
@@ -463,12 +467,7 @@ local function main(args: {string}): integer, string
   local exit_code: integer = 0
   if parsed.work_script then
     local work_mod = require("ah.work")
-    local wtimeout = parsed.timeout or 300
-    if not parsed.timeout or parsed.timeout == 0 then
-      signal.sigaction(signal.SIGALRM, on_interrupt)
-      signal.setitimer({which = signal.ITIMER_REAL, valuesec = wtimeout, valuens = 0, intervalsec = 0, intervalns = 0})
-    end
-    exit_code = work_mod.run_work(d, cwd, parsed.work_script, prompt, model, {timeout = wtimeout})
+    exit_code = work_mod.run_work(d, cwd, parsed.work_script, prompt, model)
   else
     local stop_reason = loop.run_agent(d, qdb, effective_system, effective_model, prompt, parent_id, on_event, agent_opts)
     if stop_reason == "error" then exit_code = 1 end

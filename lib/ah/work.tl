@@ -13,10 +13,6 @@ local prompt_mod = require("ah.prompt")
 local cli_mod = require("ah.cli")
 local ctime = require("cosmic.time")
 
-local record WorkOpts
-  timeout: integer -- wall-clock seconds (default: 300)
-end
-
 local WORK_SCHEMA = [[
 create table if not exists work_iterations (
   id integer primary key autoincrement,
@@ -126,7 +122,7 @@ end
 -- If quiet is true, suppress terminal output.
 local function run_agent_once(
     cwd: string, system: string, model: string,
-    prompt: string, quiet: boolean, agent_opts: loop.AgentOpts
+    prompt: string, quiet: boolean
   ): string
   local ah_dir = fs.join(cwd, ".ah")
   local id = ulid.generate()
@@ -145,7 +141,7 @@ local function run_agent_once(
   end
   local on_event = quiet and function(_: any) end or cli_mod.make_cli_handler("work", id)
   local now = (ctime.now()) as number
-  local opts: loop.AgentOpts = agent_opts or {deadline = now + 300}
+  local opts: loop.AgentOpts = {deadline = now + 300}
   loop.run_agent(d, qdb, system, model, prompt, nil, on_event, opts)
   local last_text: string = nil
   local last = db.get_last_message(d)
@@ -212,16 +208,10 @@ end
 -- Run one work iteration. Returns 0=keep, 1=discard/error.
 local function run_work(
     d: db.DB, cwd: string, work_script: string,
-    prompt: string, model: string, work_opts: WorkOpts
+    prompt: string, model: string
   ): integer
   init_work_db(d)
-  local effective_timeout = (work_opts and work_opts.timeout) or 300
   local system = build_system(cwd)
-  -- Inject timeout note into system prompt so agent budgets turns accordingly
-  if effective_timeout and effective_timeout > 0 then
-    system = system .. "\n\nYou have " .. tostring(effective_timeout) .. " seconds of wall-clock time. Budget your turns accordingly."
-  end
-  local agent_opts: loop.AgentOpts = {}
   local effective_model = api.resolve_model(model or os.getenv("AH_MODEL"))
   local iter_num = get_iteration_count(d) + 1
 
@@ -255,7 +245,7 @@ local function run_work(
     "%s\n\ncurrent metric: %.4g (lower is better)\n\n## iteration history\n%s",
     prompt, best, history)
 
-  local impl_result = run_agent_once(cwd, system, effective_model, implement_prompt, false, agent_opts)
+  local impl_result = run_agent_once(cwd, system, effective_model, implement_prompt, false)
   if not impl_result then return 1 end
 
   if not git_has_changes() then
@@ -301,7 +291,7 @@ local function run_work(
       "write a one-line git commit message for this change.\nmetric: %.4g → %.4g (%s)\n\n```\n%s\n```\n\nrespond with only the commit message, nothing else.",
       best, new_value, pct, diff)
     local msg_system = "write a one-line git commit message. respond with only the message."
-    local msg = run_agent_once(cwd, msg_system, effective_model, msg_prompt, true, agent_opts)
+    local msg = run_agent_once(cwd, msg_system, effective_model, msg_prompt, true)
     if not msg or msg == "" then msg = string.format("%.4g → %.4g (%s)", best, new_value, pct) end
     -- Clean up: take first non-empty line
     msg = msg:match("^%s*(.-)%s*$") or msg
@@ -327,12 +317,6 @@ local function run_work(
   end
 end
 
--- Return effective work opts with defaults applied. Exported for testing.
-local function work_opts_defaults(opts: WorkOpts): integer
-  local timeout = (opts and opts.timeout) or 300
-  return timeout
-end
-
 return {
   run_work = run_work,
   parse_metric = parse_metric,
@@ -340,5 +324,4 @@ return {
   fmt_pct = fmt_pct,
   init_work_db = init_work_db,
   format_history = format_history,
-  work_opts_defaults = work_opts_defaults,
 }

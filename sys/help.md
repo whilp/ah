@@ -28,8 +28,8 @@ options:
   --must-produce FILE require the agent to write FILE before finishing
   -t, --tool NAME=CMD register a .tl/.lua tool (repeatable, overrides all tiers)
   --sandbox           run inside network sandbox (proxy + allow-host)
-  --timeout N         wall-clock timeout in seconds (--work default: 300)
-  --work SCRIPT       run work loop: agent → benchmark → keep/discard (default 5-min timeout)
+  --timeout N         wall-clock timeout in seconds (default: 300 with --work)
+  --work SCRIPT       run work loop: agent → benchmark → keep/discard
   --allow-host H:P    allow egress to host:port (repeatable, default: api.anthropic.com:443)
   --unveil PATH:PERM  restrict filesystem visibility (repeatable, perms: r/w/x/c)
   --pledge PROMISES   restrict syscalls to given pledge promises
