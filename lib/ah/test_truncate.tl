@@ -369,4 +369,17 @@ local function test_truncate_output_sanitizes()
 end
 test_truncate_output_sanitizes()
 
+local function test_truncate_output_result_tool_would_truncate()
+  -- The truncate module itself has no exemption for the result tool.
+  -- Callers (looptool.tl, loop.tl) skip truncation when tc.name == "result".
+  -- This test documents that the module truncates result tool output — the
+  -- exemption is in the callers, not here.
+  local s = string.rep("x", 5000)
+  local r = truncate.truncate_output(s, "result")
+  assert(r.truncated, "truncate module truncates result tool output (callers exempt it)")
+  assert(r.content:match("%[output truncated:"), "has truncation notice")
+  print("✓ truncate_output result tool would truncate without caller exemption")
+end
+test_truncate_output_result_tool_would_truncate()
+
 print("\nAll truncate tests passed!")

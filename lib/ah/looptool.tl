@@ -116,8 +116,15 @@ local function execute_tool_calls(
     db.log_event(d, "tool_call_end", assistant_msg_id, events.to_json(events.tool_call_end(tc.name as string, "", is_error, elapsed_ms, key, i, tool_count)))
 
     -- Truncate output for the API (full output preserved in DB and events)
-    local truncation = truncate.truncate_output(result, tc.name as string, tc.id as string)
-    local api_result = truncation.content
+    -- The result tool is exempt: it exists specifically to return large content,
+    -- so truncating its output defeats its purpose.
+    local api_result: string
+    if tc.name == "result" then
+      api_result = result
+    else
+      local truncation = truncate.truncate_output(result, tc.name as string, tc.id as string)
+      api_result = truncation.content
+    end
 
     -- Check if result is structured (image content)
     local api_content: any = api_result
