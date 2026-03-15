@@ -1,5 +1,6 @@
 -- ah/util.tl: logging utilities with level support
 local fetch = require("cosmic.fetch")
+local cenv = require("cosmic.env")
 
 local record M
   log_level: string
@@ -9,10 +10,10 @@ local record M
 end
 
 -- Determine default log level: "info" when CI is set, "debug" otherwise
-local env_level = os.getenv("AH_LOG_LEVEL")
+local env_level = cenv.get("AH_LOG_LEVEL")
 if env_level then
   M.log_level = env_level
-elseif os.getenv("CI") then
+elseif cenv.get("CI") then
   M.log_level = "info"
 else
   M.log_level = "debug"
@@ -31,8 +32,8 @@ end
 -- Detect proxy from environment (set by work.tl for sandboxed processes).
 -- Resolved lazily so envd.load() has time to set vars before first use.
 M.get_proxy_url = function(): string
-  local http_proxy = os.getenv("https_proxy") or os.getenv("HTTPS_PROXY")
-  or os.getenv("http_proxy") or os.getenv("HTTP_PROXY")
+  local http_proxy = cenv.get("https_proxy") or cenv.get("HTTPS_PROXY")
+  or cenv.get("http_proxy") or cenv.get("HTTP_PROXY")
   if http_proxy and http_proxy:sub(1, 7) == "unix://" then
     local path = http_proxy:sub(8)
     local url, err = fetch.unix_proxy(path)

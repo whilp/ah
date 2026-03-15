@@ -3,8 +3,9 @@ local fs = require("cosmic.fs")
 local proc = require("cosmic.proc")
 local time = require("cosmic.time")
 local queue = require("ah.queue")
+local cenv = require("cosmic.env")
 
-local TEST_TMPDIR = os.getenv("TEST_TMPDIR") or "/tmp"
+local TEST_TMPDIR = cenv.get("TEST_TMPDIR") or "/tmp"
 
 local function test_open_close()
   local db_path = fs.join(TEST_TMPDIR, "test_queue.db")
@@ -220,7 +221,7 @@ local function test_dead_process_detection()
   local qdb = queue.open(db_path)
 
   -- Insert a lock with a PID that doesn't exist (very high PID)
-  local now = os.time()
+  local now = time.now()
   qdb._db:exec([[
     insert or replace into session_lock (key, owner_pid, started_at, heartbeat_at)
     values ('lock', 4000000000, ?, ?)

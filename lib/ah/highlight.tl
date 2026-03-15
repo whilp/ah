@@ -3,6 +3,7 @@
 local tty = require("cosmic.tty")
 local child = require("cosmic.child")
 local unix = require("cosmo.unix")
+local cenv = require("cosmic.env")
 
 -- ToolFinder holds a find function and a reset function for a cached tool lookup.
 local record ToolFinder
@@ -22,7 +23,7 @@ local function make_tool_finder(env_var: string, candidates: {string}, tool_name
       return cache as string
     end
 
-    local env_tool = os.getenv(env_var)
+    local env_tool = cenv.get(env_var)
     if env_tool and env_tool ~= "" then
       cache = env_tool
       return env_tool
@@ -224,7 +225,7 @@ local function glow_style(): string
     local content = f:read("*a")
     f:close()
     if content and content ~= "" then
-      local tmpdir = os.getenv("TMPDIR") or "/tmp"
+      local tmpdir = cenv.get("TMPDIR") or "/tmp"
       local tmppath = tmpdir .. "/ah-glow-style.json"
       local out = io.open(tmppath, "w")
       if out then

@@ -1,5 +1,6 @@
 -- ah/events.tl: structured event system for agent lifecycle
 local json = require("cosmic.json")
+local ctime = require("cosmic.time")
 
 -- Event types covering the full agent lifecycle:
 --   agent_start, agent_end
@@ -86,7 +87,7 @@ local type EventCallback = function(event: EventData)
   local function make_event(event_type: string, fields?: EventData): EventData
     local e = fields or {} as EventData
     e.event_type = event_type
-    e.timestamp = os.time() as number
+    e.timestamp = (ctime.now()) as number
     return e
   end
 

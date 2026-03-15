@@ -5,7 +5,7 @@ local cio = require("cosmic.io")
 local env = require("cosmic.env")
 local envd = require("cosmic.envd")
 
-local TEST_TMPDIR = os.getenv("TEST_TMPDIR") or "/tmp"
+local TEST_TMPDIR = env.get("TEST_TMPDIR") or "/tmp"
 
 local function test_load_dir_basic()
   local dir = fs.join(TEST_TMPDIR, "envd_basic")

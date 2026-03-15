@@ -1,4 +1,5 @@
 local rand = require("cosmic.rand")
+local ctime = require("cosmic.time")
 
 local ENCODING < const > = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 local ENCODING_LEN < const > = 32
@@ -33,7 +34,7 @@ local function encode_random(len: integer): string
 end
 
 local function generate(): string
-  local timestamp = math.floor(os.time() * 1000)
+  local timestamp = math.floor((ctime.now()) * 1000)
   local time_str = encode_time(timestamp, TIME_LEN)
   local random_str = encode_random(RANDOM_LEN)
   return time_str .. random_str
@@ -65,7 +66,7 @@ local function decode(ulid: string): DecodedUlid, string
 
   return {
     timestamp = ts,
-    time = os.date("!%Y-%m-%dT%H:%M:%S", math.floor(ts / 1000)),
+    time = ctime.format_iso8601(math.floor(ts / 1000)),
     random = ulid:sub(TIME_LEN + 1)
   }
 end

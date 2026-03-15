@@ -5,6 +5,7 @@ local loop = require("ah.loop")
 local render = require("ah.render")
 local compact = require("ah.compact")
 local hl = require("ah.highlight")
+local cenv = require("cosmic.env")
 
 -- Format token count as human-friendly string (e.g., 1234 -> "1.2k", 12345 -> "12.3k")
 local function format_tokens(n: integer): string
@@ -35,8 +36,8 @@ end
 local function make_cli_handler(skill_name: string, session_ulid?: string): events.EventCallback
   local is_tty = tty.isatty(2)
   local is_stdout_tty = tty.isatty(1)
-  local is_ci = os.getenv("GITHUB_ACTIONS") == "true"
-  local term = os.getenv("TERM") or ""
+  local is_ci = cenv.get("GITHUB_ACTIONS") == "true"
+  local term = cenv.get("TERM") or ""
   local is_dumb = term == "dumb" or term == ""
   local DIM = is_tty and "\27[2m" or ""
   local RESET = is_tty and "\27[0m" or ""

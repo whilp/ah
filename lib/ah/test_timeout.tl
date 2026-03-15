@@ -1,6 +1,7 @@
 -- test_timeout.tl: tests for native --timeout via SIGALRM
 local signal = require("cosmic.signal")
 local args_mod = require("ah.args")
+local time = require("cosmic.time")
 
 -- Test 1: system prompt injection when --timeout is set
 local function test_timeout_system_prompt_injection()
@@ -47,9 +48,9 @@ local function test_sigalrm_fires()
   signal.setitimer({which = signal.ITIMER_REAL, valuesec = 1, valuens = 0, intervalsec = 0, intervalns = 0})
 
   -- Busy-wait for the signal (up to 3 seconds)
-  local start = os.time()
+  local start = time.now()
   while not interrupted do
-    if os.difftime(os.time(), start) > 3 then
+    if time.now() - start > 3 then
       break
     end
   end

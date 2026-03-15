@@ -5,8 +5,9 @@ local cio = require("cosmic.io")
 local tools = require("ah.tools")
 local loop = require("ah.loop")
 local json = require("cosmic.json")
+local cenv = require("cosmic.env")
 
-local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp/test_skill_tool"
+local tmpdir = cenv.get("TEST_TMPDIR") or "/tmp/test_skill_tool"
 fs.makedirs(tmpdir)
 
 -- Set up a project with skills in the actual cwd
@@ -32,7 +33,7 @@ cio.barf(test_skill_file,
   "---\nname: " .. test_skill_name .. "\ndescription: A test skill for the skill tool test.\n---\n# Test Skill\n\nDo the thing.\nLine two.\nLine three.")
 
 local function cleanup()
-  os.remove(test_skill_file)
+  fs.unlink(test_skill_file)
 end
 
 -- Initialize tools from the cwd
@@ -242,8 +243,8 @@ return {
   assert(found, "zz-auto-tool should be loaded after skill tool invocation")
 
   -- Cleanup
-  os.remove(fs.join(skill_tools_dir_auto, "zz-auto-tool.lua"))
-  os.remove(fs.join(skill_dir_auto, "SKILL.md"))
+  fs.unlink(fs.join(skill_tools_dir_auto, "zz-auto-tool.lua"))
+  fs.unlink(fs.join(skill_dir_auto, "SKILL.md"))
   fs.rmdir(skill_tools_dir_auto)
   fs.rmdir(skill_dir_auto)
 

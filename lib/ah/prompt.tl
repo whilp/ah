@@ -3,6 +3,8 @@ local fs = require("cosmic.fs")
 local cio = require("cosmic.io")
 local child = require("cosmic.child")
 local args_mod = require("ah.args")
+local cenv = require("cosmic.env")
+local ctime = require("cosmic.time")
 
 -- Run a git command in cwd with a 2s timeout. Returns trimmed stdout or nil.
 -- Never throws. Any failure (not a repo, git missing, timeout, bad exit) returns nil.
@@ -110,7 +112,7 @@ end
 -- cwd is used to resolve protected dirs from AH_PROTECT_DIRS.
 -- NOTE: the hardcoded unveil list and pledge string must stay in sync with init.tl.
 local function sandbox_context(cwd: string): string
-  if not os.getenv("AH_SANDBOX") then return "" end
+  if not cenv.get("AH_SANDBOX") then return "" end
 
   local lines: {string} = {}
 
@@ -134,19 +136,19 @@ local function sandbox_context(cwd: string): string
     {"/dev/tty", "rw"},
     {"/proc/self", "r"},
   }
-  local home = os.getenv("HOME")
+  local home = cenv.get("HOME")
   if home then
     hardcoded[#hardcoded + 1] = {home, "r"}
   end
 
   -- Protected dirs (AH_PROTECT_DIRS) → cwd/dir with "r"
-  local protect = args_mod.parse_protect_dirs(os.getenv("AH_PROTECT_DIRS"))
+  local protect = args_mod.parse_protect_dirs(cenv.get("AH_PROTECT_DIRS"))
   for _, dir in ipairs(protect) do
     hardcoded[#hardcoded + 1] = {cwd .. "/" .. dir, "r"}
   end
 
   -- Extra unveil entries from AH_UNVEIL (path:perms, comma-separated)
-  local unveil_env = os.getenv("AH_UNVEIL")
+  local unveil_env = cenv.get("AH_UNVEIL")
   if unveil_env then
     for entry in unveil_env:gmatch("[^,]+") do
       local u_path, u_perms = args_mod.parse_unveil_entry(entry)
@@ -164,7 +166,7 @@ local function sandbox_context(cwd: string): string
   -- Network (proxy allowlist)
   lines[#lines + 1] = "\n\n### Network (proxy allowlist)"
   local hosts: {string} = {"api.anthropic.com:443"}
-  local allow_env = os.getenv("AH_ALLOW_HOSTS")
+  local allow_env = cenv.get("AH_ALLOW_HOSTS")
   if allow_env then
     for entry in allow_env:gmatch("[^,]+") do
       hosts[#hosts + 1] = entry
@@ -205,7 +207,7 @@ local function load_system_prompt(cwd: string): string
   end
 
   -- Append runtime context (datetime, working directory, git info)
-  local date_str = os.date("!%Y-%m-%dT%H:%M:%SZ") as string
+  local date_str = ctime.format_iso8601((ctime.now()))
   base = base .. "\n\nCurrent date: " .. date_str .. "\nWorking directory: " .. cwd
 
   local git = git_context(cwd)

@@ -11,6 +11,7 @@ local loop = require("ah.loop")
 local queue = require("ah.queue")
 local prompt_mod = require("ah.prompt")
 local cli_mod = require("ah.cli")
+local ctime = require("cosmic.time")
 
 local WORK_SCHEMA = [[
 create table if not exists work_iterations (
@@ -87,7 +88,7 @@ local function record_iteration(d: db.DB, iter: Iteration)
   d._db:exec([[
     insert into work_iterations (status, metric_value, baseline_value, message, created_at)
     values (?, ?, ?, ?, ?)
-  ]], iter.status, iter.metric_value, iter.baseline_value, iter.message, os.time())
+  ]], iter.status, iter.metric_value, iter.baseline_value, iter.message, (ctime.now()))
 end
 
 -- Get iteration count.
@@ -139,7 +140,8 @@ local function run_agent_once(
     return nil
   end
   local on_event = quiet and function(_: any) end or cli_mod.make_cli_handler("work", id)
-  local opts: loop.AgentOpts = {deadline = os.time() as number + 300}
+  local now = (ctime.now()) as number
+  local opts: loop.AgentOpts = {deadline = now + 300}
   loop.run_agent(d, qdb, system, model, prompt, nil, on_event, opts)
   local last_text: string = nil
   local last = db.get_last_message(d)
@@ -153,8 +155,8 @@ local function run_agent_once(
   end
   queue.close(qdb)
   db.close(d)
-  os.remove(dbpath)
-  os.remove(qpath)
+  fs.unlink(dbpath)
+  fs.unlink(qpath)
   return last_text or ""
 end
 

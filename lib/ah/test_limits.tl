@@ -36,9 +36,9 @@ test_fmt_window_nil_fields()
 
 -- Test cmd_limits returns 1 when no credentials
 local function test_cmd_limits_no_creds()
-  local orig_key = os.getenv("ANTHROPIC_API_KEY")
-  local orig_oauth = os.getenv("CLAUDE_CODE_OAUTH_TOKEN")
-  local orig_auth = os.getenv("ANTHROPIC_AUTH_TOKEN")
+  local orig_key = cenv.get("ANTHROPIC_API_KEY")
+  local orig_oauth = cenv.get("CLAUDE_CODE_OAUTH_TOKEN")
+  local orig_auth = cenv.get("ANTHROPIC_AUTH_TOKEN")
 
   if orig_key then cenv.unset("ANTHROPIC_API_KEY") end
   if orig_oauth then cenv.unset("CLAUDE_CODE_OAUTH_TOKEN") end
@@ -55,9 +55,9 @@ test_cmd_limits_no_creds()
 
 -- Test cmd_limits returns 1 when using API key (not OAuth)
 local function test_cmd_limits_api_key_rejected()
-  local orig_key = os.getenv("ANTHROPIC_API_KEY")
-  local orig_oauth = os.getenv("CLAUDE_CODE_OAUTH_TOKEN")
-  local orig_auth = os.getenv("ANTHROPIC_AUTH_TOKEN")
+  local orig_key = cenv.get("ANTHROPIC_API_KEY")
+  local orig_oauth = cenv.get("CLAUDE_CODE_OAUTH_TOKEN")
+  local orig_auth = cenv.get("ANTHROPIC_AUTH_TOKEN")
 
   if orig_oauth then cenv.unset("CLAUDE_CODE_OAUTH_TOKEN") end
   if orig_auth then cenv.unset("ANTHROPIC_AUTH_TOKEN") end

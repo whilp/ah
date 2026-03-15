@@ -72,8 +72,8 @@ test_log_always_writes()
 -- test: get_proxy_url returns nil when no proxy env vars set
 local function test_get_proxy_url_none()
   local saved = {
-    os.getenv("https_proxy"), os.getenv("HTTPS_PROXY"),
-    os.getenv("http_proxy"), os.getenv("HTTP_PROXY"),
+    env.get("https_proxy"), env.get("HTTPS_PROXY"),
+    env.get("http_proxy"), env.get("HTTP_PROXY"),
   }
   env.unset("https_proxy")
   env.unset("HTTPS_PROXY")

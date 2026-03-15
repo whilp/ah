@@ -4,8 +4,9 @@ local fs = require("cosmic.fs")
 local cio = require("cosmic.io")
 local tools = require("ah.tools")
 local json = require("cosmic.json")
+local cenv = require("cosmic.env")
 
-local TEST_TMPDIR = os.getenv("TEST_TMPDIR") or "/tmp"
+local TEST_TMPDIR = cenv.get("TEST_TMPDIR") or "/tmp"
 
 -- Core tool tests
 

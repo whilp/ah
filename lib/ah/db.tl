@@ -2,6 +2,7 @@
 local fs = require("cosmic.fs")
 local sqlite = require("cosmic.sqlite")
 local ulid = require("ulid")
+local ctime = require("cosmic.time")
 
 local SCHEMA = [[
 create table if not exists messages (
@@ -202,7 +203,7 @@ end
 
 local function create_message(self: DB, role: string, parent_id?: string, opts?: MessageOpts): Message
   local id = ulid.generate()
-  local now = os.time()
+  local now = math.floor((ctime.now())) as integer
   opts = opts or {}
 
   local seq = 0
@@ -319,7 +320,7 @@ end
 
 local function log_event(self: DB, event_type: string, message_id?: string, details?: string): Event
   local id = ulid.generate()
-  local now = os.time()
+  local now = math.floor((ctime.now())) as integer
   self._db:exec_list("insert into events (id, message_id, event_type, created_at, details) values (?, ?, ?, ?, ?)",
     {id, message_id, event_type, now, details}, 5)
   return {id = id, message_id = message_id, event_type = event_type, created_at = now, details = details}

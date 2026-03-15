@@ -6,6 +6,8 @@ local child = require("cosmic.child")
 local net = require("cosmic.net")
 local ip = require("cosmic.ip")
 local signal = require("cosmic.signal")
+local cenv = require("cosmic.env")
+local proc = require("cosmic.proc")
 
 -- TODO: use net.Socket once cosmic exports it on NetModule
 -- https://github.com/whilp/cosmic/issues/230
@@ -52,7 +54,7 @@ local function parse_allow_hosts(value: string): {string: boolean}
 end
 
 -- Merge AH_ALLOW_HOSTS into the allowlist at load time
-local allow_hosts_env = os.getenv("AH_ALLOW_HOSTS")
+local allow_hosts_env = cenv.get("AH_ALLOW_HOSTS")
 if allow_hosts_env then
   local extra = parse_allow_hosts(allow_hosts_env)
   for host, _ in pairs(extra) do
@@ -80,7 +82,7 @@ local function parse_base_url(url: string): string
 end
 
 -- Add ANTHROPIC_BASE_URL host to allowlist at load time
-local base_url_env = os.getenv("ANTHROPIC_BASE_URL")
+local base_url_env = cenv.get("ANTHROPIC_BASE_URL")
 if base_url_env then
   local hostport = parse_base_url(base_url_env)
   if hostport then
@@ -102,11 +104,11 @@ local function resolvehost(host: string): ip.Addr, string
   return addr, err
 end
 
-local _log_level = os.getenv("AH_LOG_LEVEL")
+local _log_level = cenv.get("AH_LOG_LEVEL")
 if not _log_level then
-  _log_level = os.getenv("CI") and "info" or "debug"
+  _log_level = cenv.get("CI") and "info" or "debug"
 end
-local verbose = os.getenv("AH_PROXY_VERBOSE") == "1" or _log_level == "debug"
+local verbose = cenv.get("AH_PROXY_VERBOSE") == "1" or _log_level == "debug"
 
 local function log(...: string)
   if not verbose then return end
@@ -348,7 +350,7 @@ function M.serve(socket_path: string): integer
         server:close()
         handle_client(client as Socket)
         client:close()
-        os.exit(0)
+        proc.exit(0)
       else
         client:close()
       end

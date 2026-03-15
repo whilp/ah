@@ -1,5 +1,6 @@
 -- sys/tools/bash.tl: bash command execution tool
 local child = require("cosmic.child")
+local cenv = require("cosmic.env")
 
 -- Track running process handles for abort cleanup.
 -- Exported as .running_processes so tools.tl can abort them.
@@ -30,7 +31,7 @@ end
 
 -- Find executable in PATH or common locations
 local function find_executable(name: string): string
-  local env_override = os.getenv("AH_" .. name:upper())
+  local env_override = cenv.get("AH_" .. name:upper())
   if env_override then
     return env_override
   end
@@ -74,7 +75,7 @@ return {
     local timeout_ms = (input.timeout as integer) or 120000
     local timeout_sec = math.ceil(timeout_ms / 1000)
 
-    local shell = find_executable(os.getenv("AH_SHELL") or "bash")
+    local shell = find_executable(cenv.get("AH_SHELL") or "bash")
     local timeout_cmd = find_executable("timeout")
     local handle, err = child.spawn(
       {timeout_cmd, tostring(timeout_sec), shell, "-c", command}
