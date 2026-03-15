@@ -181,8 +181,24 @@ local function persist_tool_results(
   return tool_result_msg
 end
 
+-- Stub out pending tool_use blocks with an error message.
+local function stub_pending_tools(d: db.DB, parent_id: string, blocks: {{string: any}}, reason: string)
+  local ids: {string} = {}
+  for _, blk in ipairs(blocks) do
+    if blk.block_type == "tool_use" then table.insert(ids, blk.tool_id as string) end
+  end
+  if #ids == 0 then return end
+  db.begin_transaction(d)
+  local msg = db.create_message(d, "user", parent_id)
+  for _, tid in ipairs(ids) do
+    db.add_content_block(d, msg.id, "tool_result", {tool_id = tid, tool_output = "error: " .. reason, is_error = true, duration_ms = 0})
+  end
+  db.commit(d)
+end
+
 return {
   execute_tool_calls = execute_tool_calls,
   persist_tool_results = persist_tool_results,
+  stub_pending_tools = stub_pending_tools,
   ToolExecResult = ToolExecResult,
 }

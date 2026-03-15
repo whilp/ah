@@ -1,5 +1,6 @@
 -- ah/loop.tl: agent loop (API call → tool dispatch → repeat)
 local json = require("cosmic.json")
+local time = require("cosmic.time")
 local db = require("ah.db")
 local api = require("ah.api")
 local tools = require("ah.tools")
@@ -40,6 +41,7 @@ local record AgentOpts
   max_tokens: integer
   max_turn_tokens: integer
   must_produce: string
+  deadline: number -- unix timestamp; stop after this time
 end
 
 -- Build API messages from ancestry. Cuts off at the last [COMPACTION SUMMARY].
@@ -356,18 +358,15 @@ local function run_agent(d: db.DB, qdb: queue.QueueDB, system_prompt: string, mo
     if max_tokens and (last_effective_input_tokens + cumulative_output_tokens) > max_tokens then
       emit(on_event, events.budget_exceeded(last_effective_input_tokens, cumulative_output_tokens, max_tokens))
       db.log_event(d, "budget_exceeded", assistant_msg.id, events.to_json(events.budget_exceeded(last_effective_input_tokens, cumulative_output_tokens, max_tokens)))
-      local pending_tool_ids: {string} = {}
-      for _, blk in ipairs(assistant_blocks) do
-        if blk.block_type == "tool_use" then table.insert(pending_tool_ids, blk.tool_id as string) end
-      end
-      if #pending_tool_ids > 0 then
-        db.begin_transaction(d)
-        local stub_msg = db.create_message(d, "user", assistant_msg.id)
-        for _, tid in ipairs(pending_tool_ids) do
-          db.add_content_block(d, stub_msg.id, "tool_result", {tool_id = tid, tool_output = "error: tool execution skipped (token budget exceeded)", is_error = true, duration_ms = 0})
-        end
-        db.commit(d)
-      end
+      looptool.stub_pending_tools(d, assistant_msg.id, assistant_blocks, "token budget exceeded")
+      final_stop_reason = "budget_exceeded"
+      break
+    end
+
+    if opts.deadline and time.now() >= opts.deadline then
+      local dl_budget = max_tokens or (last_effective_input_tokens + cumulative_output_tokens)
+      emit(on_event, events.budget_exceeded(last_effective_input_tokens, cumulative_output_tokens, dl_budget))
+      looptool.stub_pending_tools(d, assistant_msg.id, assistant_blocks, "deadline exceeded")
       final_stop_reason = "budget_exceeded"
       break
     end
