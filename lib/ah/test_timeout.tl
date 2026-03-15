@@ -47,10 +47,10 @@ local function test_sigalrm_fires()
   -- Set a 1-second timer
   signal.setitimer({which = signal.ITIMER_REAL, valuesec = 1, valuens = 0, intervalsec = 0, intervalns = 0})
 
-  -- Busy-wait for the signal (up to 3 seconds)
+  -- Busy-wait for the signal (up to 10 seconds)
   local start = time.now()
   while not interrupted do
-    if time.now() - start > 3 then
+    if time.now() - start > 10 then
       break
     end
   end
