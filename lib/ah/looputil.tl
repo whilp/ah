@@ -24,12 +24,12 @@ local function tool_key_param(tool_name: string, tool_input: string, details_jso
     if details then
       -- skill tool: show "source → name, N lines"
       if details.skill_name and details.line_count then
-        local src = details.path and shorten_path(details.path as string) or "?"
-        return string.format("%s → %s, %d lines", src, details.skill_name as string, details.line_count as integer)
+        local src = details.path and shorten_path(tostring(details.path)) or "?"
+        return string.format("%s → %s, %d lines", src, tostring(details.skill_name), tonumber(details.line_count) as integer)
       elseif details.path then
-        return shorten_path(details.path as string)
+        return shorten_path(tostring(details.path))
       elseif details.command then
-        return details.command as string
+        return tostring(details.command)
       end
     end
   end
@@ -40,21 +40,21 @@ local function tool_key_param(tool_name: string, tool_input: string, details_jso
   if not input then return "" end
 
   if tool_name == "read" then
-    local key = shorten_path((input.path or "") as string)
-    local offset = input.offset as integer
-    local limit = input.limit as integer
-    if offset and offset as integer > 0 and limit and limit as integer > 0 then
+    local key = shorten_path(tostring(input.path or ""))
+    local offset = tonumber(input.offset) as integer
+    local limit = tonumber(input.limit) as integer
+    if offset and offset > 0 and limit and limit > 0 then
       key = key .. ":" .. tostring(offset) .. "+" .. tostring(limit)
-    elseif offset and offset as integer > 0 then
+    elseif offset and offset > 0 then
       key = key .. ":" .. tostring(offset)
-    elseif limit and limit as integer > 0 then
+    elseif limit and limit > 0 then
       key = key .. " +" .. tostring(limit)
     end
     return key
   elseif tool_name == "write" or tool_name == "edit" then
-    return shorten_path((input.path or "") as string)
+    return shorten_path(tostring(input.path or ""))
   elseif tool_name == "bash" then
-    return (input.command or "") as string
+    return tostring(input.command or "")
   end
   return ""
 end
