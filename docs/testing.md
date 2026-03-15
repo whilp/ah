@@ -38,9 +38,12 @@ example pattern:
 
 ```lua
 local db = require("ah.db")
+local cenv = require("cosmic.env")
+
+local TEST_TMPDIR = cenv.get("TEST_TMPDIR") or "/tmp"
 
 -- test: open and close
-local d = db.open("/tmp/test.db")
+local d = db.open(TEST_TMPDIR .. "/test.db")
 if d then
   print("pass: open")
   db.close(d)
@@ -51,6 +54,19 @@ end
 
 tests run in isolation. each gets its own temp directory. no test depends
 on another test's state.
+
+## TEST_TMPDIR
+
+use `TEST_TMPDIR` for all temp files in tests. `make test` sets this to a
+fresh `mktemp -d` directory for each run, avoiding collisions under parallel
+runs and ensuring cleanup.
+
+```lua
+local cenv = require("cosmic.env")
+local TEST_TMPDIR = cenv.get("TEST_TMPDIR") or "/tmp"
+```
+
+use `cenv.get` (from `cosmic.env`) rather than `os.getenv`.
 
 ## type checking
 

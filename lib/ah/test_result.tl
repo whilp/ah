@@ -4,8 +4,10 @@ local db = require("ah.db")
 local tools = require("ah.tools")
 local time = require("cosmic.time")
 local fs = require("cosmic.fs")
+local cenv = require("cosmic.env")
 
-local test_db_path = "/tmp/test_result_" .. tostring((time.now())) .. ".db"
+local TEST_TMPDIR = cenv.get("TEST_TMPDIR") or "/tmp"
+local test_db_path = TEST_TMPDIR .. "/test_result_" .. tostring((time.now())) .. ".db"
 
 local function setup(): db.DB
   local d, err = db.open(test_db_path)
