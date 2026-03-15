@@ -17,6 +17,9 @@ export TMPDIR := $(TMP)
 
 # dependencies
 include deps/cosmic.mk
+include deps/bat.mk
+include deps/delta.mk
+include deps/glow.mk
 
 cosmic_release := $(o)/bin/cosmic
 
@@ -43,6 +46,50 @@ cosmic := $(cosmic_debug)
 else
 cosmic := $(cosmic_release)
 endif
+
+# platform list for embedded binaries
+# AH_PLATFORM: "all" (default) or a single dep_suffix like "linux_x86_64"
+AH_PLATFORM ?= all
+all_platforms := linux_x86_64 linux_aarch64 macos_aarch64
+
+# map dep_suffix -> embed path component
+embed_linux_x86_64 := linux-x86_64
+embed_linux_aarch64 := linux-aarch64
+embed_macos_aarch64 := macos-aarch64
+
+ifeq ($(AH_PLATFORM),all)
+  build_platforms := $(all_platforms)
+else
+  build_platforms := $(AH_PLATFORM)
+endif
+
+# generate fetch and stage rules for each tool on each platform
+# $(1) = tool name, $(2) = dep_suffix
+define tool_platform_rules
+$(o)/deps/$(1)/$(2): deps/$(1).mk
+	@rm -f $$@
+	@mkdir -p $$(@D)
+	@echo "==> fetching $(1) ($(embed_$(2)))"
+	@tmp=$$$$(mktemp -d) && \
+	 curl -fsSL -o "$$$$tmp/$(1).tar.gz" $($(1)_url_$(2)) && \
+	 echo "$($(1)_sha_$(2))  $$$$tmp/$(1).tar.gz" | sha256sum -c - >/dev/null && \
+	 tar -xzf "$$$$tmp/$(1).tar.gz" -C "$$$$tmp" --wildcards '*/$(1)' --strip-components=1 && \
+	 mv "$$$$tmp/$(1)" $$@ && \
+	 chmod +x $$@ && \
+	 rm -rf "$$$$tmp"
+
+$(o)/embed/embed/sys/bin/$(embed_$(2))/$(1): $(o)/deps/$(1)/$(2)
+	@mkdir -p $$(@D)
+	@cp $$< $$@
+endef
+
+ah_bundled_bins :=
+$(foreach p,$(build_platforms),\
+  $(foreach tool,bat delta glow,\
+    $(eval $(call tool_platform_rules,$(tool),$(p)))\
+    $(eval ah_bundled_bins += $(o)/embed/embed/sys/bin/$(embed_$(p))/$(tool))\
+  )\
+)
 
 linter := $(cosmic) lib/build/lint.tl
 
@@ -163,7 +210,7 @@ $(o)/embed/embed/ci/%: %
 	@mkdir -p $(@D)
 	@cp $< $@
 
-$(o)/bin/ah: $(o)/embed/main.lua $(ah_lib_lua) $(ah_dep_lua) $(ah_version_lua) $(ah_sys) $(ah_ci) $(cosmic_skill_stamp) $(cosmic)
+$(o)/bin/ah: $(o)/embed/main.lua $(ah_lib_lua) $(ah_dep_lua) $(ah_version_lua) $(ah_sys) $(ah_ci) $(cosmic_skill_stamp) $(ah_bundled_bins) $(cosmic)
 	@echo "==> embedding ah"
 	@$(cosmic) --embed $(o)/embed --output $@.tmp && mv $@.tmp $@
 

@@ -4,12 +4,16 @@ local tty = require("cosmic.tty")
 local child = require("cosmic.child")
 local unix = require("cosmo.unix")
 local cenv = require("cosmic.env")
+local sys = require("cosmic.sys")
 
 -- ToolFinder holds a find function and a reset function for a cached tool lookup.
 local record ToolFinder
   find: function(): string
   reset: function()
 end
+
+-- embedded bin path prefix for the current platform
+local _zip_bin = "/zip/embed/sys/bin/" .. sys.platform() .. "/"
 
 -- make_tool_finder returns a ToolFinder that checks env_var, then candidates, then PATH.
 local function make_tool_finder(env_var: string, candidates: {string}, tool_names: {string}): ToolFinder
@@ -110,7 +114,7 @@ end
 
 -- difftool: delta
 local _difftool = make_tool_finder("AH_DIFFTOOL",
-  {"/usr/bin/delta", "/usr/local/bin/delta", "/opt/homebrew/bin/delta"}, {"delta"})
+  {_zip_bin .. "delta", "/usr/bin/delta", "/usr/local/bin/delta", "/opt/homebrew/bin/delta"}, {"delta"})
 
 local function find_difftool(): string return _difftool.find() end
 local function reset_difftool_cache() _difftool.reset() end
@@ -209,7 +213,7 @@ end
 
 -- glow: markdown renderer
 local _glow = make_tool_finder("AH_GLOW",
-  {"/usr/bin/glow", "/usr/local/bin/glow", "/opt/homebrew/bin/glow"}, {"glow"})
+  {_zip_bin .. "glow", "/usr/bin/glow", "/usr/local/bin/glow", "/opt/homebrew/bin/glow"}, {"glow"})
 
 local function find_glow(): string return _glow.find() end
 local function reset_glow_cache() _glow.reset() end
@@ -252,7 +256,7 @@ end
 
 -- pager: bat
 local _pager = make_tool_finder("AH_PAGER",
-  {"/usr/bin/bat", "/usr/local/bin/bat", "/opt/homebrew/bin/bat"}, {"bat"})
+  {_zip_bin .. "bat", "/usr/bin/bat", "/usr/local/bin/bat", "/opt/homebrew/bin/bat"}, {"bat"})
 
 local function find_pager(): string return _pager.find() end
 local function reset_pager_cache() _pager.reset() end
