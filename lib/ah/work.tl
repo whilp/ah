@@ -2,6 +2,7 @@
 local fs = require("cosmic.fs")
 local cio = require("cosmic.io")
 local child = require("cosmic.child")
+local json = require("cosmic.json")
 local db = require("ah.db")
 local ulid = require("ulid")
 local api = require("ah.api")
@@ -12,6 +13,8 @@ local queue = require("ah.queue")
 local prompt_mod = require("ah.prompt")
 local cli_mod = require("ah.cli")
 local ctime = require("cosmic.time")
+
+local RESULT_FILE = ".ah/work-result.json"
 
 local WORK_SCHEMA = [[
 create table if not exists work_iterations (
@@ -120,9 +123,10 @@ end
 
 -- Run an agent in a throwaway session. Returns last assistant text.
 -- If quiet is true, suppress terminal output.
+-- If must_produce is set, the agent must write that file.
 local function run_agent_once(
     cwd: string, system: string, model: string,
-    prompt: string, quiet: boolean
+    prompt: string, quiet: boolean, must_produce: string
   ): string
   local ah_dir = fs.join(cwd, ".ah")
   local id = ulid.generate()
@@ -142,6 +146,7 @@ local function run_agent_once(
   local on_event = quiet and function(_: any) end or cli_mod.make_cli_handler("work", id)
   local now = (ctime.now()) as number
   local opts: loop.AgentOpts = {deadline = now + 300}
+  if must_produce then opts.must_produce = must_produce end
   loop.run_agent(d, qdb, system, model, prompt, nil, on_event, opts)
   local last_text: string = nil
   local last = db.get_last_message(d)
@@ -170,9 +175,33 @@ local function git_diff(): string
   return git("diff", "HEAD", "--", ".", ":(exclude).ah") or ""
 end
 
--- Revert working tree.
+-- Revert working tree to HEAD.
 local function git_revert()
   git("checkout", "--", ".")
+end
+
+-- Read the work result JSON. Returns work_doc path or nil.
+local function read_work_result(): string
+  local raw = cio.slurp(RESULT_FILE)
+  if not raw then return nil end
+  local ok, data = pcall(json.decode, raw)
+  if not ok or not data then return nil end
+  local t = data as {string: any}
+  local doc = t["work_doc"]
+  if doc and doc is string and doc ~= "" then
+    return doc
+  end
+  return nil
+end
+
+-- Commit the work document separately so it survives code reverts.
+local function commit_work_doc(path: string)
+  git("add", "--", path)
+  -- Only commit if there are staged changes for this file.
+  local status = git("diff", "--cached", "--quiet", "--", path)
+  if status == nil then
+    git("commit", "--quiet", "-m", "work: update " .. path)
+  end
 end
 
 -- Commit all changes using a file for the commit message.
@@ -202,6 +231,7 @@ local function build_system(cwd: string): string
     end
     if content ~= "" then system = system .. "\n\n" .. content end
   end
+  system = system .. "\n\nIMPORTANT: You must write the file `" .. RESULT_FILE .. "` before finishing."
   return system
 end
 
@@ -245,7 +275,10 @@ local function run_work(
     "%s\n\ncurrent metric: %.4g (lower is better)\n\n## iteration history\n%s",
     prompt, best, history)
 
-  local impl_result = run_agent_once(cwd, system, effective_model, implement_prompt, false)
+  -- Clean up stale result file from prior iteration.
+  fs.unlink(RESULT_FILE)
+
+  local impl_result = run_agent_once(cwd, system, effective_model, implement_prompt, false, RESULT_FILE)
   if not impl_result then return 1 end
 
   if not git_has_changes() then
@@ -256,6 +289,16 @@ local function run_work(
       } as Iteration)
     return 1
   end
+
+  -- Commit work document separately so it survives code reverts.
+  -- The agent writes RESULT_FILE with {"work_doc": "<path>"}.
+  local work_doc = read_work_result()
+  if work_doc then
+    commit_work_doc(work_doc)
+  end
+  -- Clean up the result file — it should not be part of code changes.
+  fs.unlink(RESULT_FILE)
+  git("checkout", "--", RESULT_FILE)
 
   -- Phase 2: benchmark the change
   io.write("work: benchmarking...\n")
@@ -291,7 +334,7 @@ local function run_work(
       "write a one-line git commit message for this change.\nmetric: %.4g → %.4g (%s)\n\n```\n%s\n```\n\nrespond with only the commit message, nothing else.",
       best, new_value, pct, diff)
     local msg_system = "write a one-line git commit message. respond with only the message."
-    local msg = run_agent_once(cwd, msg_system, effective_model, msg_prompt, true)
+    local msg = run_agent_once(cwd, msg_system, effective_model, msg_prompt, true, nil)
     if not msg or msg == "" then msg = string.format("%.4g → %.4g (%s)", best, new_value, pct) end
     -- Clean up: take first non-empty line
     msg = msg:match("^%s*(.-)%s*$") or msg
@@ -324,4 +367,7 @@ return {
   fmt_pct = fmt_pct,
   init_work_db = init_work_db,
   format_history = format_history,
+  git_revert = git_revert,
+  read_work_result = read_work_result,
+  commit_work_doc = commit_work_doc,
 }
