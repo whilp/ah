@@ -62,29 +62,17 @@ test_work_db()
 
 -- test: work_opts_defaults
 local function test_work_opts_defaults()
-  -- nil opts → all defaults
-  local t, m, mt = work.work_opts_defaults(nil)
+  -- nil opts → default timeout
+  local t = work.work_opts_defaults(nil)
   assert(t == 300, "default timeout should be 300, got " .. tostring(t))
-  assert(m == 16384, "default max_tokens should be 16384, got " .. tostring(m))
-  assert(mt == nil, "default max_turn_tokens should be nil")
 
-  -- empty opts → all defaults
-  t, m, mt = work.work_opts_defaults({timeout = nil, max_tokens = nil, max_turn_tokens = nil})
+  -- empty opts → default timeout
+  t = work.work_opts_defaults({timeout = nil})
   assert(t == 300, "empty opts: default timeout")
-  assert(m == 16384, "empty opts: default max_tokens")
-  assert(mt == nil, "empty opts: default max_turn_tokens nil")
 
-  -- explicit opts override defaults
-  t, m, mt = work.work_opts_defaults({timeout = 60, max_tokens = 8192, max_turn_tokens = 4096})
+  -- explicit timeout overrides default
+  t = work.work_opts_defaults({timeout = 60})
   assert(t == 60, "explicit timeout")
-  assert(m == 8192, "explicit max_tokens")
-  assert(mt == 4096, "explicit max_turn_tokens")
-
-  -- partial opts: only timeout set
-  t, m, mt = work.work_opts_defaults({timeout = 120})
-  assert(t == 120, "partial: timeout set")
-  assert(m == 16384, "partial: max_tokens default")
-  assert(mt == nil, "partial: max_turn_tokens nil")
 
   print("PASS test_work_opts_defaults")
 end

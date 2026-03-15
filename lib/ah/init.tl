@@ -468,7 +468,7 @@ local function main(args: {string}): integer, string
       signal.sigaction(signal.SIGALRM, on_interrupt)
       signal.setitimer({which = signal.ITIMER_REAL, valuesec = wtimeout, valuens = 0, intervalsec = 0, intervalns = 0})
     end
-    exit_code = work_mod.run_work(d, cwd, parsed.work_script, prompt, model, {timeout = wtimeout, max_tokens = parsed.max_session_tokens, max_turn_tokens = parsed.max_turn_tokens})
+    exit_code = work_mod.run_work(d, cwd, parsed.work_script, prompt, model, {timeout = wtimeout})
   else
     local stop_reason = loop.run_agent(d, qdb, effective_system, effective_model, prompt, parent_id, on_event, agent_opts)
     if stop_reason == "error" then exit_code = 1 end

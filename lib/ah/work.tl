@@ -15,8 +15,6 @@ local ctime = require("cosmic.time")
 
 local record WorkOpts
   timeout: integer -- wall-clock seconds (default: 300)
-  max_tokens: integer -- per-agent-call token budget (default: 16384)
-  max_turn_tokens: integer -- max output tokens per API call (optional)
 end
 
 local WORK_SCHEMA = [[
@@ -218,15 +216,12 @@ local function run_work(
   ): integer
   init_work_db(d)
   local effective_timeout = (work_opts and work_opts.timeout) or 300
-  local effective_max_tokens = (work_opts and work_opts.max_tokens) or 16384
-  local effective_max_turn_tokens = work_opts and work_opts.max_turn_tokens
   local system = build_system(cwd)
   -- Inject timeout note into system prompt so agent budgets turns accordingly
   if effective_timeout and effective_timeout > 0 then
     system = system .. "\n\nYou have " .. tostring(effective_timeout) .. " seconds of wall-clock time. Budget your turns accordingly."
   end
-  local agent_opts: loop.AgentOpts = {max_tokens = effective_max_tokens}
-  if effective_max_turn_tokens then agent_opts.max_turn_tokens = effective_max_turn_tokens end
+  local agent_opts: loop.AgentOpts = {}
   local effective_model = api.resolve_model(model or os.getenv("AH_MODEL"))
   local iter_num = get_iteration_count(d) + 1
 
@@ -333,11 +328,9 @@ local function run_work(
 end
 
 -- Return effective work opts with defaults applied. Exported for testing.
-local function work_opts_defaults(opts: WorkOpts): integer, integer, integer
+local function work_opts_defaults(opts: WorkOpts): integer
   local timeout = (opts and opts.timeout) or 300
-  local max_tokens = (opts and opts.max_tokens) or 16384
-  local max_turn_tokens = opts and opts.max_turn_tokens
-  return timeout, max_tokens, max_turn_tokens
+  return timeout
 end
 
 return {
