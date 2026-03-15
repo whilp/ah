@@ -36,12 +36,13 @@ if the work document does not exist, create it with this structure:
 <initial optimization ideas based on reading the code>
 ```
 
-if the work document exists, read it for objective, files in scope,
-constraints, and ideas.
+if the work document exists, **read it from disk** — it contains the
+latest state from prior iterations. trust its contents over the prompt's
+copy (the prompt is the original, the file has been updated).
 
 ## instructions
 
-1. read or create the work document (see above)
+1. read the work document from disk (see above)
 2. review the iteration history provided in the prompt
 3. read the source files listed in "files in scope"
 4. think carefully about what to try next:
@@ -49,9 +50,14 @@ constraints, and ideas.
    - build on changes that were kept
    - consider the ideas section
 5. make exactly **one focused change** — a single coherent optimization
-6. update the `## ideas` section of the work document:
-   - mark tried ideas with their outcome (✓ kept, ✗ discarded)
-   - add any new ideas you discover while reading the code
+6. **update the work document on disk**:
+   - update `## files in scope` to reflect current state (remove files
+     that are done, update counts, add new files discovered)
+   - update `## ideas`:
+     - mark tried ideas with their outcome (✓ kept, ✗ discarded)
+     - add any new ideas you discover while reading the code
+   - the outer loop commits all changes together, so the work document
+     stays in sync with the code changes
 
 ## rules
 
@@ -59,7 +65,7 @@ constraints, and ideas.
 - read files before editing
 - make small, targeted changes
 - explain your reasoning briefly
-- update ideas in the work document
+- update the work document on disk every iteration
 
 **do not**:
 - run benchmarks — the outer loop does this
