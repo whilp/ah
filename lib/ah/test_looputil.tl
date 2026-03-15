@@ -227,4 +227,71 @@ local function test_tool_key_param_read_offset_and_limit()
 end
 test_tool_key_param_read_offset_and_limit()
 
+-- Tests for tool_key_param type safety: numeric values from JSON decode
+-- Reproduces: looputil.lua:46: attempt to compare number with string
+-- When offset/limit come from JSON as strings instead of numbers,
+-- the > 0 comparison crashes in Lua 5.4.
+
+local function test_tool_key_param_read_string_offset()
+  -- API might send offset as a string
+  local key = looputil.tool_key_param("read", '{"path":"/tmp/foo.txt","offset":"100"}', nil)
+  assert(key:find("foo%.txt"), "should still return path: " .. key)
+  assert(key:find(":100"), "should handle string offset: " .. key)
+  print("PASS: tool_key_param handles string offset without crash")
+end
+test_tool_key_param_read_string_offset()
+
+local function test_tool_key_param_read_string_limit()
+  -- API might send limit as a string
+  local key = looputil.tool_key_param("read", '{"path":"/tmp/foo.txt","limit":"50"}', nil)
+  assert(key:find("foo%.txt"), "should still return path: " .. key)
+  assert(key:find("%+50"), "should handle string limit: " .. key)
+  print("PASS: tool_key_param handles string limit without crash")
+end
+test_tool_key_param_read_string_limit()
+
+local function test_tool_key_param_read_string_offset_and_limit()
+  local key = looputil.tool_key_param("read", '{"path":"/tmp/foo.txt","offset":"100","limit":"50"}', nil)
+  assert(key:find("foo%.txt"), "should still return path: " .. key)
+  assert(key:find(":100%+50"), "should handle string offset+limit: " .. key)
+  print("PASS: tool_key_param handles string offset and limit without crash")
+end
+test_tool_key_param_read_string_offset_and_limit()
+
+local function test_tool_key_param_bash_numeric_command()
+  -- edge case: command is a number
+  local key = looputil.tool_key_param("bash", '{"command":42}', nil)
+  assert(type(key) == "string", "should return string, got: " .. type(key))
+  assert(key == "42", "should convert numeric command to string: " .. key)
+  print("PASS: tool_key_param converts numeric command to string")
+end
+test_tool_key_param_bash_numeric_command()
+
+local function test_tool_key_param_read_numeric_path()
+  -- edge case: path is a number
+  local key = looputil.tool_key_param("read", '{"path":123}', nil)
+  assert(type(key) == "string", "should return string, got: " .. type(key))
+  assert(key == "123", "should convert numeric path to string: " .. key)
+  print("PASS: tool_key_param converts numeric path to string")
+end
+test_tool_key_param_read_numeric_path()
+
+local function test_tool_key_param_details_numeric_command()
+  -- details.command might be a number
+  local key = looputil.tool_key_param("bash", '{"command":"ls"}', '{"command":42}')
+  assert(type(key) == "string", "should return string from details, got: " .. type(key))
+  assert(key == "42", "should convert numeric details.command: " .. key)
+  print("PASS: tool_key_param converts numeric details.command to string")
+end
+test_tool_key_param_details_numeric_command()
+
+local function test_tool_key_param_details_numeric_path()
+  -- details.path might be a number
+  local key = looputil.tool_key_param("read", '{}', '{"path":123}')
+  assert(type(key) == "string", "should return string from details, got: " .. type(key))
+  assert(key == "123", "should convert numeric details.path: " .. key)
+  print("PASS: tool_key_param converts numeric details.path to string")
+end
+test_tool_key_param_details_numeric_path()
+
 print("all looputil tests passed")
