@@ -195,4 +195,36 @@ local function test_check_loop_broken_sequence()
 end
 test_check_loop_broken_sequence()
 
+-- Tests for tool_key_param: read with offset/limit
+local function test_tool_key_param_read_no_offset_limit()
+  local key = looputil.tool_key_param("read", '{"path":"/tmp/foo.txt"}', nil)
+  assert(key:find("foo%.txt$") ~= nil,
+    "read without offset/limit should return path only: " .. key)
+  -- should not contain : or +
+  assert(not key:find("[:%+]"), "read without offset/limit should not have suffix: " .. key)
+  print("PASS: tool_key_param read without offset/limit returns path only")
+end
+test_tool_key_param_read_no_offset_limit()
+
+local function test_tool_key_param_read_offset_only()
+  local key = looputil.tool_key_param("read", '{"path":"/tmp/foo.txt","offset":100}', nil)
+  assert(key:find(":100$"), "read with offset only should append :offset: " .. key)
+  print("PASS: tool_key_param read with offset only appends :N")
+end
+test_tool_key_param_read_offset_only()
+
+local function test_tool_key_param_read_limit_only()
+  local key = looputil.tool_key_param("read", '{"path":"/tmp/foo.txt","limit":50}', nil)
+  assert(key:find(" %+50$"), "read with limit only should append +limit: " .. key)
+  print("PASS: tool_key_param read with limit only appends +N")
+end
+test_tool_key_param_read_limit_only()
+
+local function test_tool_key_param_read_offset_and_limit()
+  local key = looputil.tool_key_param("read", '{"path":"/tmp/foo.txt","offset":100,"limit":50}', nil)
+  assert(key:find(":100%+50$"), "read with both should append :offset+limit: " .. key)
+  print("PASS: tool_key_param read with offset and limit appends :N+M")
+end
+test_tool_key_param_read_offset_and_limit()
+
 print("all looputil tests passed")

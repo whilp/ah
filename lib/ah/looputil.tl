@@ -39,7 +39,19 @@ local function tool_key_param(tool_name: string, tool_input: string, details_jso
   local input = json.decode(tool_input) as {string: any}
   if not input then return "" end
 
-  if tool_name == "read" or tool_name == "write" or tool_name == "edit" then
+  if tool_name == "read" then
+    local key = shorten_path((input.path or "") as string)
+    local offset = input.offset as integer
+    local limit = input.limit as integer
+    if offset and offset as integer > 0 and limit and limit as integer > 0 then
+      key = key .. ":" .. tostring(offset) .. "+" .. tostring(limit)
+    elseif offset and offset as integer > 0 then
+      key = key .. ":" .. tostring(offset)
+    elseif limit and limit as integer > 0 then
+      key = key .. " +" .. tostring(limit)
+    end
+    return key
+  elseif tool_name == "write" or tool_name == "edit" then
     return shorten_path((input.path or "") as string)
   elseif tool_name == "bash" then
     return (input.command or "") as string
