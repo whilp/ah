@@ -281,7 +281,7 @@ assert(result:match("api.anthropic.com:443"), "should include default host")
 assert(result:match("stdio"), "should include pledge promises")
 print("ok")
 ]]
-  local tmpf = "/tmp/test_sandbox_context.tl"
+  local tmpf = fs.join(TEST_TMPDIR, "test_sandbox_context.tl")
   local f = io.open(tmpf, "w")
   if f then
     f:write(script)
@@ -307,7 +307,7 @@ local result = prompt_mod.sandbox_context("/fake/cwd")
 assert(result:match("github.com:443"), "should include extra host from AH_ALLOW_HOSTS")
 print("ok")
 ]]
-  local tmpf = "/tmp/test_sandbox_extra_hosts.tl"
+  local tmpf = fs.join(TEST_TMPDIR, "test_sandbox_extra_hosts.tl")
   local f = io.open(tmpf, "w")
   if f then
     f:write(script)
@@ -330,13 +330,13 @@ local function test_load_system_prompt_sandbox_section()
   local script = [[
 local fs = require("cosmic.fs")
 local prompt_mod = require("ah.prompt")
-local cwd = "/tmp/sandbox_prompt_test"
+local cwd = "]] .. TEST_TMPDIR .. [[/sandbox_prompt_test"
 fs.makedirs(cwd)
 local prompt = prompt_mod.load_system_prompt(cwd)
 assert(prompt:match("## Sandbox"), "system prompt should include Sandbox section when AH_SANDBOX=1: " .. prompt:sub(1, 200))
 print("ok")
 ]]
-  local tmpf = "/tmp/test_sandbox_prompt.tl"
+  local tmpf = fs.join(TEST_TMPDIR, "test_sandbox_prompt.tl")
   local f = io.open(tmpf, "w")
   if f then
     f:write(script)
