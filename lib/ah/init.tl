@@ -56,8 +56,7 @@ end
 local record StderrHandle
   read: function(StderrHandle): string
 end
--- apply_unveil sets up filesystem visibility restrictions.
--- cwd is the working directory; extra_dirs is a comma-separated list of "path:perms".
+-- apply_unveil: set up filesystem visibility. extra_dirs: comma-separated "path:perms".
 local function apply_unveil(cwd: string, extra_dirs: string)
   sandbox.unveil(cwd, "rwxc")
   local protect = args_mod.parse_protect_dirs(cenv.get("AH_PROTECT_DIRS"))
@@ -95,9 +94,7 @@ local function main(args: {string}): integer, string
 
   -- Enable core dumps for crash debugging
   proc.setrlimit(4, -1, -1)
-  -- Sandbox mode: when AH_SANDBOX=1, apply network sandbox restrictions.
-  -- When AH_UNVEIL is set (with or without AH_SANDBOX), apply unveil.
-  -- When AH_PLEDGE is set (with or without AH_SANDBOX), apply pledge.
+  -- Sandbox mode: apply network/fs/syscall restrictions.
   local in_sandbox = cenv.get("AH_SANDBOX")
   local unveil_env = cenv.get("AH_UNVEIL")
   local pledge_env = cenv.get("AH_PLEDGE")
@@ -149,10 +146,9 @@ local function main(args: {string}): integer, string
   local max_tokens = parsed.max_session_tokens
   local remaining = parsed.remaining
 
-  -- Supervisor mode: --sandbox starts proxy, re-execs as sandboxed child.
-  -- --unveil and --pledge alone apply restrictions inline (no fork needed).
+  -- Supervisor mode: --sandbox forks proxy+child; --unveil/--pledge apply inline.
   if not parsed.sandbox and (#parsed.unveil_dirs > 0 or parsed.pledge_promises) then
-    -- Apply unveil/pledge inline without forking a child process.
+    -- Apply unveil/pledge inline (no fork).
     if #parsed.unveil_dirs > 0 then
       apply_unveil(fs.getcwd(), table.concat(parsed.unveil_dirs, ","))
     end
@@ -363,7 +359,7 @@ local function main(args: {string}): integer, string
   local qdb, qerr = queue.open(queue_path)
   if not qdb then db.close(d); return 1, qerr end
 
-  -- Crash recovery: reset "processing" state when no live lock (previous crash).
+  -- Crash recovery: reset "processing" state when no live lock.
   local prev_state = db.get_session_state(d)
   if prev_state == "processing" then
     local locked, _ = queue.is_locked(qdb)
@@ -380,8 +376,7 @@ local function main(args: {string}): integer, string
   end
 
   local parent_id: string = nil
-  local prompt: string = nil
-  prompt = table.concat(remaining, " ")
+  local prompt: string = table.concat(remaining, " ")
 
   if not parent_id then
     local last = db.get_last_message(d)
@@ -435,6 +430,10 @@ local function main(args: {string}): integer, string
   if skills_prompt ~= "" then effective_system = effective_system .. "\n\n" .. skills_prompt end
   if parsed.must_produce then
     effective_system = effective_system .. "\n\nIMPORTANT: You must write the file `" .. parsed.must_produce .. "` before finishing."
+  end
+  -- Default --work timeout to 300s if not explicitly set.
+  if parsed.work_script and not parsed.timeout then
+    parsed.timeout = 300
   end
   if parsed.timeout and parsed.timeout > 0 then
     effective_system = effective_system .. "\n\nYou have " .. tostring(parsed.timeout) .. " seconds of wall-clock time. Budget your turns accordingly."
