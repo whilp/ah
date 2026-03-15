@@ -39,7 +39,7 @@ end
 
 -- Run a shell script via cosmic.child. Returns stdout, stderr, exit_code.
 local function run_script(path: string): string, string, integer
-  local handle, err = child.spawn({"bash", path})
+  local handle, err = child.spawn({path})
   if not handle then
     return "", err or "spawn failed", 1
   end
@@ -139,7 +139,7 @@ local function run_agent_once(
     return nil
   end
   local on_event = quiet and function(_: any) end or cli_mod.make_cli_handler("work", id)
-  local opts: loop.AgentOpts = {max_tokens = 16384}
+  local opts: loop.AgentOpts = {deadline = os.time() as number + 300}
   loop.run_agent(d, qdb, system, model, prompt, nil, on_event, opts)
   local last_text: string = nil
   local last = db.get_last_message(d)
