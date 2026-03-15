@@ -273,8 +273,8 @@ local function make_cli_handler(skill_name: string, session_ulid?: string): even
             end
           end
 
-          -- Strip read/write tool line number prefixes (N\t) for display
-          if event.tool_name == "read" or event.tool_name == "write" then
+          -- Strip read/write/result tool line number prefixes (N\t) for display
+          if event.tool_name == "read" or event.tool_name == "write" or event.tool_name == "result" then
             for j = 1, #lines do
               lines[j] = lines[j]:gsub("^%d+\t", "")
             end

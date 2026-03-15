@@ -160,6 +160,26 @@ local function test_tool_call_end_write_shows_content()
 end
 test_tool_call_end_write_shows_content()
 
+local function test_tool_call_end_result_strips_line_numbers()
+  local handler = cli.make_cli_handler(nil)
+  local output = capture_stderr(function()
+      handler({
+          event_type = "tool_call_end",
+          tool_name = "result",
+          tool_key = "result",
+          tool_output = "10\tline ten\n11\tline eleven\n",
+          is_error = false,
+          duration_ms = 30,
+          tool_index = 1,
+          tool_count = 1,
+        } as events.EventData)
+    end)
+  assert(output:match("line ten"), "should show content without line number, got: " .. output)
+  assert(not output:match("10\t"), "should strip line number prefix, got: " .. output)
+  print("✓ result tool strips line number prefixes from display")
+end
+test_tool_call_end_result_strips_line_numbers()
+
 local function test_tool_call_end_small_output_shows_all()
   local handler = cli.make_cli_handler(nil)
   local output = capture_stderr(function()
