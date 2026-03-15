@@ -86,8 +86,14 @@ local function build_api_messages(d: db.DB, message_id: string, on_event: events
         table.insert(content, {type = "tool_use", id = block.tool_id, name = block.tool_name, input = input})
       elseif block.block_type == "tool_result" then
         local tool_output = block.tool_output as string
-        local truncation = truncate.truncate_output(tool_output or "", block.tool_name as string or "", block.tool_id as string)
-        local api_content: any = truncation.content
+        -- result tool is exempt from truncation (it exists to return large content)
+        local api_content: any
+        if block.tool_name == "result" then
+          api_content = tool_output or ""
+        else
+          local truncation = truncate.truncate_output(tool_output or "", block.tool_name as string or "", block.tool_id as string)
+          api_content = truncation.content
+        end
         if tool_output and tool_output:sub(1, 14) == '{"__image__":' then
           local parsed = json.decode(tool_output) as {string: any}
           if parsed and parsed.__image__ and parsed.content then
