@@ -53,6 +53,7 @@ local function test_sigalrm_fires()
     if time.now() - start > 10 then
       break
     end
+    time.sleep_ms(10)
   end
 
   assert(interrupted, "SIGALRM should have set interrupted=true")
