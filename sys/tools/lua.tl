@@ -90,8 +90,6 @@ local function make_sandbox_env(print_buf: {string}): {string: any}
   env["rawset"] = rawset
   env["rawequal"] = rawequal
   env["rawlen"] = rawlen
-  env["setmetatable"] = setmetatable
-  env["getmetatable"] = getmetatable
   env["unpack"] = table.unpack
 
   -- Capture print output into a buffer

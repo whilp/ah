@@ -180,6 +180,20 @@ local function test_blocked_string_dump()
 end
 test_blocked_string_dump()
 
+local function test_blocked_setmetatable()
+  local _, is_error = lua_tool.execute({code = 'setmetatable({}, {})'})
+  assert(is_error, "setmetatable should be blocked")
+  print("✓ setmetatable is blocked")
+end
+test_blocked_setmetatable()
+
+local function test_blocked_getmetatable()
+  local _, is_error = lua_tool.execute({code = 'getmetatable("")'})
+  assert(is_error, "getmetatable should be blocked")
+  print("✓ getmetatable is blocked")
+end
+test_blocked_getmetatable()
+
 -- Error handling
 
 local function test_syntax_error()
