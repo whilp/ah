@@ -17,11 +17,11 @@ reduce the time `make test` takes from a clean `o/` directory. baseline is ~23s.
 - focus on build/infrastructure optimizations, test runtime optimizations, and removing unnecessary work
 
 ## ideas
-- version.lua is `.PHONY` — causes ah binary re-embed every time even when nothing changed. make it only regenerate when content changes (write to tmp, compare, move)
+- ✓ remove `$(o)/bin/ah` dependency from test rule — tests don't use AH_BIN, so they don't need to wait for the full embed step (which includes fetching bat/delta/glow, extracting cosmic skills, and running cosmic --embed). this eliminates the embed step from the test critical path entirely.
+- version.lua is `.PHONY` — causes ah binary re-embed every time even when nothing changed. make it only regenerate when content changes (write to tmp, compare, move). (only helps incremental, not clean builds)
 - test_envd is 10x slower than other tests (723ms vs ~50ms) — investigate why
-- tests depend on `$(o)/bin/ah` which triggers full embedding + tool fetching — check if all tests actually need the ah binary or if some could run without it
-- bundled bins (bat/delta/glow) are fetched as part of building ah binary — these are network fetches that add latency
 - compilation step runs cosmic per .tl file — check if batch compilation is possible
-- `.tl` compilation could potentially be parallelized better
+- `.tl` compilation could potentially be parallelized better (already parallel via -j)
 - check if test summary generation adds overhead
 - look for redundant or overlapping tests that could be consolidated
+- check if `$(ah_lua)` dependency on each test is too broad — a test only needs its own compiled .lua plus the library modules, not all test .lua files
