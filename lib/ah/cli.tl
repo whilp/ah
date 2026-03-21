@@ -280,6 +280,11 @@ local function make_cli_handler(skill_name: string, session_ulid?: string): even
             end
           end
 
+          -- result tool: strip "[lines N-M of T]" header from body (shown on start line)
+          if event.tool_name == "result" and #lines > 0 and lines[1]:match("^%[lines %d+%-%d+ of %d+%]$") then
+            table.remove(lines, 1)
+          end
+
           -- Display helper: print a single line with optional colorization
           local function print_line(line: string)
             if render.display_width(line) > 80 then

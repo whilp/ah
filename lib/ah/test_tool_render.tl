@@ -253,4 +253,26 @@ local function test_tool_call_end_large_output_shows_head_tail()
 end
 test_tool_call_end_large_output_shows_head_tail()
 
+local function test_tool_call_end_result_strips_header_line()
+  -- When result tool output starts with "[lines N-M of T]", that line should
+  -- not appear in the body (it's shown on the ⠋ start line via key).
+  local handler = cli.make_cli_handler(nil)
+  local output = capture_stderr(function()
+      handler({
+          event_type = "tool_call_end",
+          tool_name = "result",
+          tool_key = "[lines 1-130]",
+          tool_output = "[lines 1-130 of 130]\n1\tkeybinds clear-defaults=true {\n2\t    // Ctrl+b is the prefix key\n",
+          is_error = false,
+          duration_ms = 50,
+          tool_index = 1,
+          tool_count = 1,
+        } as events.EventData)
+    end)
+  assert(not output:match("%[lines 1%-130 of 130%]"), "header should not appear in body, got: " .. output)
+  assert(output:match("keybinds"), "content should still appear, got: " .. output)
+  print("✓ result tool strips [lines N-M of T] header from body display")
+end
+test_tool_call_end_result_strips_header_line()
+
 print("PASS")
