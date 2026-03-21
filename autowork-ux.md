@@ -114,17 +114,20 @@ ah exits 0 on keep, 1 on discard/crash. this makes shell loops natural.
 
 ## state management
 
-work state is keyed by the **absolute path of the benchmark script**.
-stored in `.ah/work/` as sqlite:
+work state lives in the session db as the `work_iterations` table (already
+exists today). the key change: `--work` reuses sessions instead of
+creating new ones.
 
-```
-.ah/work/<sha256-of-script-path>.db
-```
+on each invocation, ah looks for an existing session whose
+`work:script` context value matches the absolute path of the benchmark
+script. if found, reopen that session. if not, create a new one and
+store the mapping.
 
 this means:
-- state survives across invocations — no session flags needed
-- multiple optimization targets can coexist
-- `ah work --status` can list all active targets
+- iteration history, baseline, and best metric persist across invocations
+- no separate state file or db — just the normal session db in `.ah/`
+- `ah sessions` shows work sessions like any other
+- to reset, delete the session (`rm .ah/<ulid>.db`)
 
 ## benchmark resilience
 
