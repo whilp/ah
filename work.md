@@ -7,7 +7,7 @@ reduce the time `make test` takes from a clean `o/` directory. baseline is ~23s.
 - Makefile (build rules, test rules, parallelism, embedding, dependency fetching)
 - deps/cosmic.mk (cosmic binary pinning)
 - deps/bat.mk, deps/delta.mk, deps/glow.mk (bundled tool fetching)
-- lib/ah/test_*.tl (test files)
+- lib/ah/test_*.tl (32 test files)
 - sys/tools/*.tl (tool definitions compiled and embedded)
 
 ## constraints
@@ -16,12 +16,21 @@ reduce the time `make test` takes from a clean `o/` directory. baseline is ~23s.
 - do not change test assertions to make them trivially pass
 - focus on build/infrastructure optimizations, test runtime optimizations, and removing unnecessary work
 
+## critical facts
+- only 2 of 32 tests use AH_BIN: test_args.tl and test_version.tl
+- the other 30 tests do NOT need the ah binary at all
+- the test rule currently makes ALL tests depend on $(o)/bin/ah, which triggers the full embed pipeline (fetching bat/delta/glow + cosmic --embed)
+- to split this, create two test rules: one for tests needing ah binary (with $(o)/bin/ah dep), one for tests not needing it (without)
+- DO NOT just remove $(o)/bin/ah from ALL tests — test_args and test_version will fail
+
 ## ideas
-- ✓ remove `$(o)/bin/ah` dependency from test rule — tests don't use the ah binary or AH_BIN env var. verified by reading all 13 test files: none reference AH_BIN. this eliminates the entire embed pipeline (fetching bat/delta/glow, extracting cosmic skills, cosmic --embed) from the test critical path. iterations 1-10 crashed. iteration 11: minimal clean change — just remove `$(o)/bin/ah` from prereqs and `AH_BIN=...` from the command.
+- ✗ remove $(o)/bin/ah from ALL test rules — crashed 10 times because test_args.tl and test_version.tl need AH_BIN. DO NOT TRY THIS AGAIN.
+- split test rules: 30 tests without ah binary dependency, 2 tests (test_args, test_version) with it. the 30 fast tests can start running immediately after compilation, overlapping with the ah binary build.
 - version.lua is `.PHONY` — causes ah binary re-embed every time even when nothing changed. make it only regenerate when content changes (write to tmp, compare, move). (only helps incremental, not clean builds)
 - test_envd is 10x slower than other tests (723ms vs ~50ms) — investigate why
 - compilation step runs cosmic per .tl file — check if batch compilation is possible
 - `.tl` compilation could potentially be parallelized better (already parallel via -j)
 - check if test summary generation adds overhead
 - look for redundant or overlapping tests that could be consolidated
-- test rule depends on $(ah_lua) which includes ALL .tl files including test files themselves — could narrow to only lib sources
+- test rule depends on $(ah_lua) which includes ALL .tl files including test files themselves — narrowing to only lib sources would reduce recompilation
+- test_db has a pre-existing bug (cache_read assertion fails) — this is flaky and causes spurious failures
