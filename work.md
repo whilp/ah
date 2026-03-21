@@ -17,7 +17,7 @@ reduce the time `make test` takes from a clean `o/` directory. baseline is ~23s.
 - focus on build/infrastructure optimizations, test runtime optimizations, and removing unnecessary work
 
 ## ideas
-- ✓ remove `$(o)/bin/ah` dependency from test rule — tests don't use AH_BIN or the ah binary. also removed AH_BIN env var from recipe. this eliminates the entire embed pipeline (fetching bat/delta/glow, extracting cosmic skills, cosmic --embed) from the test critical path. iterations 1-5 crashed (benchmark infrastructure issues). iteration 6: re-applying with minimal clean edit.
+- ✓ remove `$(o)/bin/ah` dependency from test rule — tests don't use AH_BIN or the ah binary. also removed AH_BIN env var from recipe. this eliminates the entire embed pipeline (fetching bat/delta/glow, extracting cosmic skills, cosmic --embed) from the test critical path. iterations 1-6 crashed (benchmark infrastructure issues). iteration 7: re-applying cleanly.
 - version.lua is `.PHONY` — causes ah binary re-embed every time even when nothing changed. make it only regenerate when content changes (write to tmp, compare, move). (only helps incremental, not clean builds)
 - test_envd is 10x slower than other tests (723ms vs ~50ms) — investigate why
 - compilation step runs cosmic per .tl file — check if batch compilation is possible
