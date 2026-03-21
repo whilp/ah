@@ -9,45 +9,39 @@ the ideal CLI experience for autonomous optimization loops.
 - state survives across invocations
 - output is scannable — one line per phase
 
-## realistic session
+## inputs
 
-### the benchmark script
+`--work` takes two inputs:
 
-the user writes a script that prints a single number to stdout (lower is
-better). logs go to stderr. exit non-zero means failure.
+1. **benchmark script** — measures the metric. prints one number to
+   stdout (lower is better), logs to stderr, exits non-zero on failure.
+   the user writes this. the work module runs it.
 
-```bash
-cat > bench.sh <<'EOF'
-#!/bin/bash
-cd "$(dirname "$0")"
-rm -rf o/
-start=$(date +%s%N)
-make test >&2
-end=$(date +%s%N)
-echo $(( (end - start) / 1000000 ))
-EOF
-chmod +x bench.sh
-```
-
-### the command
+2. **prompt** — tells the agent what to optimize and any constraints.
+   plain text, same as a normal ah prompt.
 
 ```bash
 ah --work bench.sh "reduce make test wall clock time. do not remove tests."
 ```
 
-that's it. one command. run it again to do another iteration.
+that's it. no other files required. the agent may create a `work.md`
+as its own scratchpad (ideas, scope, findings), but that's the agent's
+choice — the user doesn't need to set it up.
+
+## lifecycle
 
 ### first invocation — baseline
 
-if no prior state exists for this script, ah baselines:
+```bash
+ah --work bench.sh "reduce make test wall clock time. do not remove tests."
+```
 
 ```
 work: baseline 23400 (bench.sh)
 ```
 
-baseline runs the benchmark, records the result, exits. no agent call.
-this is fast and lets the user verify the script works before spending
-tokens.
+runs the benchmark, records the result, exits. no agent call. lets the
+user verify the script works before spending tokens.
 
 ### second invocation — first iteration
 
@@ -61,9 +55,6 @@ work: #1 implementing...
 work: #1 benchmarking...
 work: #1 keep 23400 → 20100 (-14.1%) — split test rules to avoid embed pipeline
 ```
-
-the agent makes one change, the benchmark runs, the result is kept or
-discarded. one commit on keep, full revert on discard/crash.
 
 ### subsequent invocations
 
@@ -96,8 +87,7 @@ work: #4 keep 20100 → 18500 (-8.0%) — narrow test deps to lib sources only
 
 ### looping
 
-the user decides how to loop. a simple shell loop, or just mashing
-up-enter:
+the user controls the loop:
 
 ```bash
 # run 10 iterations
@@ -110,56 +100,65 @@ while [ $fails -lt 5 ]; do
 done
 ```
 
-ah exits 0 on keep, 1 on discard/crash. this makes shell loops natural.
+exit 0 on keep, 1 on discard/crash.
 
-## state management
+## what the agent sees
 
-work state lives in the session db as the `work_iterations` table (already
-exists today). `--work` uses normal session resolution — no special
-handling.
+each iteration, the agent gets a prompt assembled from:
 
-## benchmark resilience
+1. **the user's prompt** — verbatim, as the goal
+2. **current best metric** — the number to beat
+3. **iteration history** — last N results: status, metric, message
+4. **crash context** — if the previous iteration crashed, stderr snippet
 
-the work module handles retries, not the user's script:
+the agent also has normal tool access (read, write, edit, bash) and reads
+whatever files it needs from disk. if the autowork skill tells it to
+maintain a `work.md`, that's between the agent and the skill — the work
+module doesn't know or care about it.
 
-1. on benchmark failure, retry up to 3 times
-2. if all retries fail, record as crash
-3. feed crash stderr to the agent as context on the next iteration:
-   `"previous iteration crashed: <stderr snippet>"`
-4. exit 1 — the shell loop decides whether to continue
+## what the work module does
 
-## work.md lifecycle
+each invocation:
 
-- never committed by the work loop
-- the agent reads and updates it each iteration as a working file
-- updates survive reverts (work.md is excluded from `git checkout -- .`)
-- the user commits it when they want to (or never)
+1. open session (normal resolution)
+2. if no baseline: run benchmark, record, exit
+3. build prompt (user prompt + metric + history + crash context)
+4. run agent (one turn — make exactly one change)
+5. if no git changes: record skip, exit 1
+6. run benchmark (retry up to 3x on failure)
+7. if improved: commit, record keep, exit 0
+8. otherwise: revert, record discard/crash, exit 1
 
-## agent context per iteration
+the work module owns git operations. the agent never commits.
 
-the prompt includes:
+## state
 
-1. the user's original prompt (goal + constraints)
-2. current best metric
-3. last N iterations with status, metric, message
-4. if previous iteration crashed: stderr snippet
-
-the agent reads work.md from disk. it's not injected into the prompt.
+work iterations table in the session db (already exists). `--work` uses
+normal session resolution.
 
 ## git behavior
 
 - **keep**: `git add -A && git commit` with agent-generated message
-- **discard/crash**: `git checkout -- .` (excluding work.md and .ah/)
-- baseline invocation: no git operations
+- **discard/crash**: `git checkout -- .` (but preserve agent scratchpad
+  files like work.md — exclude them from revert)
+- **baseline**: no git operations
+
+## benchmark resilience
+
+retries are in the work module, not the user's script:
+
+1. on failure, retry up to 3 times
+2. if all retries fail: record crash, feed stderr to agent next iteration
+3. exit 1 — the shell loop decides whether to continue
 
 ## signals
 
 - **SIGINT during implementation**: revert, exit 1
 - **SIGINT during benchmarking**: let benchmark finish, then evaluate
-- **SIGTERM**: revert any uncommitted changes, exit 1
+- **SIGTERM**: revert uncommitted changes, exit 1
 
 ## open questions
 
-- should `ah work` warn if not on a branch (detached HEAD)?
+- should `--work` warn if on a detached HEAD?
 - should there be a `--dry-run` that implements without benchmarking?
 - should kept commits be auto-pushed?
