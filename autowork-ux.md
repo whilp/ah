@@ -32,7 +32,7 @@ chmod +x bench.sh
 ### the command
 
 ```bash
-ah work bench.sh "reduce make test wall clock time. do not remove tests."
+ah --work bench.sh "reduce make test wall clock time. do not remove tests."
 ```
 
 that's it. one command. run it again to do another iteration.
@@ -52,7 +52,7 @@ tokens.
 ### second invocation — first iteration
 
 ```bash
-ah work bench.sh "reduce make test wall clock time. do not remove tests."
+ah --work bench.sh "reduce make test wall clock time. do not remove tests."
 ```
 
 ```
@@ -70,7 +70,7 @@ discarded. one commit on keep, full revert on discard/crash.
 same command, every time:
 
 ```bash
-ah work bench.sh "reduce make test wall clock time. do not remove tests."
+ah --work bench.sh "reduce make test wall clock time. do not remove tests."
 ```
 
 ```
@@ -101,12 +101,12 @@ up-enter:
 
 ```bash
 # run 10 iterations
-for i in $(seq 10); do ah work bench.sh "reduce make test time"; done
+for i in $(seq 10); do ah --work bench.sh "reduce make test time"; done
 
 # run until 5 consecutive failures
 fails=0
 while [ $fails -lt 5 ]; do
-  if ah work bench.sh "reduce make test time"; then fails=0; else fails=$((fails+1)); fi
+  if ah --work bench.sh "reduce make test time"; then fails=0; else fails=$((fails+1)); fi
 done
 ```
 
@@ -115,7 +115,7 @@ ah exits 0 on keep, 1 on discard/crash. this makes shell loops natural.
 ### checking status
 
 ```bash
-ah work --status bench.sh
+ah --work-status bench.sh
 ```
 
 ```
@@ -129,7 +129,7 @@ work: bench.sh
 ### resetting
 
 ```bash
-ah work --reset bench.sh
+ah --work-reset bench.sh
 ```
 
 removes stored state (baseline, history). leaves work.md and commits
