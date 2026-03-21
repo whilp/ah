@@ -90,20 +90,22 @@ local function make_cli_handler(skill_name: string, session_ulid?: string): even
         io.write("\n")
       end
       -- Display session token totals
-      local total_in = event.total_input_tokens or 0
+      -- total_input_tokens = last call's context window size (not cumulative)
+      -- total_output_tokens = cumulative output across all calls
+      -- total_cache_read_tokens = last call's cache hit
+      local ctx = event.total_input_tokens or 0
       local total_out = event.total_output_tokens or 0
       local cache_read = event.total_cache_read_tokens or 0
-      if total_in > 0 or total_out > 0 then
+      if ctx > 0 or total_out > 0 then
         io.stderr:write("\n")
-        local in_str = format_tokens(total_in)
+        local ctx_str = format_tokens(ctx)
         if cache_read > 0 then
-          in_str = in_str .. " (" .. format_tokens(cache_read) .. " cached)"
+          ctx_str = ctx_str .. " (" .. format_tokens(cache_read) .. " cached)"
         end
-        local total = total_in + total_out
         local budget = compact.get_context_limit(captured_model)
-        local pct = math.floor(total / budget * 100)
+        local pct = math.floor(ctx / budget * 100)
         local sfx = session_ulid and (" [" .. session_ulid:sub(1, 8) .. "]") or ""
-        io.stderr:write(string.format("%s%s in / %s out (%s/%s total, %d%%)%s%s\n", DIM, in_str, format_tokens(total_out), format_tokens(total), format_tokens(budget), pct, sfx, RESET))
+        io.stderr:write(string.format("%s%s ctx / %s out (%d%% of %s)%s%s\n", DIM, ctx_str, format_tokens(total_out), pct, format_tokens(budget), sfx, RESET))
       end
       if is_ci and skill_name then
         io.stdout:write("::endgroup::\n")

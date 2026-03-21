@@ -458,7 +458,7 @@ local function test_session_token_totals()
   local db_path = fs.join(TEST_TMPDIR, "tokens_sum.db")
   local d = db.open(db_path)
 
-  -- Create messages with token counts
+  -- input_tokens = context window size (not incremental) → use max.
   local msg1 = db.create_message(d, "user")
   local msg2 = db.create_message(d, "assistant", msg1.id, {
       input_tokens = 100,
@@ -471,7 +471,7 @@ local function test_session_token_totals()
     })
 
   local totals = db.get_session_token_totals(d)
-  assert(totals.input_tokens == 300, "input_tokens should be 300, got " .. totals.input_tokens)
+  assert(totals.input_tokens == 200, "input_tokens should be 200 (max context), got " .. totals.input_tokens)
   assert(totals.output_tokens == 125, "output_tokens should be 125, got " .. totals.output_tokens)
 
   db.close(d)

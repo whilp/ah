@@ -99,7 +99,8 @@ local function test_make_cli_handler_agent_end_shows_percentage()
     end)
   assert(output:match("%%"), "agent_end output should contain '%', got: " .. output)
   assert(output:match("200%.0k"), "agent_end output should contain '200.0k' budget, got: " .. output)
-  assert(output:match("100%.0k"), "agent_end output should contain '100.0k' input, got: " .. output)
+  assert(output:match("100%.0k"), "agent_end output should contain '100.0k' context, got: " .. output)
+  assert(output:match("ctx"), "agent_end output should contain 'ctx', got: " .. output)
 end
 test_make_cli_handler_agent_end_shows_percentage()
 
@@ -146,7 +147,7 @@ local function test_make_cli_handler_agent_end_no_tokens_no_output()
         } as events.EventData)
     end)
   assert(not output:match("%%"), "zero tokens should produce no token line, got: " .. output)
-  assert(not output:match("total"), "zero tokens should produce no total line, got: " .. output)
+  assert(not output:match("ctx"), "zero tokens should produce no ctx line, got: " .. output)
 end
 test_make_cli_handler_agent_end_no_tokens_no_output()
 
