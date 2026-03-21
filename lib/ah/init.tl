@@ -236,11 +236,7 @@ local function main(args: {string}): integer, string
   -- Handle commands that don't need db
   local cmd = remaining[1]
   if cmd == "sessions" then
-    local sessions = sessions_mod.list_sessions(cwd)
-    local current_ulid = sessions[1] and sessions[1].ulid or ""
-    sessions_mod.cmd_sessions(cwd, current_ulid)
-    return 0
-
+    -- handled after db open
   elseif cmd == "embed" then
     local src_dir = remaining[2]
     if not src_dir then
@@ -299,56 +295,60 @@ local function main(args: {string}): integer, string
     return limits_mod.cmd_limits()
   end
 
-  -- Session selection
-  local session_ulid: string = nil
+  -- Open the single database
   if not db_path then
     local ah_dir = fs.join(cwd, ".ah")
     fs.makedirs(ah_dir)
-
-    if new_session and session_name then
-      return 1, "--new and --name cannot be used together"
-    elseif session_name then
-      local sessions = sessions_mod.list_sessions(cwd)
-      local found: sessions_mod.Session = nil
-      for _, s in ipairs(sessions) do
-        if s.name == session_name then
-          if found then return 1, "duplicate session name: " .. session_name end
-          found = s
-        end
-      end
-      if found then session_ulid = found.ulid else session_ulid = ulid.generate() end
-    elseif new_session then
-      session_ulid = ulid.generate()
-    elseif session_prefix then
-      local resolved, rerr = sessions_mod.resolve_session(cwd, session_prefix)
-      if not resolved then return 1, rerr end
-      session_ulid = resolved
-    else
-      local sessions = sessions_mod.list_sessions(cwd)
-      if #sessions > 0 then session_ulid = sessions[1].ulid
-      else session_ulid = ulid.generate() end
-    end
-
-    db_path = fs.join(ah_dir, session_ulid .. ".db")
-  end
-
-  local queue_path = db_path:gsub("%.db$", ".queue.db")
-
-  if steer_msg or followup_msg then
-    local qdb, qerr = queue.open(queue_path)
-    if not qdb then return 1, qerr end
-    if steer_msg then queue.add_steer(qdb, steer_msg); io.stderr:write("queued steering message\n") end
-    if followup_msg then queue.add_followup(qdb, followup_msg); io.stderr:write("queued followup message\n") end
-    queue.close(qdb)
-    return 0
+    db_path = fs.join(ah_dir, "ah.db")
   end
 
   local d, derr = db.open(db_path)
   if not d then return 1, derr end
 
-  if session_name then
-    local existing_name = db.get_context(d, "session_name")
-    if not existing_name then db.set_context(d, "session_name", session_name) end
+  local conversations = require("ah.conversations")
+
+  if cmd == "sessions" then
+    sessions_mod.cmd_sessions_db(d)
+    db.close(d)
+    return 0
+  end
+
+  -- Conversation resolution
+  local conv_id: string = nil
+  if new_session and session_name then
+    db.close(d); return 1, "--new and --name cannot be used together"
+  elseif session_name then
+    local resolved = conversations.resolve_conversation(d, session_name)
+    if resolved then
+      conv_id = resolved
+    else
+      local conv = conversations.create_conversation(d, {name = session_name})
+      conv_id = conv.id
+    end
+  elseif new_session then
+    local conv = conversations.create_conversation(d)
+    conv_id = conv.id
+  elseif session_prefix then
+    local resolved, rerr = conversations.resolve_conversation(d, session_prefix)
+    if not resolved then db.close(d); return 1, rerr end
+    conv_id = resolved
+  else
+    local current = conversations.get_current_conversation(d)
+    if current then
+      conv_id = current.id
+    else
+      local conv = conversations.create_conversation(d)
+      conv_id = conv.id
+    end
+  end
+
+  local session_ulid = conv_id
+
+  if steer_msg or followup_msg then
+    if steer_msg then queue.add_steer(d, conv_id, steer_msg); io.stderr:write("queued steering message\n") end
+    if followup_msg then queue.add_followup(d, conv_id, followup_msg); io.stderr:write("queued followup message\n") end
+    db.close(d)
+    return 0
   end
 
   local orphans_cleaned = db.cleanup_orphans(d)
@@ -356,13 +356,10 @@ local function main(args: {string}): integer, string
     io.stderr:write(string.format("cleaned up %d orphan message(s) from previous crash\n", orphans_cleaned))
   end
 
-  local qdb, qerr = queue.open(queue_path)
-  if not qdb then db.close(d); return 1, qerr end
-
   -- Crash recovery: reset "processing" state when no live lock.
   local prev_state = db.get_session_state(d)
   if prev_state == "processing" then
-    local locked, _ = queue.is_locked(qdb)
+    local locked, _ = queue.is_locked(d)
     if not locked then
       db.set_session_state(d, "idle")
       io.stderr:write("session was in processing state (crash recovery): reset to idle\n")
@@ -371,7 +368,7 @@ local function main(args: {string}): integer, string
 
   if cmd == "usage" then
     sessions_mod.cmd_usage(d)
-    queue.close(qdb); db.close(d)
+    db.close(d)
     return 0
   end
 
@@ -387,11 +384,11 @@ local function main(args: {string}): integer, string
     if tty.isatty(0) then io.stderr:write(">>> "); io.stderr:flush() end
     local ok, input = pcall(io.read, "*a")
     if not ok or not input then
-      io.stderr:write("\n"); queue.close(qdb); db.close(d); return 0
+      io.stderr:write("\n"); db.close(d); return 0
     end
     prompt = input:gsub("%s+$", "")
     if prompt == "" and not parsed.skill then
-      args_mod.usage(); queue.close(qdb); db.close(d); return 0
+      args_mod.usage(); db.close(d); return 0
     end
   end
 
@@ -439,18 +436,18 @@ local function main(args: {string}): integer, string
     effective_system = effective_system .. "\n\nYou have " .. tostring(parsed.timeout) .. " seconds of wall-clock time. Budget your turns accordingly."
   end
 
-  local lock_acquired, lock_err = queue.try_acquire_lock(qdb)
+  local lock_acquired, lock_err = queue.try_acquire_lock(d)
   if not lock_acquired then
-    queue.add_followup(qdb, prompt)
+    queue.add_followup(d, conv_id, prompt)
     io.stderr:write("session locked, queued as followup: " .. (lock_err or "") .. "\n")
-    queue.close(qdb); db.close(d)
+    db.close(d)
     return 0
   end
 
   local function on_interrupt()
     interrupted = true
     tools.abort_running_tools()
-    queue.release_lock(qdb)
+    queue.release_lock(d)
   end
   signal.sigaction(signal.SIGINT, on_interrupt)
   if parsed.timeout and parsed.timeout > 0 then
@@ -469,13 +466,12 @@ local function main(args: {string}): integer, string
     local work_mod = require("ah.work")
     exit_code = work_mod.run_work(d, cwd, parsed.work_script, prompt, model)
   else
-    local stop_reason = loop.run_agent(d, qdb, effective_system, effective_model, prompt, parent_id, on_event, agent_opts)
+    local stop_reason = loop.run_agent(d, conv_id, effective_system, effective_model, prompt, parent_id, on_event, agent_opts)
     if stop_reason == "error" then exit_code = 1 end
   end
 
   db.set_session_state(d, "closed")
-  queue.release_lock(qdb)
-  queue.close(qdb)
+  queue.release_lock(d)
   db.close(d)
   return exit_code
 end

@@ -121,6 +121,30 @@ local function cmd_sessions(cwd: string, current_ulid: string)
   end
 end
 
+-- List all conversations from the single database
+local function cmd_sessions_db(d: db.DB)
+  local conversations = require("ah.conversations")
+  local convs = conversations.list_conversations(d)
+  if #convs == 0 then
+    io.stderr:write("no sessions\n")
+    return
+  end
+  local current = conversations.get_current_conversation(d)
+  local current_id = current and current.id or ""
+  for _, c in ipairs(convs) do
+    local marker = c.id == current_id and ">" or " "
+    local decoded = ulid.decode(c.id)
+    local time_str = decoded and decoded.time or "unknown"
+    local short_id = c.id:sub(1, 11)
+    local name_str = c.name and string.format("  [%s]", c.name) or ""
+    local msg_count = db.get_message_count(d, c.id)
+    local flat_prompt = db.get_first_user_prompt(d, c.id):gsub("\n", " ")
+    local preview = render.utf8_truncate(flat_prompt, 40, "...")
+    io.write(string.format("%s %s  %s  %2d msgs%s  %s\n",
+        marker, short_id, time_str, msg_count, name_str, preview))
+  end
+end
+
 -- Extract short model alias from full model name
 local function short_model(name: string): string
   if not name then return "unknown" end
@@ -198,6 +222,7 @@ return {
   list_sessions = list_sessions,
   resolve_session = resolve_session,
   cmd_sessions = cmd_sessions,
+  cmd_sessions_db = cmd_sessions_db,
   cmd_usage = cmd_usage,
   short_model = short_model,
 }
