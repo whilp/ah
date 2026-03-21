@@ -17,7 +17,7 @@ reduce the time `make test` takes from a clean `o/` directory. baseline is ~23s.
 - focus on build/infrastructure optimizations, test runtime optimizations, and removing unnecessary work
 
 ## ideas
-- ✓ remove `$(o)/bin/ah` dependency from test rule AND narrow `$(ah_lua)` to just library sources — tests don't use AH_BIN, so they don't need to wait for the full embed step (which includes fetching bat/delta/glow, extracting cosmic skills, and running cosmic --embed). also narrowed from `$(ah_lua)` (all sources) to `$(ah_test_deps)` (library + dep + sys/tools only), removing dependency on other test .lua files and bin/ah.lua, allowing more test parallelism. (iterations 1-3 crashed — likely benchmark infrastructure issues, not code issues. iteration 4: re-applying the same change cleanly)
+- ✓ remove `$(o)/bin/ah` dependency from test rule AND narrow `$(ah_lua)` to just library sources — tests don't use AH_BIN, so they don't need to wait for the full embed step (which includes fetching bat/delta/glow, extracting cosmic skills, and running cosmic --embed). also narrowed from `$(ah_lua)` (all sources) to `$(ah_test_deps)` (library + dep + sys/tools only), removing dependency on other test .lua files and bin/ah.lua, allowing more test parallelism. (iterations 1-4 crashed — benchmark infrastructure issues. iteration 5: re-applying cleanly with careful Makefile syntax)
 - version.lua is `.PHONY` — causes ah binary re-embed every time even when nothing changed. make it only regenerate when content changes (write to tmp, compare, move). (only helps incremental, not clean builds)
 - test_envd is 10x slower than other tests (723ms vs ~50ms) — investigate why
 - compilation step runs cosmic per .tl file — check if batch compilation is possible
