@@ -112,29 +112,6 @@ done
 
 ah exits 0 on keep, 1 on discard/crash. this makes shell loops natural.
 
-### checking status
-
-```bash
-ah --work-status bench.sh
-```
-
-```
-work: bench.sh
-  baseline: 23400
-  best:     18500 (-20.9%)
-  iterations: 7 (3 kept, 2 discarded, 2 crashed)
-  last:     #7 discard 18500 → 19200 (+3.8%)
-```
-
-### resetting
-
-```bash
-ah --work-reset bench.sh
-```
-
-removes stored state (baseline, history). leaves work.md and commits
-intact. next invocation will re-baseline.
-
 ## state management
 
 work state is keyed by the **absolute path of the benchmark script**.
