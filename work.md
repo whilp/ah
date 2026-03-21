@@ -27,7 +27,7 @@ reduce the time `make test` takes from a clean `o/` directory. baseline is ~23s.
 ## ideas
 - ✗ remove $(o)/bin/ah from ALL test rules — crashed 10 times because test_args.tl and test_version.tl need AH_BIN. DO NOT TRY THIS AGAIN.
 - ✓ split test rules: 30 tests without ah binary dependency, 2 tests (test_args, test_version) with it. the 30 fast tests can start running immediately after compilation, overlapping with the ah binary build. (-17.2%)
-- narrow test deps from $(ah_lua) to $(ah_nontest_lua) — TRYING NOW. define `ah_nontest_lua` as `$(patsubst %.tl,$(o)/%.lua,$(ah_lib_srcs) $(ah_dep_srcs) $(wildcard sys/tools/*.tl))`. this removes ~32 test compilations and bin/ah.tl from the critical path before tests can start. previously discarded attempts may have had implementation issues — this version uses a clean single patsubst with existing variables.
+- narrow test deps from $(ah_lua) to $(ah_test_deps) — TRYING NOW (iteration 3). define `ah_test_deps` as `$(patsubst %.tl,$(o)/%.lua,$(ah_lib_srcs) $(ah_dep_srcs) $(wildcard sys/tools/*.tl))`. this removes ~32 test .lua compilations and bin/ah.lua from the prerequisite list, so each test only waits for its own .lua + the runtime library files. previous discarded attempts may have had different variable names or definitions causing issues. this version is minimal: just adds one variable and uses it in both test rules.
 - version.lua is `.PHONY` — causes ah binary re-embed every time even when nothing changed. make it only regenerate when content changes (write to tmp, compare, move). (only helps incremental, not clean builds)
 - test_envd is 10x slower than other tests (723ms vs ~50ms) — investigate why
 - compilation step runs cosmic per .tl file — check if batch compilation is possible
