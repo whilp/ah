@@ -115,9 +115,8 @@ ah exits 0 on keep, 1 on discard/crash. this makes shell loops natural.
 ## state management
 
 work state lives in the session db as the `work_iterations` table (already
-exists today). no special session handling — `--work` uses normal session
-resolution. run the same command again and it continues. pass `--new` to
-start fresh.
+exists today). `--work` uses normal session resolution — no special
+handling.
 
 ## benchmark resilience
 
