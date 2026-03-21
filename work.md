@@ -17,11 +17,10 @@ reduce the time `make test` takes from a clean `o/` directory. baseline is ~23s.
 - focus on build/infrastructure optimizations, test runtime optimizations, and removing unnecessary work
 
 ## ideas
-- ✓ remove `$(o)/bin/ah` dependency from test rule — tests don't use AH_BIN, so they don't need to wait for the full embed step (which includes fetching bat/delta/glow, extracting cosmic skills, and running cosmic --embed). this eliminates the embed step from the test critical path entirely. (iteration 1: crashed, re-applied iteration 2)
+- ✓ remove `$(o)/bin/ah` dependency from test rule AND narrow `$(ah_lua)` to just library sources — tests don't use AH_BIN, so they don't need to wait for the full embed step (which includes fetching bat/delta/glow, extracting cosmic skills, and running cosmic --embed). also narrowed from `$(ah_lua)` (all sources) to `$(ah_test_deps)` (library + dep + sys/tools only), removing dependency on other test .lua files and bin/ah.lua, allowing more test parallelism. (iterations 1-2 crashed trying just the `$(o)/bin/ah` removal — may have been benchmark issues, not code issues. iteration 3: combined both changes plus removed AH_BIN env var)
 - version.lua is `.PHONY` — causes ah binary re-embed every time even when nothing changed. make it only regenerate when content changes (write to tmp, compare, move). (only helps incremental, not clean builds)
 - test_envd is 10x slower than other tests (723ms vs ~50ms) — investigate why
 - compilation step runs cosmic per .tl file — check if batch compilation is possible
 - `.tl` compilation could potentially be parallelized better (already parallel via -j)
 - check if test summary generation adds overhead
 - look for redundant or overlapping tests that could be consolidated
-- narrow test dependency from `$(ah_lua)` (all sources including other test .lua files) to just library sources — each test only needs its own compiled .lua plus the library modules, not all test .lua files. this would allow more parallelism.
