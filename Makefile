@@ -48,9 +48,28 @@ cosmic := $(cosmic_release)
 endif
 
 # platform list for embedded binaries
-# AH_PLATFORM: "all" (default) or a single dep_suffix like "linux_x86_64"
-AH_PLATFORM ?= all
+# AH_PLATFORM: "all" to build for every platform, or a single dep_suffix
+# like "linux_x86_64". default: auto-detect the current host platform.
 all_platforms := linux_x86_64 linux_aarch64 macos_aarch64
+
+# auto-detect host platform when AH_PLATFORM is not set
+host_os := $(shell uname -s 2>/dev/null)
+host_arch := $(shell uname -m 2>/dev/null)
+
+ifeq ($(host_os),Linux)
+  ifeq ($(host_arch),x86_64)
+    host_platform := linux_x86_64
+  else ifeq ($(host_arch),aarch64)
+    host_platform := linux_aarch64
+  endif
+else ifeq ($(host_os),Darwin)
+  ifeq ($(host_arch),arm64)
+    host_platform := macos_aarch64
+  endif
+endif
+host_platform ?= all
+
+AH_PLATFORM ?= $(host_platform)
 
 # map dep_suffix -> embed path component
 embed_linux_x86_64 := linux-x86_64
@@ -148,6 +167,8 @@ help:
 	@echo ""
 	@echo "Options:"
 	@echo "  DEBUG=1             Use debug cosmic binary (e.g. make ah DEBUG=1)"
+	@echo "  AH_PLATFORM=X      Platforms to bundle (default: auto-detect host)"
+	@echo "                      Values: linux_x86_64, linux_aarch64, macos_aarch64, all"
 
 .PHONY: test
 ## Run all tests (incremental)
@@ -283,7 +304,7 @@ $(o)/bin/SHA256SUMS: $(release_assets)
 	@cd $(o)/bin && sha256sum $(notdir $(release_assets)) > SHA256SUMS
 
 .PHONY: release
-## Create GitHub release with ah and ah-debug binaries
+## Create GitHub release with ah and ah-debug binaries (always builds all platforms)
 ## Set RELEASE=1 for a full release (default is prerelease)
 release: $(release_assets) $(o)/bin/SHA256SUMS
 	@tag=$(ah_version); \

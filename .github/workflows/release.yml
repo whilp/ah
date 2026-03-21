@@ -23,4 +23,4 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE: ${{ inputs.release && '1' || '' }}
-        run: make -j release
+        run: make -j AH_PLATFORM=all release
