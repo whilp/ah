@@ -437,7 +437,7 @@ local function get_session_token_totals(self: DB, conversation_id?: string): Tok
       totals.input_tokens = (row.last_input or 0) as integer
       totals.output_tokens = (row.total_output or 0) as integer
     end
-    for row in self._db:query("select coalesce(json_extract(details, '$.cache_read_input_tokens'), 0) as last_cache_read from events where event_type = 'api_call_end' and conversation_id = ? order by id desc limit 1", conversation_id) do
+    for row in self._db:query("select coalesce(json_extract(details, '$.cache_read_input_tokens'), 0) as last_cache_read from events where event_type = 'api_call_end' and conversation_id = ? order by rowid desc limit 1", conversation_id) do
       totals.cache_read_tokens = (row.last_cache_read or 0) as integer
     end
   else
@@ -445,7 +445,7 @@ local function get_session_token_totals(self: DB, conversation_id?: string): Tok
       totals.input_tokens = (row.last_input or 0) as integer
       totals.output_tokens = (row.total_output or 0) as integer
     end
-    for row in self._db:query("select coalesce(json_extract(details, '$.cache_read_input_tokens'), 0) as last_cache_read from events where event_type = 'api_call_end' order by id desc limit 1") do
+    for row in self._db:query("select coalesce(json_extract(details, '$.cache_read_input_tokens'), 0) as last_cache_read from events where event_type = 'api_call_end' order by rowid desc limit 1") do
       totals.cache_read_tokens = (row.last_cache_read or 0) as integer
     end
   end
