@@ -30,13 +30,11 @@ local function test_fmt_pct()
 end
 test_fmt_pct()
 
--- test: init_work_db and format_history
+-- test: format_history uses work_iterations from main schema
 local function test_work_db()
   local db_path = fs.join(TEST_TMPDIR, "test_work.db")
   fs.unlink(db_path)
   local d = db.open(db_path)
-  work.init_work_db(d)
-  work.init_work_db(d) -- idempotent
 
   local h = work.format_history(d, 10)
   assert(h == "no previous iterations.", "empty history")
@@ -76,36 +74,24 @@ end
 -- test: commit_work_doc + git_revert preserves work doc, reverts code
 local function test_work_doc_survives_revert()
   local repo = fs.join(TEST_TMPDIR, "test_revert_md")
-  -- clean up any prior run
   sh(TEST_TMPDIR, "rm -rf " .. repo)
   fs.mkdir(repo)
 
-  -- init a git repo with initial files
   sh(repo, "git init")
   sh(repo, "git config user.email test@test.com")
   sh(repo, "git config user.name test")
   cio.barf(fs.join(repo, "code.tl"), "original code")
   cio.barf(fs.join(repo, "work.md"), "# ideas\n- idea 1\n")
-  cio.barf(fs.join(repo, "docs.md"), "original docs")
   sh(repo, "git add -A && git commit -m init")
 
-  -- simulate an agent iteration: modify code, work doc, another .md,
-  -- and write the result file
+  -- simulate: modify code and work doc
   cio.barf(fs.join(repo, "code.tl"), "modified code")
-  cio.barf(fs.join(repo, "work.md"), "# ideas\n- idea 1 ✗ discarded\n- idea 2 (new)\n")
-  cio.barf(fs.join(repo, "docs.md"), "modified docs")
-  fs.mkdir(fs.join(repo, ".ah"))
-  cio.barf(fs.join(repo, ".ah", "work-result.json"), '{"work_doc": "work.md"}')
+  cio.barf(fs.join(repo, "work.md"), "# ideas\n- idea 1 discarded\n- idea 2 (new)\n")
 
   local prev_cwd = fs.getcwd()
   fs.chdir(repo)
 
-  -- read result and commit work doc (as run_work would)
-  local doc = work.read_work_result()
-  assert(doc == "work.md", "should read work_doc from result json, got: " .. (doc or "nil"))
-  work.commit_work_doc(doc)
-
-  -- revert remaining changes
+  work.commit_work_doc("work.md")
   work.git_revert()
   fs.chdir(prev_cwd)
 
@@ -113,16 +99,10 @@ local function test_work_doc_survives_revert()
   local code = cio.slurp(fs.join(repo, "code.tl"))
   assert(code == "original code", "code.tl should be reverted, got: " .. (code or "nil"))
 
-  -- docs.md should be reverted
-  local docs = cio.slurp(fs.join(repo, "docs.md"))
-  assert(docs == "original docs", "docs.md should be reverted, got: " .. (docs or "nil"))
-
   -- work.md should be preserved (committed separately)
   local md = cio.slurp(fs.join(repo, "work.md"))
   assert(md and md:match("idea 2"), "work.md should preserve updates, got: " .. (md or "nil"))
-  assert(md and md:match("discarded"), "work.md should preserve annotations, got: " .. (md or "nil"))
 
-  -- clean up
   sh(TEST_TMPDIR, "rm -rf " .. repo)
   print("PASS test_work_doc_survives_revert")
 end

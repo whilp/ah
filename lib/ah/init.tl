@@ -429,7 +429,12 @@ local function main(args: {string}): integer, string
     effective_system = effective_system .. "\n\nIMPORTANT: You must write the file `" .. parsed.must_produce .. "` before finishing."
   end
   -- Default --work timeout to 300s if not explicitly set.
-  if parsed.work_script and not parsed.timeout then
+  if parsed.work and not parsed.benchmark then
+    io.stderr:write("error: --work requires --benchmark SCRIPT\n")
+    db.close(d)
+    return 1
+  end
+  if parsed.work and not parsed.timeout then
     parsed.timeout = 300
   end
   if parsed.timeout and parsed.timeout > 0 then
@@ -462,9 +467,9 @@ local function main(args: {string}): integer, string
   if parsed.max_turn_tokens then agent_opts.max_turn_tokens = parsed.max_turn_tokens end
   if parsed.must_produce then agent_opts.must_produce = parsed.must_produce end
   local exit_code: integer = 0
-  if parsed.work_script then
+  if parsed.work then
     local work_mod = require("ah.work")
-    exit_code = work_mod.run_work(d, cwd, parsed.work_script, prompt, model)
+    exit_code = work_mod.run_work(d, cwd, parsed.benchmark, prompt, model)
   else
     local stop_reason = loop.run_agent(d, conv_id, effective_system, effective_model, prompt, parent_id, on_event, agent_opts)
     if stop_reason == "error" then exit_code = 1 end

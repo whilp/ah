@@ -71,6 +71,15 @@ create table if not exists session_lock (
   heartbeat_at integer not null
 );
 
+create table if not exists work_iterations (
+  id integer primary key autoincrement,
+  status text not null,
+  metric_value real,
+  baseline_value real,
+  message text,
+  created_at integer not null
+);
+
 create index if not exists idx_messages_conversation on messages(conversation_id);
 create index if not exists idx_messages_parent on messages(parent_id);
 create index if not exists idx_content_blocks_message on content_blocks(message_id);
@@ -405,13 +414,9 @@ end
 
 local function get_message_count(self: DB, conversation_id?: string): integer
   if conversation_id then
-    for row in self._db:query("select count(*) as cnt from messages where conversation_id = ?", conversation_id) do
-      return (row.cnt or 0) as integer
-    end
+    for row in self._db:query("select count(*) as cnt from messages where conversation_id = ?", conversation_id) do return (row.cnt or 0) as integer end
   else
-    for row in self._db:query("select count(*) as cnt from messages") do
-      return (row.cnt or 0) as integer
-    end
+    for row in self._db:query("select count(*) as cnt from messages") do return (row.cnt or 0) as integer end
   end
   return 0
 end
@@ -462,17 +467,11 @@ end
 
 local function get_first_user_prompt(self: DB, conversation_id?: string): string
   if conversation_id then
-    for row in self._db:query([[
-      select content from content_blocks where block_type = 'text'
-        and message_id in (select id from messages where role = 'user' and conversation_id = ? order by seq asc limit 1)
-      order by seq asc limit 1]], conversation_id) do
+    for row in self._db:query("select content from content_blocks where block_type = 'text' and message_id in (select id from messages where role = 'user' and conversation_id = ? order by seq asc limit 1) order by seq asc limit 1", conversation_id) do
       return (row.content or "") as string
     end
   else
-    for row in self._db:query([[
-      select content from content_blocks where block_type = 'text'
-        and message_id in (select id from messages where role = 'user' order by seq asc limit 1)
-      order by seq asc limit 1]]) do
+    for row in self._db:query("select content from content_blocks where block_type = 'text' and message_id in (select id from messages where role = 'user' order by seq asc limit 1) order by seq asc limit 1") do
       return (row.content or "") as string
     end
   end

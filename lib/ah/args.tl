@@ -23,7 +23,8 @@ local record ParsedArgs
   must_produce: string
   tool_overrides: {string}
   cd_path: string
-  work_script: string
+  work: boolean
+  benchmark: string
   remaining: {string}
 end
 
@@ -99,7 +100,8 @@ local function parse_args(args: {string}): ParsedArgs, string
     {name = "must-produce", has_arg = "required"},
     {name = "tool", has_arg = "required", short = "t"},
     {name = "cd", has_arg = "required"},
-    {name = "work", has_arg = "required"},
+    {name = "work", has_arg = "none"},
+    {name = "benchmark", has_arg = "required"},
   }
 
   -- Use + prefix for POSIX mode: stop parsing options at first non-option arg.
@@ -156,7 +158,9 @@ local function parse_args(args: {string}): ParsedArgs, string
     elseif opt == "cd" then
       result.cd_path = optarg
     elseif opt == "work" then
-      result.work_script = optarg
+      result.work = true
+    elseif opt == "benchmark" then
+      result.benchmark = optarg
     elseif opt == "?" then
       return nil, "unknown"
     end
