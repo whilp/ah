@@ -22,10 +22,11 @@ reduce the time `make test` takes from a clean `o/` directory. baseline is ~23s.
 - the test rule currently makes ALL tests depend on $(o)/bin/ah, which triggers the full embed pipeline (fetching bat/delta/glow + cosmic --embed)
 - to split this, create two test rules: one for tests needing ah binary (with $(o)/bin/ah dep), one for tests not needing it (without)
 - DO NOT just remove $(o)/bin/ah from ALL tests — test_args and test_version will fail
+- must use static pattern rules (not plain pattern rules) to have two different rules for the same %.tl.test.ok pattern
 
 ## ideas
 - ✗ remove $(o)/bin/ah from ALL test rules — crashed 10 times because test_args.tl and test_version.tl need AH_BIN. DO NOT TRY THIS AGAIN.
-- split test rules: 30 tests without ah binary dependency, 2 tests (test_args, test_version) with it. the 30 fast tests can start running immediately after compilation, overlapping with the ah binary build.
+- split test rules: 30 tests without ah binary dependency, 2 tests (test_args, test_version) with it. the 30 fast tests can start running immediately after compilation, overlapping with the ah binary build. — TRYING NOW (iteration 12) using static pattern rules to avoid Make conflicts
 - version.lua is `.PHONY` — causes ah binary re-embed every time even when nothing changed. make it only regenerate when content changes (write to tmp, compare, move). (only helps incremental, not clean builds)
 - test_envd is 10x slower than other tests (723ms vs ~50ms) — investigate why
 - compilation step runs cosmic per .tl file — check if batch compilation is possible
