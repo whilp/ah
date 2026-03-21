@@ -156,24 +156,25 @@ local function cmd_usage(d: db.DB)
       if detail then
         local inp = (detail.input_tokens or 0) as integer
         local out = (detail.output_tokens or 0) as integer
+        local cc = (detail.cache_creation_input_tokens or 0) as integer
+        local cr = (detail.cache_read_input_tokens or 0) as integer
         local lat = (detail.api_latency_ms or 0) as integer
         local mdl = (detail.model or "unknown") as string
-        total_input = total_input + inp
+        -- input/cache values are per-call context window sizes (not incremental).
+        -- track the last call's values; only output is incremental.
+        total_input = inp + cc + cr
         total_output = total_output + out
-        total_cache_read = total_cache_read + ((detail.cache_read_input_tokens or 0) as integer)
-        total_cache_create = total_cache_create + ((detail.cache_creation_input_tokens or 0) as integer)
+        total_cache_read = cr
+        total_cache_create = cc
         api_calls = api_calls + 1
-        table.insert(calls, {input = inp, output = out, latency = lat, model = mdl})
+        table.insert(calls, {input = inp + cc + cr, output = out, latency = lat, model = mdl})
       end
     end
   end
 
-  local total = total_input + total_output
-
   io.write(string.format("api calls:     %d\n", api_calls))
-  io.write(string.format("input:         %s\n", cli.format_tokens(total_input)))
+  io.write(string.format("context:       %s\n", cli.format_tokens(total_input)))
   io.write(string.format("output:        %s\n", cli.format_tokens(total_output)))
-  io.write(string.format("total:         %s\n", cli.format_tokens(total)))
   io.write(string.format("cache read:    %s\n", cli.format_tokens(total_cache_read)))
   io.write(string.format("cache write:   %s\n", cli.format_tokens(total_cache_create)))
   if total_input > 0 then
@@ -185,7 +186,7 @@ local function cmd_usage(d: db.DB)
   if #calls > 0 then
     io.write("\ncalls:\n")
     for i, c in ipairs(calls) do
-      io.write(string.format("  #%-3d +%-6s in  +%-6s out  %4dms  %s\n",
+      io.write(string.format("  #%-3d %-7s ctx  +%-6s out  %4dms  %s\n",
           i, cli.format_tokens(c.input), cli.format_tokens(c.output),
           c.latency, short_model(c.model)))
     end

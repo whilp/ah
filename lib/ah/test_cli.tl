@@ -99,7 +99,8 @@ local function test_make_cli_handler_agent_end_shows_percentage()
     end)
   assert(output:match("%%"), "agent_end output should contain '%', got: " .. output)
   assert(output:match("200%.0k"), "agent_end output should contain '200.0k' budget, got: " .. output)
-  assert(output:match("100%.0k"), "agent_end output should contain '100.0k' input, got: " .. output)
+  assert(output:match("100%.0k"), "agent_end output should contain '100.0k' context, got: " .. output)
+  assert(output:match("ctx"), "agent_end output should contain 'ctx', got: " .. output)
 end
 test_make_cli_handler_agent_end_shows_percentage()
 
@@ -146,9 +147,30 @@ local function test_make_cli_handler_agent_end_no_tokens_no_output()
         } as events.EventData)
     end)
   assert(not output:match("%%"), "zero tokens should produce no token line, got: " .. output)
-  assert(not output:match("total"), "zero tokens should produce no total line, got: " .. output)
+  assert(not output:match("ctx"), "zero tokens should produce no ctx line, got: " .. output)
 end
 test_make_cli_handler_agent_end_no_tokens_no_output()
+
+local function test_make_cli_handler_agent_end_with_cache()
+  local handler = cli.make_cli_handler(nil)
+  local output = capture_stderr(function()
+      handler({event_type = "agent_start", model = "claude-opus-4-6"} as events.EventData)
+      handler({
+          event_type = "agent_end",
+          total_input_tokens = 73000,
+          total_output_tokens = 19000,
+          total_cache_read_tokens = 72000,
+        } as events.EventData)
+    end)
+  assert(output:match("73%.0k"), "should show 73.0k context, got: " .. output)
+  assert(output:match("cached"), "should show cached, got: " .. output)
+  assert(output:match("72%.0k"), "should show 72.0k cached, got: " .. output)
+  assert(output:match("19%.0k"), "should show 19.0k output, got: " .. output)
+  assert(output:match("ctx"), "should show ctx, got: " .. output)
+  assert(output:match("7%%"), "should show 7%% utilization, got: " .. output)
+  assert(output:match("1%.0m"), "should show 1.0m budget, got: " .. output)
+end
+test_make_cli_handler_agent_end_with_cache()
 
 -- tool_call_start / tool_call_end output ordering tests
 

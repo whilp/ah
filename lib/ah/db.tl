@@ -362,12 +362,17 @@ end
 
 local function get_session_token_totals(self: DB): TokenTotals
   local totals: TokenTotals = {input_tokens = 0, output_tokens = 0, cache_read_tokens = 0}
-  for row in self._db:query("select coalesce(sum(input_tokens), 0) as total_input, coalesce(sum(output_tokens), 0) as total_output from messages") do
-    totals.input_tokens = (row.total_input or 0) as integer
+  -- input_tokens per message is the full context window for that API call (not
+  -- incremental), so take the last assistant message's value instead of summing.
+  -- output_tokens is incremental (new tokens generated per call), so sum is correct.
+  for row in self._db:query("select coalesce(max(input_tokens), 0) as last_input, coalesce(sum(output_tokens), 0) as total_output from messages") do
+    totals.input_tokens = (row.last_input or 0) as integer
     totals.output_tokens = (row.total_output or 0) as integer
   end
-  for row in self._db:query("select coalesce(sum(json_extract(details, '$.cache_read_input_tokens')), 0) as total_cache_read from events where event_type = 'api_call_end'") do
-    totals.cache_read_tokens = (row.total_cache_read or 0) as integer
+  -- cache_read_input_tokens per call is that call's cache hit, not incremental.
+  -- use the last call's value to show current cache state.
+  for row in self._db:query("select coalesce(json_extract(details, '$.cache_read_input_tokens'), 0) as last_cache_read from events where event_type = 'api_call_end' order by id desc limit 1") do
+    totals.cache_read_tokens = (row.last_cache_read or 0) as integer
   end
   return totals
 end
