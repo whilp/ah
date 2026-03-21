@@ -27,7 +27,7 @@ reduce the time `make test` takes from a clean `o/` directory. baseline is ~23s.
 ## ideas
 - ✗ remove $(o)/bin/ah from ALL test rules — crashed 10 times because test_args.tl and test_version.tl need AH_BIN. DO NOT TRY THIS AGAIN.
 - ✓ split test rules: 30 tests without ah binary dependency, 2 tests (test_args, test_version) with it. the 30 fast tests can start running immediately after compilation, overlapping with the ah binary build. (-17.2%)
-- ✗ narrow test deps from $(ah_lua) to $(ah_test_dep_lua) — iteration 15 was discarded (+6.3%), but the implementation may have been subtly different. RETRYING with cleaner implementation: $(patsubst %.tl,$(o)/%.lua,...) using $(ah_lib_srcs) $(ah_dep_srcs) $(wildcard sys/tools/*.tl). The key difference from iteration 15: this version uses a single patsubst call and was more carefully constructed. If this also regresses, abandon this approach.
+- narrow test deps from $(ah_lua) to $(ah_nontest_lua) — previous iterations 15+ were discarded, but those may have had implementation issues. Current attempt: define `ah_nontest_lua` as `$(patsubst %.tl,$(o)/%.lua,$(ah_lib_srcs) $(ah_dep_srcs) $(wildcard sys/tools/*.tl))` — clean single patsubst using existing variables. This removes ~32 test compilations and bin/ah.tl from the critical path before tests can start, allowing test execution to overlap with test file compilation.
 - version.lua is `.PHONY` — causes ah binary re-embed every time even when nothing changed. make it only regenerate when content changes (write to tmp, compare, move). (only helps incremental, not clean builds)
 - test_envd is 10x slower than other tests (723ms vs ~50ms) — investigate why
 - compilation step runs cosmic per .tl file — check if batch compilation is possible
@@ -35,3 +35,4 @@ reduce the time `make test` takes from a clean `o/` directory. baseline is ~23s.
 - check if test summary generation adds overhead
 - look for redundant or overlapping tests that could be consolidated
 - test_db has a pre-existing bug (cache_read assertion fails) — this is flaky and causes spurious failures
+- replace `cosmic --test $@ cosmic $<` with `cosmic $< && touch $@` to eliminate one process spawn per test (32 tests * ~50ms = potential small saving)
