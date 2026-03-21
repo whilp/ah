@@ -143,9 +143,21 @@ all_tested := $(patsubst %,$(o)/%.test.ok,$(ah_tests))
 
 export LUA_PATH := $(CURDIR)/o/lib/?.lua;$(CURDIR)/o/lib/?/init.lua;$(CURDIR)/lib/?.lua;$(CURDIR)/lib/?/init.lua;;
 
-$(o)/%.tl.test.ok: $(o)/%.lua $(ah_lua) $(o)/bin/ah $(cosmic)
+# tests that require the ah binary
+ah_bin_tests := lib/ah/test_args.tl lib/ah/test_version.tl
+ah_bin_test_oks := $(patsubst %,$(o)/%.test.ok,$(ah_bin_tests))
+
+$(ah_bin_test_oks): $(o)/%.tl.test.ok: $(o)/%.lua $(ah_lua) $(o)/bin/ah $(cosmic)
 	@mkdir -p $(@D)
 	@TEST_TMPDIR=$$(mktemp -d) AH_BIN=$(CURDIR)/$(o)/bin/ah $(cosmic) --test $@ $(cosmic) $<
+
+# tests that do NOT require the ah binary
+ah_nobin_tests := $(filter-out $(ah_bin_tests),$(ah_tests))
+ah_nobin_test_oks := $(patsubst %,$(o)/%.test.ok,$(ah_nobin_tests))
+
+$(ah_nobin_test_oks): $(o)/%.tl.test.ok: $(o)/%.lua $(ah_lua) $(cosmic)
+	@mkdir -p $(@D)
+	@TEST_TMPDIR=$$(mktemp -d) $(cosmic) --test $@ $(cosmic) $<
 
 # targets
 .PHONY: help
