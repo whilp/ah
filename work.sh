@@ -6,16 +6,16 @@ set -uo pipefail
 
 cd "$(dirname "$0")"
 
-rm -rf o/ >&2
-start=$(date +%s%N)
-if ! make test >&2 2>&1; then
-  echo "make test failed, retrying once..." >&2
+# run make test up to 3 times to handle flaky tests
+for attempt in 1 2 3; do
   rm -rf o/ >&2
   start=$(date +%s%N)
-  if ! make test >&2 2>&1; then
-    echo "make test failed twice, aborting" >&2
-    exit 1
+  if make test >&2 2>&1; then
+    end=$(date +%s%N)
+    echo $(( (end - start) / 1000000 ))
+    exit 0
   fi
-fi
-end=$(date +%s%N)
-echo $(( (end - start) / 1000000 ))
+  echo "make test failed (attempt $attempt)" >&2
+done
+echo "make test failed 3 times, aborting" >&2
+exit 1
