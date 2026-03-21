@@ -258,6 +258,42 @@ local function test_tool_key_param_read_string_offset_and_limit()
 end
 test_tool_key_param_read_string_offset_and_limit()
 
+local function test_tool_key_param_result_offset_and_limit()
+  local key = looputil.tool_key_param("result", '{"tool_use_id":"abc","offset":1,"limit":130}', nil)
+  assert(key == "[lines 1-130]", "result with offset=1, limit=130 should return [lines 1-130]: " .. key)
+  print("PASS: tool_key_param result with offset and limit returns [lines N-M]")
+end
+test_tool_key_param_result_offset_and_limit()
+
+local function test_tool_key_param_result_no_args()
+  local key = looputil.tool_key_param("result", '{"tool_use_id":"abc"}', nil)
+  assert(key == "", "result with no offset/limit should return empty: '" .. key .. "'")
+  print("PASS: tool_key_param result with no args returns empty string")
+end
+test_tool_key_param_result_no_args()
+
+local function test_tool_key_param_result_offset_and_limit_mid()
+  local key = looputil.tool_key_param("result", '{"tool_use_id":"abc","offset":50,"limit":20}', nil)
+  assert(key == "[lines 50-69]", "result with offset=50, limit=20 should return [lines 50-69]: " .. key)
+  print("PASS: tool_key_param result with offset=50, limit=20 returns [lines 50-69]")
+end
+test_tool_key_param_result_offset_and_limit_mid()
+
+local function test_tool_key_param_result_offset_only()
+  local key = looputil.tool_key_param("result", '{"tool_use_id":"abc","offset":50}', nil)
+  assert(key == "[lines 50-]", "result with offset only should return [lines 50-]: " .. key)
+  print("PASS: tool_key_param result with offset only returns [lines N-]")
+end
+test_tool_key_param_result_offset_only()
+
+local function test_tool_key_param_result_limit_zero()
+  -- limit=0 means fetch-all (no header emitted by result tool), so key should be ""
+  local key = looputil.tool_key_param("result", '{"tool_use_id":"abc","offset":1,"limit":0}', nil)
+  assert(key == "", "result with limit=0 should return empty: '" .. key .. "'")
+  print("PASS: tool_key_param result with limit=0 returns empty string")
+end
+test_tool_key_param_result_limit_zero()
+
 local function test_tool_key_param_bash_numeric_command()
   -- edge case: command is a number
   local key = looputil.tool_key_param("bash", '{"command":42}', nil)

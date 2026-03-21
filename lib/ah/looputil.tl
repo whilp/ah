@@ -55,6 +55,21 @@ local function tool_key_param(tool_name: string, tool_input: string, details_jso
     return shorten_path(tostring(input.path or ""))
   elseif tool_name == "bash" then
     return tostring(input.command or "")
+  elseif tool_name == "result" then
+    local offset = tonumber(input.offset) as integer
+    local limit = tonumber(input.limit) as integer
+    -- Mirror result.tl logic: header only emitted when NOT (offset<=1 AND limit==0)
+    local eff_offset = (offset and offset > 0) and offset or 1
+    local eff_limit = (limit and limit > 0) and limit or 0
+    if eff_offset <= 1 and eff_limit == 0 then
+      return ""
+    end
+    if eff_limit > 0 then
+      local end_line = eff_offset + eff_limit - 1
+      return string.format("[lines %d-%d]", eff_offset, end_line)
+    else
+      return string.format("[lines %d-]", eff_offset)
+    end
   end
   return ""
 end
