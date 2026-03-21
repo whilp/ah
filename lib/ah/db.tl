@@ -371,7 +371,7 @@ local function get_session_token_totals(self: DB): TokenTotals
   end
   -- cache_read_input_tokens per call is that call's cache hit, not incremental.
   -- use the last call's value to show current cache state.
-  for row in self._db:query("select coalesce(json_extract(details, '$.cache_read_input_tokens'), 0) as last_cache_read from events where event_type = 'api_call_end' order by created_at desc limit 1") do
+  for row in self._db:query("select coalesce(json_extract(details, '$.cache_read_input_tokens'), 0) as last_cache_read from events where event_type = 'api_call_end' order by id desc limit 1") do
     totals.cache_read_tokens = (row.last_cache_read or 0) as integer
   end
   return totals

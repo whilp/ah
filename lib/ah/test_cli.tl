@@ -151,6 +151,27 @@ local function test_make_cli_handler_agent_end_no_tokens_no_output()
 end
 test_make_cli_handler_agent_end_no_tokens_no_output()
 
+local function test_make_cli_handler_agent_end_with_cache()
+  local handler = cli.make_cli_handler(nil)
+  local output = capture_stderr(function()
+      handler({event_type = "agent_start", model = "claude-opus-4-6"} as events.EventData)
+      handler({
+          event_type = "agent_end",
+          total_input_tokens = 73000,
+          total_output_tokens = 19000,
+          total_cache_read_tokens = 72000,
+        } as events.EventData)
+    end)
+  assert(output:match("73%.0k"), "should show 73.0k context, got: " .. output)
+  assert(output:match("cached"), "should show cached, got: " .. output)
+  assert(output:match("72%.0k"), "should show 72.0k cached, got: " .. output)
+  assert(output:match("19%.0k"), "should show 19.0k output, got: " .. output)
+  assert(output:match("ctx"), "should show ctx, got: " .. output)
+  assert(output:match("7%%"), "should show 7%% utilization, got: " .. output)
+  assert(output:match("1%.0m"), "should show 1.0m budget, got: " .. output)
+end
+test_make_cli_handler_agent_end_with_cache()
+
 -- tool_call_start / tool_call_end output ordering tests
 
 local function test_tool_call_start_bash_single_line()
