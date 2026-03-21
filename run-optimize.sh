@@ -5,7 +5,7 @@ set -uo pipefail
 
 cd "$(dirname "$0")"
 
-AH_BIN=${AH_BIN:-./o/bin/ah}
+AH_BIN=${AH_BIN:-/persist/whilp/ah/o/bin/ah}
 MAX_ITERS=20
 MAX_FAILS=10
 PROMPT="reduce make test wall clock time from clean build. focus on build/infrastructure optimizations. do not remove or skip tests unless they are genuinely not useful. the work document is work.md."
