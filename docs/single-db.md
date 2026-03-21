@@ -326,43 +326,21 @@ indexing and listing, not for ancestry.
 
 ### migration
 
-on first open of `.ah/ah.db`, if the directory contains `<ulid>.db` files,
-migrate them:
+no migration. old per-session `.db` files are left in place and ignored.
+the new code only opens `.ah/ah.db`. users who want old history can
+read it with `sqlite3` directly, but there's no automatic import.
 
 ```
-  .ah/                                          .ah/
-  ├── 01J5A.db ─────┐                          ├── ah.db
-  │   messages ──────┼── ATTACH + INSERT ──►    │   conversations: [01J5A, 01J8B, 01JCZ]
-  │   content_blocks │   (set conversation_id)  │   messages: (all, with conversation_id)
-  │   events ────────┤                          │   content_blocks: (all)
-  │   context ───────┘                          │   events: (all, with conversation_id)
-  ├── 01J5A.queue.db ──► copy queue_messages    │   queue_messages: (all)
-  ├── 01J8B.db ─────────► same                  │   session_lock
-  ├── 01J8B.queue.db ──► same                   │   context: {current_conversation: ...}
-  ├── 01JCZ.db ─────────► same                  │
-  ├── 01JCZ.queue.db ──► same                   ├── 01J5A.db.migrated
-  └── ...                                       ├── 01J8B.db.migrated
-                                                └── 01JCZ.db.migrated
+.ah/
+├── ah.db                     ◄── new, all future conversations
+├── 01J5A...XY.db             ◄── old, ignored
+├── 01J5A...XY.queue.db       ◄── old, ignored
+├── 01J8B...QR.db             ◄── old, ignored
+└── ...
 ```
 
-steps per file:
-
-```
-for each <ulid>.db in .ah/:
-  1. skip if <ulid>.db.migrated exists
-  2. ATTACH '<ulid>.db' AS src
-  3. INSERT INTO conversations (id, ...) from ULID timestamp + src context
-  4. INSERT INTO messages SELECT *, <ulid> AS conversation_id FROM src.messages
-  5. INSERT INTO content_blocks SELECT * FROM src.content_blocks
-  6. INSERT INTO events SELECT *, <ulid> AS conversation_id FROM src.events
-  7. DETACH src
-  8. if <ulid>.queue.db exists:
-     ATTACH, copy queue_messages with conversation_id, DETACH
-  9. rename <ulid>.db → <ulid>.db.migrated
-```
-
-migration is idempotent: skip files already migrated. after confirming
-everything works, user can `rm .ah/*.migrated`.
+this keeps the change simple and avoids migration bugs. old files can
+be cleaned up manually (`rm .ah/01*.db*`) whenever the user is ready.
 
 ### what gets deleted
 
