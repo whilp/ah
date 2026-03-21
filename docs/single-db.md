@@ -25,12 +25,180 @@ runs one session at a time. the isolation buys little and costs:
   session db path must be known before opening, creating a chicken-and-egg
   for the lock.
 
+## current architecture
+
+```
+.ah/
+├── 01J5A...XY.db            ◄── session 1 (messages, content_blocks, context, events)
+├── 01J5A...XY.db-wal
+├── 01J5A...XY.db-shm
+├── 01J5A...XY.queue.db      ◄── session 1 queue (queue_messages, session_lock)
+├── 01J5A...XY.queue.db-wal
+├── 01J8B...QR.db            ◄── session 2
+├── 01J8B...QR.queue.db      ◄── session 2 queue
+├── 01JCZ...MN.db            ◄── session 3
+├── 01JCZ...MN.queue.db      ◄── session 3 queue
+└── ...                         (3-5 files per session)
+```
+
+each session is isolated in its own sqlite file. listing sessions
+requires opening every `.db` to read metadata:
+
+```
+list_sessions()
+  ├─ opendir(".ah/")
+  ├─ for each *.db matching ULID pattern:
+  │   ├─ sqlite.open(file)           ◄── O(n) file opens
+  │   ├─ get_message_count()
+  │   ├─ get_first_user_prompt()
+  │   ├─ get_context("session_name")
+  │   └─ close()
+  └─ sort by ULID descending
+```
+
+session resolution is a 5-way priority chain:
+
+```
+resolve session
+  ├─ --db PATH?     ──► open file directly
+  ├─ --name NAME?   ──► scan all files, match context key
+  ├─ -n?            ──► ulid.generate() → new file
+  ├─ -S PREFIX?     ──► scan all files, match ULID prefix
+  └─ default        ──► sort files by name, take newest
+```
+
+## proposed architecture
+
+```
+.ah/
+└── ah.db       ◄── single file: all conversations, queue, locks
+```
+
+one file. three WAL files max (db-wal, db-shm).
+
 ## design
 
-### single file
+### entity relationships
 
-one database at `.ah/ah.db`. created on first run. all conversations,
-queue messages, and locks live here.
+```
+┌──────────────────────┐
+│    conversations     │
+│──────────────────────│
+│ id          (PK)     │─────────┐
+│ name                 │         │
+│ created_at           │         │
+│ closed_at            │         │
+│ state                │         │
+└──────────────────────┘         │
+         │                       │
+         │ 1:N                   │ 1:N
+         ▼                       │
+┌──────────────────────┐         │     ┌──────────────────────┐
+│      messages        │         │     │   queue_messages      │
+│──────────────────────│         │     │──────────────────────│
+│ id          (PK)     │─────┐   │     │ id          (PK)     │
+│ conversation_id (FK) │◄────┼───┘     │ conversation_id (FK) │
+│ parent_id   (FK)     │◄──┐ │        │ message_type         │
+│ role                 │   │ │        │ content              │
+│ seq                  │   │ │        │ created_at           │
+│ created_at           │   │ │        │ consumed_at          │
+│ input_tokens         │   │ │        └──────────────────────┘
+│ output_tokens        │   │ │
+│ stop_reason          │   │ │
+│ model                │   │ │
+│ api_latency_ms       │   │ │
+└──────────────────────┘   │ │
+         │  ▲              │ │
+         │  └──────────────┘ │    (parent_id self-reference
+         │                   │     forms conversation tree)
+         │ 1:N               │
+         ▼                   │ 1:N
+┌──────────────────────┐     │     ┌──────────────────────┐
+│   content_blocks     │     │     │       events         │
+│──────────────────────│     │     │──────────────────────│
+│ id          (PK)     │     │     │ id          (PK)     │
+│ message_id  (FK)     │     │     │ conversation_id (FK) │
+│ block_type           │     │     │ message_id  (FK)     │
+│ seq                  │     │     │ event_type           │
+│ content              │     │     │ created_at           │
+│ tool_id              │     │     │ details              │
+│ tool_name            │     │     └──────────────────────┘
+│ tool_input           │     │
+│ tool_output          │     │
+│ is_error             │     │     ┌──────────────────────┐
+│ duration_ms          │     │     │    session_lock      │
+│ details              │     │     │──────────────────────│
+└──────────────────────┘     │     │ key         (PK)     │
+                             │     │ owner_pid            │
+┌──────────────────────┐     │     │ started_at           │
+│      context         │     │     │ heartbeat_at         │
+│──────────────────────│     │     └──────────────────────┘
+│ key         (PK)     │     │
+│ value                │     │          (global, not per-
+└──────────────────────┘     │           conversation)
+                             │
+  (global kv: stores         │
+   current_conversation)     │
+```
+
+### conversation tree (within one conversation)
+
+```
+conversation: 01J5A...XY
+
+  msg-001 [user] "fix the login bug"
+    │
+    ├── msg-002 [assistant] "I'll look at auth.tl..."
+    │     │
+    │     ├── msg-003 [user] (tool_result: file content)
+    │     │     │
+    │     │     └── msg-004 [assistant] "Found the issue..."
+    │     │           │
+    │     │           └── msg-005 [user] "also fix logout"   ◄── current
+    │     │
+    │     └── msg-006 [user] (branch: different tool_result)
+    │           │
+    │           └── msg-007 [assistant] "alternative fix..."
+    │
+    └── msg-008 [assistant] (branch: retry from root)
+
+  get_ancestry(msg-005) → [msg-001, msg-002, msg-003, msg-004, msg-005]
+  get_ancestry(msg-007) → [msg-001, msg-002, msg-006, msg-007]
+```
+
+the tree structure is unchanged from current. `parent_id` links form
+the chain. `conversation_id` on messages is only for indexing — ancestry
+queries ignore it.
+
+### multiple conversations in one db
+
+```
+ah.db
+  │
+  ├── conversation 01J5A...XY (state: closed)
+  │     └── msg-001 → msg-002 → msg-003 → ... → msg-042
+  │
+  ├── conversation 01J8B...QR (state: closed)
+  │     └── msg-043 → msg-044 → msg-045 → ... → msg-089
+  │
+  └── conversation 01JCZ...MN (state: idle)       ◄── current
+        └── msg-090 → msg-091 → ... → msg-112
+
+  context: { current_conversation: "01JCZ...MN" }
+```
+
+### session resolution (simplified)
+
+```
+resolve conversation
+  ├─ --db PATH?     ──► open file directly (escape hatch, unchanged)
+  ├─ --name NAME?   ──► SELECT id FROM conversations WHERE name = ?
+  ├─ -n?            ──► INSERT INTO conversations
+  ├─ -S PREFIX?     ──► SELECT id FROM conversations WHERE id LIKE ?||'%'
+  └─ default        ──► SELECT id FROM conversations
+                        WHERE state != 'closed'
+                        ORDER BY id DESC LIMIT 1
+```
 
 ### schema changes
 
@@ -140,20 +308,6 @@ create index if not exists idx_queue_consumed on queue_messages(consumed_at);
 | cleanup | `rm .ah/<ulid>.db*` | `delete from conversations where id = ?` cascade |
 | `context` table | per-session kv | global kv (`current_conversation`, etc.) |
 
-### session resolution (simplified)
-
-```
-1. --db PATH         → open that file directly (escape hatch)
-2. --name NAME       → select id from conversations where name = ?
-3. -n                → insert into conversations
-4. -S PREFIX         → select id from conversations where id like ?
-5. default           → select id from conversations where state != 'closed'
-                       order by id desc limit 1
-                       (or create new if none exist)
-```
-
-the 30-line resolution block in `init.tl` becomes ~10 lines of SQL.
-
 ### queue folding
 
 `queue.tl` currently manages its own sqlite connection. with one db:
@@ -176,13 +330,35 @@ on first open of `.ah/ah.db`, if the directory contains `<ulid>.db` files,
 migrate them:
 
 ```
+  .ah/                                          .ah/
+  ├── 01J5A.db ─────┐                          ├── ah.db
+  │   messages ──────┼── ATTACH + INSERT ──►    │   conversations: [01J5A, 01J8B, 01JCZ]
+  │   content_blocks │   (set conversation_id)  │   messages: (all, with conversation_id)
+  │   events ────────┤                          │   content_blocks: (all)
+  │   context ───────┘                          │   events: (all, with conversation_id)
+  ├── 01J5A.queue.db ──► copy queue_messages    │   queue_messages: (all)
+  ├── 01J8B.db ─────────► same                  │   session_lock
+  ├── 01J8B.queue.db ──► same                   │   context: {current_conversation: ...}
+  ├── 01JCZ.db ─────────► same                  │
+  ├── 01JCZ.queue.db ──► same                   ├── 01J5A.db.migrated
+  └── ...                                       ├── 01J8B.db.migrated
+                                                └── 01JCZ.db.migrated
+```
+
+steps per file:
+
+```
 for each <ulid>.db in .ah/:
-  1. create conversation record (id=ulid, created_at from ulid timestamp)
-  2. copy messages with conversation_id set
-  3. copy content_blocks (joined through messages)
-  4. copy events with conversation_id set
-  5. copy queue_messages from .queue.db if exists
-  6. rename <ulid>.db → <ulid>.db.migrated
+  1. skip if <ulid>.db.migrated exists
+  2. ATTACH '<ulid>.db' AS src
+  3. INSERT INTO conversations (id, ...) from ULID timestamp + src context
+  4. INSERT INTO messages SELECT *, <ulid> AS conversation_id FROM src.messages
+  5. INSERT INTO content_blocks SELECT * FROM src.content_blocks
+  6. INSERT INTO events SELECT *, <ulid> AS conversation_id FROM src.events
+  7. DETACH src
+  8. if <ulid>.queue.db exists:
+     ATTACH, copy queue_messages with conversation_id, DETACH
+  9. rename <ulid>.db → <ulid>.db.migrated
 ```
 
 migration is idempotent: skip files already migrated. after confirming
