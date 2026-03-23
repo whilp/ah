@@ -72,7 +72,7 @@ create table if not exists session_lock (
 );
 
 create table if not exists work_iterations (
-  id integer primary key autoincrement,
+  id text primary key,
   status text not null,
   metric_value real,
   baseline_value real,

@@ -1,7 +1,6 @@
 -- ah/work.tl: single-iteration autonomous optimization
-local fs = require("cosmic.fs")
-local cio = require("cosmic.io")
 local child = require("cosmic.child")
+local cio = require("cosmic.io")
 local db = require("ah.db")
 local api = require("ah.api")
 local tools = require("ah.tools")
@@ -11,6 +10,7 @@ local conversations = require("ah.conversations")
 local prompt_mod = require("ah.prompt")
 local cli_mod = require("ah.cli")
 local ctime = require("cosmic.time")
+local ulid = require("ulid")
 
 -- Parse a single number from stdout. Returns nil if not a clean number.
 local function parse_metric(stdout: string): number
@@ -69,14 +69,30 @@ end
 -- Record an iteration outcome.
 local function record_iteration(d: db.DB, iter: Iteration)
   d._db:exec([[
-    insert into work_iterations (status, metric_value, baseline_value, message, created_at)
-    values (?, ?, ?, ?, ?)
-  ]], iter.status, iter.metric_value, iter.baseline_value, iter.message, (ctime.now()))
+    insert into work_iterations (id, status, metric_value, baseline_value, message, created_at)
+    values (?, ?, ?, ?, ?, ?)
+  ]], ulid.generate(), iter.status, iter.metric_value, iter.baseline_value, iter.message, (ctime.now()))
+end
+
+-- Get baseline metric (first "baseline" row).
+local function get_baseline(d: db.DB): number
+  for row in d._db:query("select metric_value from work_iterations where status = 'baseline' limit 1") do
+    return row.metric_value as number
+  end
+  return nil
+end
+
+-- Get best metric (minimum across baseline and keep rows).
+local function get_best(d: db.DB): number
+  for row in d._db:query("select min(metric_value) as v from work_iterations where status in ('baseline', 'keep')") do
+    return row.v as number
+  end
+  return nil
 end
 
 -- Get iteration count.
 local function get_iteration_count(d: db.DB): integer
-  for row in d._db:query("select count(*) as n from work_iterations") do
+  for row in d._db:query("select count(*) as n from work_iterations where status != 'baseline'") do
     return row.n as integer
   end
   return 0
@@ -85,7 +101,7 @@ end
 -- Format recent iteration history for the agent prompt.
 local function format_history(d: db.DB, n: integer): string
   local lines: {string} = {}
-  for row in d._db:query("select status, metric_value, baseline_value, message from work_iterations order by id desc limit ?", n) do
+  for row in d._db:query("select status, metric_value, baseline_value, message from work_iterations where status != 'baseline' order by id desc limit ?", n) do
     local s = row.status as string
     local v = row.metric_value as number
     local b = row.baseline_value as number
@@ -114,15 +130,6 @@ end
 -- Revert working tree to HEAD.
 local function git_revert()
   git("checkout", "--", ".")
-end
-
--- Commit the work document separately so it survives code reverts.
-local function commit_work_doc(path: string)
-  git("add", "--", path)
-  local status = git("diff", "--cached", "--quiet", "--", path)
-  if status == nil then
-    git("commit", "--quiet", "-m", "work: update " .. path)
-  end
 end
 
 -- Commit all changes using a file for the commit message.
@@ -165,8 +172,7 @@ local function run_work(
   local iter_num = get_iteration_count(d) + 1
 
   -- Get or establish baseline metric.
-  local best_str = db.get_context(d, "work:best")
-  local best = best_str and tonumber(best_str)
+  local best = get_best(d)
   if not best then
     io.write("work: benchmarking baseline...\n")
     local bl_stdout, bl_stderr, bl_code = run_script(benchmark)
@@ -181,10 +187,12 @@ local function run_work(
       if bl_stdout ~= "" then io.stderr:write("stdout: " .. bl_stdout .. "\n") end
       return 1
     end
-    db.set_context(d, "work:best", tostring(best))
-    db.set_context(d, "work:baseline", tostring(best))
+    record_iteration(d, {
+        status = "baseline", metric_value = best,
+        baseline_value = best, message = "initial baseline",
+      } as Iteration)
   end
-  local baseline = tonumber(db.get_context(d, "work:baseline")) or best
+  local baseline = get_baseline(d) or best
   local from_baseline = best ~= baseline and " (baseline " .. string.format("%.4g", baseline) .. ", " .. fmt_pct(best, baseline) .. ")" or ""
   io.write(string.format("work: #%d best=%.4g%s\n", iter_num, best, from_baseline))
 
@@ -208,14 +216,6 @@ local function run_work(
         message = "no changes made",
       } as Iteration)
     return 1
-  end
-
-  -- Commit work doc separately so it survives code reverts.
-  local work_doc = db.get_context(d, "work:doc") or "work.md"
-  local f = io.open(work_doc, "r")
-  if f then
-    f:close()
-    commit_work_doc(work_doc)
   end
 
   -- Phase 2: benchmark the change.
@@ -250,7 +250,6 @@ local function run_work(
     local summary = diff:match("^(.-)\n") or "optimization"
     local msg = string.format("work: %.4g → %.4g (%s) %s", best, new_value, pct, summary)
     git_commit(msg)
-    db.set_context(d, "work:best", tostring(new_value))
     io.write(string.format("work: keep %.4g → %.4g (%s)\n", best, new_value, pct))
     record_iteration(d, {
         status = "keep", metric_value = new_value,
@@ -275,6 +274,7 @@ return {
   run_script = run_script,
   fmt_pct = fmt_pct,
   format_history = format_history,
+  get_best = get_best,
+  get_baseline = get_baseline,
   git_revert = git_revert,
-  commit_work_doc = commit_work_doc,
 }
