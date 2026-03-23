@@ -136,18 +136,13 @@ local function run_agent_once(
     io.stderr:write("work: db error: " .. (derr or "") .. "\n")
     return nil
   end
-  local qpath = dbpath:gsub("%.db$", ".queue.db")
-  local qdb, qerr = queue.open(qpath)
-  if not qdb then
-    io.stderr:write("work: queue error: " .. (qerr or "") .. "\n")
-    db.close(d)
-    return nil
-  end
+  local conversations = require("ah.conversations")
+  local conv = conversations.create_conversation(d)
   local on_event = quiet and function(_: any) end or cli_mod.make_cli_handler("work", id)
   local now = (ctime.now()) as number
   local opts: loop.AgentOpts = {deadline = now + 300}
   if must_produce then opts.must_produce = must_produce end
-  loop.run_agent(d, qdb, system, model, prompt, nil, on_event, opts)
+  loop.run_agent(d, conv.id, system, model, prompt, nil, on_event, opts)
   local last_text: string = nil
   local last = db.get_last_message(d)
   if last and last.role == "assistant" then
@@ -158,10 +153,8 @@ local function run_agent_once(
       end
     end
   end
-  queue.close(qdb)
   db.close(d)
   fs.unlink(dbpath)
-  fs.unlink(qpath)
   return last_text or ""
 end
 

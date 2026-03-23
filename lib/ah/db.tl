@@ -1,12 +1,20 @@
--- ah/db.lua: SQLite storage for conversation tree
 local fs = require("cosmic.fs")
 local sqlite = require("cosmic.sqlite")
 local ulid = require("ulid")
 local ctime = require("cosmic.time")
 
 local SCHEMA = [[
+create table if not exists conversations (
+  id text primary key,
+  name text,
+  created_at integer not null,
+  closed_at integer,
+  state text not null default 'idle'
+);
+
 create table if not exists messages (
   id text primary key,
+  conversation_id text not null references conversations(id),
   parent_id text references messages(id),
   role text not null,
   seq integer not null,
@@ -40,16 +48,38 @@ create table if not exists context (
 
 create table if not exists events (
   id text primary key,
+  conversation_id text references conversations(id),
   message_id text references messages(id),
   event_type text not null,
   created_at integer not null,
   details text
 );
 
+create table if not exists queue_messages (
+  id text primary key,
+  conversation_id text not null references conversations(id),
+  message_type text not null,
+  content text not null,
+  created_at integer not null,
+  consumed_at integer
+);
+
+create table if not exists session_lock (
+  key text primary key,
+  owner_pid integer not null,
+  started_at integer not null,
+  heartbeat_at integer not null
+);
+
+create index if not exists idx_messages_conversation on messages(conversation_id);
 create index if not exists idx_messages_parent on messages(parent_id);
 create index if not exists idx_content_blocks_message on content_blocks(message_id);
+create index if not exists idx_events_conversation on events(conversation_id);
 create index if not exists idx_events_message on events(message_id);
 create index if not exists idx_events_type on events(event_type);
+create index if not exists idx_queue_conversation on queue_messages(conversation_id);
+create index if not exists idx_queue_type on queue_messages(message_type);
+create index if not exists idx_queue_consumed on queue_messages(consumed_at);
 ]]
 
 -- Type definitions
@@ -70,6 +100,18 @@ end
 
 local record DB
   _db: Database
+end
+
+local record Conversation
+  id: string
+  name: string
+  created_at: integer
+  closed_at: integer
+  state: string
+end
+
+local record ConversationOpts
+  name: string
 end
 
 local record Message
@@ -201,7 +243,7 @@ local function get_message(self: DB, id: string): Message
   return nil
 end
 
-local function create_message(self: DB, role: string, parent_id?: string, opts?: MessageOpts): Message
+local function create_message(self: DB, role: string, parent_id?: string, opts?: MessageOpts, conversation_id?: string): Message
   local id = ulid.generate()
   local now = math.floor((ctime.now())) as integer
   opts = opts or {}
@@ -213,10 +255,25 @@ local function create_message(self: DB, role: string, parent_id?: string, opts?:
     end
   end
 
+  -- If no conversation_id provided, use the current conversation from context
+  if not conversation_id then
+    conversation_id = get_context(self, "current_conversation")
+  end
+  -- If still no conversation, create one implicitly for backward compatibility
+  if not conversation_id then
+    local conv_id = ulid.generate()
+    local conv_now = math.floor((ctime.now())) as integer
+    self._db:exec_list([[
+      insert into conversations (id, created_at, state) values (?, ?, 'idle')
+    ]], {conv_id, conv_now}, 2)
+    conversation_id = conv_id
+    self._db:exec("insert or replace into context (key, value) values (?, ?)", "current_conversation", conversation_id)
+  end
+
   self._db:exec_list([[
-    insert into messages (id, parent_id, role, seq, created_at, input_tokens, output_tokens, stop_reason, model, api_latency_ms)
-    values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  ]], {id, parent_id, role, seq, now, opts.input_tokens, opts.output_tokens, opts.stop_reason, opts.model, opts.api_latency_ms}, 10)
+    insert into messages (id, conversation_id, parent_id, role, seq, created_at, input_tokens, output_tokens, stop_reason, model, api_latency_ms)
+    values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  ]], {id, conversation_id, parent_id, role, seq, now, opts.input_tokens, opts.output_tokens, opts.stop_reason, opts.model, opts.api_latency_ms}, 11)
 
   self._db:exec("insert or replace into context (key, value) values (?, ?)", "current_message", id)
 
@@ -318,30 +375,43 @@ local function update_content_block(self: DB, id: string, opts: UpdateOpts)
   self._db:exec_list("update content_blocks set " .. table.concat(sets, ", ") .. " where id = ?", values, #values)
 end
 
-local function log_event(self: DB, event_type: string, message_id?: string, details?: string): Event
+local function log_event(self: DB, event_type: string, message_id?: string, details?: string, conversation_id?: string): Event
   local id = ulid.generate()
   local now = math.floor((ctime.now())) as integer
-  self._db:exec_list("insert into events (id, message_id, event_type, created_at, details) values (?, ?, ?, ?, ?)",
-    {id, message_id, event_type, now, details}, 5)
+  if not conversation_id then
+    conversation_id = get_context(self, "current_conversation")
+  end
+  self._db:exec_list("insert into events (id, conversation_id, message_id, event_type, created_at, details) values (?, ?, ?, ?, ?, ?)",
+    {id, conversation_id, message_id, event_type, now, details}, 6)
   return {id = id, message_id = message_id, event_type = event_type, created_at = now, details = details}
 end
 
-local function get_events(self: DB, event_type?: string): {Event}
+local function get_events(self: DB, event_type?: string, conversation_id?: string): {Event}
   local ev: {Event} = {}
-  local sql = "select * from events"
-  if event_type then sql = sql .. " where event_type = ?" end
-  sql = sql .. " order by created_at asc"
-  if event_type then
-    for row in self._db:query(sql, event_type) do table.insert(ev, row as Event) end
+  local base = "select * from events"
+  local iter: function(): {string: any}
+  if event_type and conversation_id then
+    iter = self._db:query(base .. " where event_type = ? and conversation_id = ? order by created_at asc", event_type, conversation_id)
+  elseif event_type then
+    iter = self._db:query(base .. " where event_type = ? order by created_at asc", event_type)
+  elseif conversation_id then
+    iter = self._db:query(base .. " where conversation_id = ? order by created_at asc", conversation_id)
   else
-    for row in self._db:query(sql) do table.insert(ev, row as Event) end
+    iter = self._db:query(base .. " order by created_at asc")
   end
+  for row in iter do table.insert(ev, row as Event) end
   return ev
 end
 
-local function get_message_count(self: DB): integer
-  for row in self._db:query("select count(*) as cnt from messages") do
-    return (row.cnt or 0) as integer
+local function get_message_count(self: DB, conversation_id?: string): integer
+  if conversation_id then
+    for row in self._db:query("select count(*) as cnt from messages where conversation_id = ?", conversation_id) do
+      return (row.cnt or 0) as integer
+    end
+  else
+    for row in self._db:query("select count(*) as cnt from messages") do
+      return (row.cnt or 0) as integer
+    end
   end
   return 0
 end
@@ -360,19 +430,24 @@ local function cleanup_orphans(self: DB): integer
   return #orphans
 end
 
-local function get_session_token_totals(self: DB): TokenTotals
+local function get_session_token_totals(self: DB, conversation_id?: string): TokenTotals
   local totals: TokenTotals = {input_tokens = 0, output_tokens = 0, cache_read_tokens = 0}
-  -- input_tokens per message is the full context window for that API call (not
-  -- incremental), so take the last assistant message's value instead of summing.
-  -- output_tokens is incremental (new tokens generated per call), so sum is correct.
-  for row in self._db:query("select coalesce(max(input_tokens), 0) as last_input, coalesce(sum(output_tokens), 0) as total_output from messages") do
-    totals.input_tokens = (row.last_input or 0) as integer
-    totals.output_tokens = (row.total_output or 0) as integer
-  end
-  -- cache_read_input_tokens per call is that call's cache hit, not incremental.
-  -- use the last call's value to show current cache state.
-  for row in self._db:query("select coalesce(json_extract(details, '$.cache_read_input_tokens'), 0) as last_cache_read from events where event_type = 'api_call_end' order by id desc limit 1") do
-    totals.cache_read_tokens = (row.last_cache_read or 0) as integer
+  if conversation_id then
+    for row in self._db:query("select coalesce(max(input_tokens), 0) as last_input, coalesce(sum(output_tokens), 0) as total_output from messages where conversation_id = ?", conversation_id) do
+      totals.input_tokens = (row.last_input or 0) as integer
+      totals.output_tokens = (row.total_output or 0) as integer
+    end
+    for row in self._db:query("select coalesce(json_extract(details, '$.cache_read_input_tokens'), 0) as last_cache_read from events where event_type = 'api_call_end' and conversation_id = ? order by rowid desc limit 1", conversation_id) do
+      totals.cache_read_tokens = (row.last_cache_read or 0) as integer
+    end
+  else
+    for row in self._db:query("select coalesce(max(input_tokens), 0) as last_input, coalesce(sum(output_tokens), 0) as total_output from messages") do
+      totals.input_tokens = (row.last_input or 0) as integer
+      totals.output_tokens = (row.total_output or 0) as integer
+    end
+    for row in self._db:query("select coalesce(json_extract(details, '$.cache_read_input_tokens'), 0) as last_cache_read from events where event_type = 'api_call_end' order by rowid desc limit 1") do
+      totals.cache_read_tokens = (row.last_cache_read or 0) as integer
+    end
   end
   return totals
 end
@@ -385,14 +460,21 @@ local function set_session_state(self: DB, state: string)
   set_context(self, "session_state", state)
 end
 
-local function get_first_user_prompt(self: DB): string
-  for row in self._db:query([[
-    select content from content_blocks
-    where block_type = 'text'
-      and message_id in (select id from messages where role = 'user' order by seq asc limit 1)
-    order by seq asc limit 1
-  ]]) do
-    return (row.content or "") as string
+local function get_first_user_prompt(self: DB, conversation_id?: string): string
+  if conversation_id then
+    for row in self._db:query([[
+      select content from content_blocks where block_type = 'text'
+        and message_id in (select id from messages where role = 'user' and conversation_id = ? order by seq asc limit 1)
+      order by seq asc limit 1]], conversation_id) do
+      return (row.content or "") as string
+    end
+  else
+    for row in self._db:query([[
+      select content from content_blocks where block_type = 'text'
+        and message_id in (select id from messages where role = 'user' order by seq asc limit 1)
+      order by seq asc limit 1]]) do
+      return (row.content or "") as string
+    end
   end
   return ""
 end
@@ -410,7 +492,9 @@ return {
   get_context = get_context, set_context = set_context,
   get_session_state = get_session_state, set_session_state = set_session_state,
   get_session_token_totals = get_session_token_totals,
+  -- Types
   DB = DB, TokenTotals = TokenTotals, Message = Message,
   ContentBlock = ContentBlock, ContentBlockOpts = ContentBlockOpts,
   MessageOpts = MessageOpts, Event = Event,
+  Conversation = Conversation, ConversationOpts = ConversationOpts,
 }

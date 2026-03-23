@@ -153,7 +153,7 @@ local function repair_dangling_tool_use(api_messages: {any}, on_event: events.Ev
   end
 end
 
-local function run_agent(d: db.DB, qdb: queue.QueueDB, system_prompt: string, model: string, prompt: string, parent_id: string, on_event: events.EventCallback, opts: AgentOpts): string
+local function run_agent(d: db.DB, conversation_id: string, system_prompt: string, model: string, prompt: string, parent_id: string, on_event: events.EventCallback, opts: AgentOpts): string
   opts = opts or {}
   local max_tokens = opts.max_tokens
   local must_produce = opts.must_produce
@@ -188,8 +188,8 @@ local function run_agent(d: db.DB, qdb: queue.QueueDB, system_prompt: string, mo
 
   while not interrupted do
     -- Drain steering queue
-    if qdb then queue.update_heartbeat(qdb)
-      local steering_msgs = queue.drain_steering(qdb)
+    if conversation_id then queue.update_heartbeat(d)
+      local steering_msgs = queue.drain_steering(d, conversation_id)
       for _, steer_msg in ipairs(steering_msgs) do
         emit(on_event, events.steering_received(steer_msg.content, #steering_msgs))
         db.begin_transaction(d)
@@ -381,8 +381,8 @@ local function run_agent(d: db.DB, qdb: queue.QueueDB, system_prompt: string, mo
 
     local tool_calls = api.extract_tool_calls(response) as {any}
     if #tool_calls == 0 then
-      if qdb then
-        local followup_msgs = queue.drain_followup(qdb)
+      if conversation_id then
+        local followup_msgs = queue.drain_followup(d, conversation_id)
         if #followup_msgs > 0 then
           for _, followup_msg in ipairs(followup_msgs) do
             emit(on_event, events.followup_received(followup_msg.content, #followup_msgs))
