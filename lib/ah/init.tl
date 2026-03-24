@@ -313,6 +313,16 @@ local function main(args: {string}): integer, string
     return 0
   end
 
+  if cmd == "work" then
+    local work_mod = require("ah.work")
+    local subcmd = remaining[2] or ""
+    local work_args: {string} = {}
+    for i = 3, #remaining do work_args[#work_args + 1] = remaining[i] end
+    local rc = work_mod.cmd_work(d, cwd, subcmd, work_args, model)
+    db.close(d)
+    return rc
+  end
+
   -- Conversation resolution
   local conv_id: string = nil
   if new_session and session_name then
@@ -428,10 +438,6 @@ local function main(args: {string}): integer, string
   if parsed.must_produce then
     effective_system = effective_system .. "\n\nIMPORTANT: You must write the file `" .. parsed.must_produce .. "` before finishing."
   end
-  -- Default --work timeout to 300s if not explicitly set.
-  if parsed.work_script and not parsed.timeout then
-    parsed.timeout = 300
-  end
   if parsed.timeout and parsed.timeout > 0 then
     effective_system = effective_system .. "\n\nYou have " .. tostring(parsed.timeout) .. " seconds of wall-clock time. Budget your turns accordingly."
   end
@@ -462,13 +468,8 @@ local function main(args: {string}): integer, string
   if parsed.max_turn_tokens then agent_opts.max_turn_tokens = parsed.max_turn_tokens end
   if parsed.must_produce then agent_opts.must_produce = parsed.must_produce end
   local exit_code: integer = 0
-  if parsed.work_script then
-    local work_mod = require("ah.work")
-    exit_code = work_mod.run_work(d, cwd, parsed.work_script, prompt, model)
-  else
-    local stop_reason = loop.run_agent(d, conv_id, effective_system, effective_model, prompt, parent_id, on_event, agent_opts)
-    if stop_reason == "error" then exit_code = 1 end
-  end
+  local stop_reason = loop.run_agent(d, conv_id, effective_system, effective_model, prompt, parent_id, on_event, agent_opts)
+  if stop_reason == "error" then exit_code = 1 end
 
   db.set_session_state(d, "closed")
   queue.release_lock(d)

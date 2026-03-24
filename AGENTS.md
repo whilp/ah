@@ -43,6 +43,7 @@ working in that area.
 | [docs/tools.md](docs/tools.md) | tool loading, tiers, overrides, custom tools, truncation |
 | [docs/skills.md](docs/skills.md) | skill format, loading, expansion, system prompt injection |
 | [docs/sandbox.md](docs/sandbox.md) | network proxy, unveil, pledge, `--sandbox` mode |
+| [docs/work.md](docs/work.md) | work loop, benchmarks, optimization lifecycle |
 | [docs/testing.md](docs/testing.md) | test conventions, running tests, adding new tests |
 
 ## project layout

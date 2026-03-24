@@ -1,31 +1,22 @@
--- ah/work.tl: single-iteration autonomous optimization
-local fs = require("cosmic.fs")
-local cio = require("cosmic.io")
+-- ah/work.tl: bisect-style optimization loop
+--
+-- ah work start BENCHMARK "goal"  — establish baseline
+-- ah work run                     — one iteration: agent → benchmark → keep/discard
+-- ah work log                     — print iteration history
+-- ah work status                  — print current metric
+-- ah work reset                   — clear work state
 local child = require("cosmic.child")
-local json = require("cosmic.json")
+local cio = require("cosmic.io")
 local db = require("ah.db")
-local ulid = require("ulid")
 local api = require("ah.api")
 local tools = require("ah.tools")
 local skills = require("ah.skills")
 local loop = require("ah.loop")
-local queue = require("ah.queue")
+local conversations = require("ah.conversations")
 local prompt_mod = require("ah.prompt")
 local cli_mod = require("ah.cli")
 local ctime = require("cosmic.time")
-
-local RESULT_FILE = ".ah/work-result.json"
-
-local WORK_SCHEMA = [[
-create table if not exists work_iterations (
-  id integer primary key autoincrement,
-  status text not null,
-  metric_value real,
-  baseline_value real,
-  message text,
-  created_at integer not null
-);
-]]
+local ulid = require("ulid")
 
 local record Iteration
   status: string
@@ -81,22 +72,33 @@ local function fmt_pct(new_val: number, baseline: number): string
   return string.format("%.1f%%", pct)
 end
 
--- Initialize work tables in a session db.
-local function init_work_db(d: db.DB)
-  d._db:exec(WORK_SCHEMA)
-end
-
 -- Record an iteration outcome.
 local function record_iteration(d: db.DB, iter: Iteration)
   d._db:exec([[
-    insert into work_iterations (status, metric_value, baseline_value, message, created_at)
-    values (?, ?, ?, ?, ?)
-  ]], iter.status, iter.metric_value, iter.baseline_value, iter.message, (ctime.now()))
+    insert into work_iterations (id, status, metric_value, baseline_value, message, created_at)
+    values (?, ?, ?, ?, ?, ?)
+  ]], ulid.generate(), iter.status, iter.metric_value, iter.baseline_value, iter.message, (ctime.now()))
 end
 
--- Get iteration count.
+-- Get baseline metric (first recorded measurement).
+local function get_baseline(d: db.DB): number
+  for row in d._db:query("select metric_value from work_iterations where status = 'baseline' order by created_at asc, id asc limit 1") do
+    return row.metric_value as number
+  end
+  return nil
+end
+
+-- Get best metric (minimum among baseline and kept iterations).
+local function get_best(d: db.DB): number
+  for row in d._db:query("select min(metric_value) as v from work_iterations where status in ('baseline', 'keep')") do
+    return row.v as number
+  end
+  return nil
+end
+
+-- Get iteration count (excluding baseline).
 local function get_iteration_count(d: db.DB): integer
-  for row in d._db:query("select count(*) as n from work_iterations") do
+  for row in d._db:query("select count(*) as n from work_iterations where status != 'baseline'") do
     return row.n as integer
   end
   return 0
@@ -105,7 +107,7 @@ end
 -- Format recent iteration history for the agent prompt.
 local function format_history(d: db.DB, n: integer): string
   local lines: {string} = {}
-  for row in d._db:query("select status, metric_value, baseline_value, message from work_iterations order by id desc limit ?", n) do
+  for row in d._db:query("select status, metric_value, baseline_value, message from work_iterations where status != 'baseline' order by created_at desc, id desc limit ?", n) do
     local s = row.status as string
     local v = row.metric_value as number
     local b = row.baseline_value as number
@@ -121,43 +123,6 @@ local function format_history(d: db.DB, n: integer): string
   return table.concat(lines, "\n")
 end
 
--- Run an agent in a throwaway session. Returns last assistant text.
--- If quiet is true, suppress terminal output.
--- If must_produce is set, the agent must write that file.
-local function run_agent_once(
-    cwd: string, system: string, model: string,
-    prompt: string, quiet: boolean, must_produce: string
-  ): string
-  local ah_dir = fs.join(cwd, ".ah")
-  local id = ulid.generate()
-  local dbpath = fs.join(ah_dir, id .. ".db")
-  local d, derr = db.open(dbpath)
-  if not d then
-    io.stderr:write("work: db error: " .. (derr or "") .. "\n")
-    return nil
-  end
-  local conversations = require("ah.conversations")
-  local conv = conversations.create_conversation(d)
-  local on_event = quiet and function(_: any) end or cli_mod.make_cli_handler("work", id)
-  local now = (ctime.now()) as number
-  local opts: loop.AgentOpts = {deadline = now + 300}
-  if must_produce then opts.must_produce = must_produce end
-  loop.run_agent(d, conv.id, system, model, prompt, nil, on_event, opts)
-  local last_text: string = nil
-  local last = db.get_last_message(d)
-  if last and last.role == "assistant" then
-    local blocks = db.get_content_blocks(d, last.id)
-    for _, block in ipairs(blocks) do
-      if block.block_type == "text" and block.content then
-        last_text = block.content as string
-      end
-    end
-  end
-  db.close(d)
-  fs.unlink(dbpath)
-  return last_text or ""
-end
-
 -- Check if working tree has changes.
 local function git_has_changes(): boolean
   return git("diff", "--quiet", "HEAD") == nil
@@ -168,33 +133,14 @@ local function git_diff(): string
   return git("diff", "HEAD", "--", ".", ":(exclude).ah") or ""
 end
 
+-- Get a short diffstat summary suitable for commit messages.
+local function git_diffstat(): string
+  return git("diff", "--stat", "HEAD", "--", ".", ":(exclude).ah") or ""
+end
+
 -- Revert working tree to HEAD.
 local function git_revert()
   git("checkout", "--", ".")
-end
-
--- Read the work result JSON. Returns work_doc path or nil.
-local function read_work_result(): string
-  local raw = cio.slurp(RESULT_FILE)
-  if not raw then return nil end
-  local ok, data = pcall(json.decode, raw)
-  if not ok or not data then return nil end
-  local t = data as {string: any}
-  local doc = t["work_doc"]
-  if doc and doc is string and doc ~= "" then
-    return doc
-  end
-  return nil
-end
-
--- Commit the work document separately so it survives code reverts.
-local function commit_work_doc(path: string)
-  git("add", "--", path)
-  -- Only commit if there are staged changes for this file.
-  local status = git("diff", "--cached", "--quiet", "--", path)
-  if status == nil then
-    git("commit", "--quiet", "-m", "work: update " .. path)
-  end
 end
 
 -- Commit all changes using a file for the commit message.
@@ -206,7 +152,17 @@ local function git_commit(msg: string)
   os.remove(tmpfile)
 end
 
--- Build system prompt with tools and optional skill.
+-- Get the stored benchmark script path.
+local function get_benchmark(d: db.DB): string
+  return db.get_context(d, "work:benchmark")
+end
+
+-- Get the stored goal prompt.
+local function get_goal(d: db.DB): string
+  return db.get_context(d, "work:goal")
+end
+
+-- Build system prompt with tools and autowork skill.
 local function build_system(cwd: string): string
   local system = prompt_mod.load_system_prompt(cwd)
   tools.init_custom_tools(cwd)
@@ -224,55 +180,77 @@ local function build_system(cwd: string): string
     end
     if content ~= "" then system = system .. "\n\n" .. content end
   end
-  system = system .. "\n\nIMPORTANT: You must write the file `" .. RESULT_FILE .. "` before finishing."
   return system
 end
 
--- Run one work iteration. Returns 0=keep, 1=discard/error.
-local function run_work(
-    d: db.DB, cwd: string, work_script: string,
-    prompt: string, model: string
-  ): integer
-  init_work_db(d)
+-- "ah work start BENCHMARK GOAL" — run benchmark, record baseline.
+local function cmd_start(d: db.DB, benchmark: string, goal: string): integer
+  -- Check for existing work session.
+  if get_baseline(d) then
+    io.stderr:write("work: already started (use 'ah work reset' to clear)\n")
+    return 1
+  end
+
+  -- Validate benchmark script exists and is executable.
+  local stdout, stderr, code = run_script(benchmark)
+  if code ~= 0 then
+    io.stderr:write("work: benchmark failed (exit " .. code .. ")\n")
+    io.stderr:write(stderr)
+    return 1
+  end
+  local metric = parse_metric(stdout)
+  if not metric then
+    io.stderr:write("work: benchmark did not print a number to stdout\n")
+    if stdout ~= "" then io.stderr:write("stdout: " .. stdout .. "\n") end
+    return 1
+  end
+
+  -- Record baseline and config.
+  record_iteration(d, {
+      status = "baseline", metric_value = metric,
+      baseline_value = metric, message = "initial baseline",
+    } as Iteration)
+  db.set_context(d, "work:benchmark", benchmark)
+  db.set_context(d, "work:goal", goal)
+
+  io.write(string.format("work: started — baseline %.4g\n", metric))
+  return 0
+end
+
+-- "ah work run" — one agent iteration.
+local function cmd_run(d: db.DB, cwd: string, model: string): integer
+  local benchmark = get_benchmark(d)
+  if not benchmark then
+    io.stderr:write("work: not started (use 'ah work start BENCHMARK GOAL')\n")
+    return 1
+  end
+  local goal = get_goal(d) or ""
+  local best = get_best(d)
+  if not best then
+    io.stderr:write("work: no baseline (use 'ah work reset' and start again)\n")
+    return 1
+  end
+  local baseline = get_baseline(d) or best
+
   local system = build_system(cwd)
   local effective_model = api.resolve_model(model or os.getenv("AH_MODEL"))
   local iter_num = get_iteration_count(d) + 1
 
-  -- Get or establish baseline metric
-  local best_str = db.get_context(d, "work:best")
-  local best = best_str and tonumber(best_str)
-  if not best then
-    io.write("work: benchmarking baseline...\n")
-    local bl_stdout, bl_stderr, bl_code = run_script(work_script)
-    if bl_code ~= 0 then
-      io.stderr:write("work: benchmark failed (exit " .. bl_code .. ")\n")
-      io.stderr:write(bl_stderr)
-      return 1
-    end
-    best = parse_metric(bl_stdout)
-    if not best then
-      io.stderr:write("work: benchmark did not print a number to stdout\n")
-      if bl_stdout ~= "" then io.stderr:write("stdout: " .. bl_stdout .. "\n") end
-      return 1
-    end
-    db.set_context(d, "work:best", tostring(best))
-    db.set_context(d, "work:baseline", tostring(best))
-  end
-  local baseline = tonumber(db.get_context(d, "work:baseline")) or best
   local from_baseline = best ~= baseline and " (baseline " .. string.format("%.4g", baseline) .. ", " .. fmt_pct(best, baseline) .. ")" or ""
   io.write(string.format("work: #%d best=%.4g%s\n", iter_num, best, from_baseline))
 
-  -- Phase 1: agent implements a change
+  -- Phase 1: agent implements a change.
   local history = format_history(d, 15)
   local implement_prompt = string.format(
     "%s\n\ncurrent metric: %.4g (lower is better)\n\n## iteration history\n%s",
-    prompt, best, history)
+    goal, best, history)
 
-  -- Clean up stale result file from prior iteration.
-  fs.unlink(RESULT_FILE)
-
-  local impl_result = run_agent_once(cwd, system, effective_model, implement_prompt, false, RESULT_FILE)
-  if not impl_result then return 1 end
+  local conv = conversations.create_conversation(d, {name = "work-" .. iter_num})
+  local on_event = cli_mod.make_cli_handler("work", conv.id)
+  local now = (ctime.now()) as number
+  local agent_opts: loop.AgentOpts = {deadline = now + 300}
+  loop.run_agent(d, conv.id, system, effective_model, implement_prompt, nil, on_event, agent_opts)
+  conversations.close_conversation(d, conv.id)
 
   if not git_has_changes() then
     io.write("work: no changes\n")
@@ -283,32 +261,23 @@ local function run_work(
     return 1
   end
 
-  -- Commit work document separately so it survives code reverts.
-  -- The agent writes RESULT_FILE with {"work_doc": "<path>"}.
-  local work_doc = read_work_result()
-  if work_doc then
-    commit_work_doc(work_doc)
-  end
-  -- Clean up the result file — it should not be part of code changes.
-  fs.unlink(RESULT_FILE)
-  git("checkout", "--", RESULT_FILE)
-
-  -- Phase 2: benchmark the change
+  -- Phase 2: benchmark the change.
   io.write("work: benchmarking...\n")
-  local bm_stdout, bm_stderr, bm_code = run_script(work_script)
+  local bm_stdout, bm_stderr, bm_code = run_script(benchmark)
   if bm_code ~= 0 then
-    io.write("work: benchmark crashed, reverting\n")
+    io.stderr:write("work: benchmark crashed (exit " .. bm_code .. "), reverting\n")
     io.stderr:write(bm_stderr)
     git_revert()
     record_iteration(d, {
         status = "crash", baseline_value = best,
-        message = "benchmark failed",
+        message = "benchmark exit " .. bm_code,
       } as Iteration)
     return 1
   end
+
   local new_value = parse_metric(bm_stdout)
   if not new_value then
-    io.write("work: benchmark produced no metric, reverting\n")
+    io.stderr:write("work: no metric, reverting\n")
     git_revert()
     record_iteration(d, {
         status = "crash", baseline_value = best,
@@ -319,29 +288,19 @@ local function run_work(
 
   local pct = fmt_pct(new_value, best)
 
-  -- Phase 3: decide keep or discard
+  -- Phase 3: decide keep or discard.
   if new_value < best then
-    -- Improved — ask agent for a commit message (quiet, no terminal output)
-    local diff = git_diff()
-    local msg_prompt = string.format(
-      "write a one-line git commit message for this change.\nmetric: %.4g → %.4g (%s)\n\n```\n%s\n```\n\nrespond with only the commit message, nothing else.",
-      best, new_value, pct, diff)
-    local msg_system = "write a one-line git commit message. respond with only the message."
-    local msg = run_agent_once(cwd, msg_system, effective_model, msg_prompt, true, nil)
-    if not msg or msg == "" then msg = string.format("%.4g → %.4g (%s)", best, new_value, pct) end
-    -- Clean up: take first non-empty line
-    msg = msg:match("^%s*(.-)%s*$") or msg
-    msg = msg:match("^([^\n]+)") or msg
-    git_commit(msg)
-    db.set_context(d, "work:best", tostring(new_value))
-    io.write(string.format("work: keep %.4g → %.4g (%s) — %s\n", best, new_value, pct, msg))
+    local stat = git_diffstat()
+    local summary = stat:match("^(.-)\n") or "optimization"
+    local msg = string.format("%.4g → %.4g (%s) %s", best, new_value, pct, summary)
+    git_commit("work: " .. msg)
+    io.write(string.format("work: keep %.4g → %.4g (%s)\n", best, new_value, pct))
     record_iteration(d, {
         status = "keep", metric_value = new_value,
         baseline_value = best, message = msg,
       } as Iteration)
     return 0
   else
-    -- Not improved — discard directly, no agent call
     git_revert()
     local msg = string.format("%.4g → %.4g (%s)", best, new_value, pct)
     io.write(string.format("work: discard %.4g → %.4g (%s)\n", best, new_value, pct))
@@ -353,14 +312,101 @@ local function run_work(
   end
 end
 
+-- "ah work log" — print iteration history.
+local function cmd_log(d: db.DB): integer
+  local baseline = get_baseline(d)
+  if not baseline then
+    io.stderr:write("work: not started\n")
+    return 1
+  end
+  io.write(string.format("baseline: %.4g\n\n", baseline))
+  for row in d._db:query("select status, metric_value, baseline_value, message, created_at from work_iterations where status != 'baseline' order by created_at asc, id asc") do
+    local s = row.status as string
+    local v = row.metric_value as number
+    local b = row.baseline_value as number
+    local m = row.message as string or ""
+    if v then
+      io.write(string.format("%-8s %.4g (was %.4g, %s) %s\n",
+          s, v, b, fmt_pct(v, b), m))
+    else
+      io.write(string.format("%-8s %s\n", s, m))
+    end
+  end
+  local best = get_best(d)
+  if best and best ~= baseline then
+    io.write(string.format("\nbest: %.4g (%s from baseline)\n", best, fmt_pct(best, baseline)))
+  end
+  return 0
+end
+
+-- "ah work status" — print current state.
+local function cmd_status(d: db.DB): integer
+  local baseline = get_baseline(d)
+  if not baseline then
+    io.stderr:write("work: not started\n")
+    return 1
+  end
+  local best = get_best(d) or baseline
+  local n = get_iteration_count(d)
+  local benchmark = get_benchmark(d) or "(unknown)"
+  local goal = get_goal(d) or "(none)"
+  io.write(string.format("benchmark: %s\n", benchmark))
+  io.write(string.format("goal:      %s\n", goal))
+  io.write(string.format("baseline:  %.4g\n", baseline))
+  io.write(string.format("best:      %.4g (%s)\n", best, fmt_pct(best, baseline)))
+  io.write(string.format("iterations: %d\n", n))
+  return 0
+end
+
+-- "ah work reset" — clear work state.
+local function cmd_reset(d: db.DB): integer
+  d._db:exec("delete from work_iterations")
+  db.set_context(d, "work:benchmark", nil)
+  db.set_context(d, "work:goal", nil)
+  io.write("work: reset\n")
+  return 0
+end
+
+-- Dispatch work subcommands. Called from init.tl.
+local function cmd_work(d: db.DB, cwd: string, subcmd: string, args: {string}, model: string): integer
+  if subcmd == "start" then
+    local benchmark = args[1]
+    if not benchmark then
+      io.stderr:write("usage: ah work start BENCHMARK [GOAL...]\n")
+      return 1
+    end
+    local goal_parts: {string} = {}
+    for i = 2, #args do goal_parts[#goal_parts + 1] = args[i] end
+    local goal = table.concat(goal_parts, " ")
+    if goal == "" then
+      io.stderr:write("usage: ah work start BENCHMARK GOAL\n")
+      return 1
+    end
+    return cmd_start(d, benchmark, goal)
+  elseif subcmd == "run" then
+    return cmd_run(d, cwd, model)
+  elseif subcmd == "log" then
+    return cmd_log(d)
+  elseif subcmd == "status" then
+    return cmd_status(d)
+  elseif subcmd == "reset" then
+    return cmd_reset(d)
+  else
+    io.stderr:write("usage: ah work <start|run|log|status|reset>\n")
+    return 1
+  end
+end
+
 return {
-  run_work = run_work,
+  cmd_work = cmd_work,
   parse_metric = parse_metric,
   run_script = run_script,
   fmt_pct = fmt_pct,
-  init_work_db = init_work_db,
   format_history = format_history,
+  get_best = get_best,
+  get_baseline = get_baseline,
+  get_benchmark = get_benchmark,
+  get_goal = get_goal,
+  record_iteration = record_iteration,
   git_revert = git_revert,
-  read_work_result = read_work_result,
-  commit_work_doc = commit_work_doc,
 }

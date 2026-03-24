@@ -2,9 +2,8 @@
 local db = require("ah.db")
 local work = require("ah.work")
 local fs = require("cosmic.fs")
-local cio = require("cosmic.io")
-local child = require("cosmic.child")
 local cenv = require("cosmic.env")
+local ulid = require("ulid")
 
 local TEST_TMPDIR = cenv.get("TEST_TMPDIR") or "/tmp"
 
@@ -30,31 +29,35 @@ local function test_fmt_pct()
 end
 test_fmt_pct()
 
--- test: init_work_db and format_history
+-- test: format_history uses work_iterations from main schema
 local function test_work_db()
   local db_path = fs.join(TEST_TMPDIR, "test_work.db")
   fs.unlink(db_path)
   local d = db.open(db_path)
-  work.init_work_db(d)
-  work.init_work_db(d) -- idempotent
 
   local h = work.format_history(d, 10)
   assert(h == "no previous iterations.", "empty history")
 
-  -- Insert via raw sql since record_iteration uses os.time()
+  -- Insert rows (baseline is excluded from history)
   d._db:exec([[
-    insert into work_iterations (status, metric_value, baseline_value, message, created_at)
-    values ('keep', 38.1, 42.3, 'inlined hot path', 1000)
-  ]])
+    insert into work_iterations (id, status, metric_value, baseline_value, message, created_at)
+    values (?, 'baseline', 100.0, 100.0, 'initial baseline', 1000)
+  ]], ulid.generate())
+
   d._db:exec([[
-    insert into work_iterations (status, metric_value, baseline_value, message, created_at)
-    values ('discard', 39.5, 38.1, 'removed bounds check', 1001)
-  ]])
+    insert into work_iterations (id, status, metric_value, baseline_value, message, created_at)
+    values (?, 'keep', 90.5, 100.0, 'improved', 1001)
+  ]], ulid.generate())
+
+  d._db:exec([[
+    insert into work_iterations (id, status, metric_value, baseline_value, message, created_at)
+    values (?, 'discard', 110.0, 90.5, 'regression', 1002)
+  ]], ulid.generate())
 
   h = work.format_history(d, 10)
-  assert(h:match("keep"), "should contain keep")
-  assert(h:match("discard"), "should contain discard")
-  assert(h:match("38.1"), "should contain metric")
+  assert(h:find("keep"), "has keep row: " .. h)
+  assert(h:find("discard"), "has discard row: " .. h)
+  assert(not h:find("baseline"), "baseline excluded from history: " .. h)
 
   db.close(d)
   fs.unlink(db_path)
@@ -62,68 +65,92 @@ local function test_work_db()
 end
 test_work_db()
 
--- helper: run a shell command in a directory, return stdout
-local function sh(dir: string, cmd: string): string
-  local handle = child.spawn({"sh", "-c", "cd " .. dir .. " && " .. cmd})
-  if not handle then return "" end
-  handle.stderr:read()
-  local ok, out = handle:read()
-  if not ok then return "" end
-  local s = ((out as string) or ""):gsub("%s+$", "")
-  return s
+-- test: get_best and get_baseline
+local function test_best_baseline()
+  local db_path = fs.join(TEST_TMPDIR, "test_work_best.db")
+  fs.unlink(db_path)
+  local d = db.open(db_path)
+
+  -- No rows yet
+  assert(work.get_best(d) == nil, "no best yet")
+  assert(work.get_baseline(d) == nil, "no baseline yet")
+
+  -- Add baseline row
+  d._db:exec([[
+    insert into work_iterations (id, status, metric_value, baseline_value, message, created_at)
+    values (?, 'baseline', 42.3, 42.3, 'initial baseline', 1000)
+  ]], ulid.generate())
+
+  assert(work.get_best(d) == 42.3, "best is baseline")
+  assert(work.get_baseline(d) == 42.3, "baseline")
+
+  -- Add a keep row with improvement
+  d._db:exec([[
+    insert into work_iterations (id, status, metric_value, baseline_value, message, created_at)
+    values (?, 'keep', 38.1, 42.3, 'improvement', 1001)
+  ]], ulid.generate())
+
+  assert(work.get_best(d) == 38.1, "best updated after keep")
+  assert(work.get_baseline(d) == 42.3, "baseline unchanged")
+
+  -- Add a discard row — should not affect best
+  d._db:exec([[
+    insert into work_iterations (id, status, metric_value, baseline_value, message, created_at)
+    values (?, 'discard', 50.0, 38.1, 'regression', 1002)
+  ]], ulid.generate())
+
+  assert(work.get_best(d) == 38.1, "best unchanged after discard")
+
+  db.close(d)
+  fs.unlink(db_path)
+  print("PASS test_best_baseline")
 end
+test_best_baseline()
 
--- test: commit_work_doc + git_revert preserves work doc, reverts code
-local function test_work_doc_survives_revert()
-  local repo = fs.join(TEST_TMPDIR, "test_revert_md")
-  -- clean up any prior run
-  sh(TEST_TMPDIR, "rm -rf " .. repo)
-  fs.mkdir(repo)
+-- test: get_benchmark and get_goal persist via context
+local function test_benchmark_goal()
+  local db_path = fs.join(TEST_TMPDIR, "test_work_ctx.db")
+  fs.unlink(db_path)
+  local d = db.open(db_path)
 
-  -- init a git repo with initial files
-  sh(repo, "git init")
-  sh(repo, "git config user.email test@test.com")
-  sh(repo, "git config user.name test")
-  cio.barf(fs.join(repo, "code.tl"), "original code")
-  cio.barf(fs.join(repo, "work.md"), "# ideas\n- idea 1\n")
-  cio.barf(fs.join(repo, "docs.md"), "original docs")
-  sh(repo, "git add -A && git commit -m init")
+  assert(work.get_benchmark(d) == nil, "no benchmark yet")
+  assert(work.get_goal(d) == nil, "no goal yet")
 
-  -- simulate an agent iteration: modify code, work doc, another .md,
-  -- and write the result file
-  cio.barf(fs.join(repo, "code.tl"), "modified code")
-  cio.barf(fs.join(repo, "work.md"), "# ideas\n- idea 1 ✗ discarded\n- idea 2 (new)\n")
-  cio.barf(fs.join(repo, "docs.md"), "modified docs")
-  fs.mkdir(fs.join(repo, ".ah"))
-  cio.barf(fs.join(repo, ".ah", "work-result.json"), '{"work_doc": "work.md"}')
+  db.set_context(d, "work:benchmark", "./bench.sh")
+  db.set_context(d, "work:goal", "optimize test speed")
 
-  local prev_cwd = fs.getcwd()
-  fs.chdir(repo)
+  assert(work.get_benchmark(d) == "./bench.sh", "benchmark stored")
+  assert(work.get_goal(d) == "optimize test speed", "goal stored")
 
-  -- read result and commit work doc (as run_work would)
-  local doc = work.read_work_result()
-  assert(doc == "work.md", "should read work_doc from result json, got: " .. (doc or "nil"))
-  work.commit_work_doc(doc)
-
-  -- revert remaining changes
-  work.git_revert()
-  fs.chdir(prev_cwd)
-
-  -- code.tl should be reverted
-  local code = cio.slurp(fs.join(repo, "code.tl"))
-  assert(code == "original code", "code.tl should be reverted, got: " .. (code or "nil"))
-
-  -- docs.md should be reverted
-  local docs = cio.slurp(fs.join(repo, "docs.md"))
-  assert(docs == "original docs", "docs.md should be reverted, got: " .. (docs or "nil"))
-
-  -- work.md should be preserved (committed separately)
-  local md = cio.slurp(fs.join(repo, "work.md"))
-  assert(md and md:match("idea 2"), "work.md should preserve updates, got: " .. (md or "nil"))
-  assert(md and md:match("discarded"), "work.md should preserve annotations, got: " .. (md or "nil"))
-
-  -- clean up
-  sh(TEST_TMPDIR, "rm -rf " .. repo)
-  print("PASS test_work_doc_survives_revert")
+  db.close(d)
+  fs.unlink(db_path)
+  print("PASS test_benchmark_goal")
 end
-test_work_doc_survives_revert()
+test_benchmark_goal()
+
+-- test: record_iteration writes rows with ULIDs
+local function test_record_iteration()
+  local db_path = fs.join(TEST_TMPDIR, "test_work_record.db")
+  fs.unlink(db_path)
+  local d = db.open(db_path)
+
+  work.record_iteration(d, {
+      status = "keep", metric_value = 90.0,
+      baseline_value = 100.0, message = "test",
+    })
+
+  local count = 0
+  local found_id: string = nil
+  for row in d._db:query("select id, status from work_iterations") do
+    count = count + 1
+    found_id = row.id as string
+    assert(row.status == "keep", "status is keep")
+  end
+  assert(count == 1, "one row")
+  assert(found_id and #found_id == 26, "id is ULID (26 chars): " .. (found_id or "nil"))
+
+  db.close(d)
+  fs.unlink(db_path)
+  print("PASS test_record_iteration")
+end
+test_record_iteration()
