@@ -206,11 +206,11 @@ local function make_cli_handler(skill_name: string, session_ulid?: string): even
             end
           end
 
-          -- read/write tool: syntax highlighting via bat, then head/tail
+          -- read/write tool: syntax highlighting via delta, then head/tail
           if not rendered and (event.tool_name == "read" or event.tool_name == "write") then
-            local pager = hl.find_pager()
-            if pager and key ~= "" then
-              local out = hl.run_pager(pager, result, key)
+            local dt = hl.find_difftool()
+            if dt and key ~= "" then
+              local out = hl.run_highlight(dt, result, key)
               if out then
                 if out:sub(-1) ~= "\n" then out = out .. "\n" end
                 -- Apply head/tail compression on highlighted output

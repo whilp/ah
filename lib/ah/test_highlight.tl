@@ -1,5 +1,5 @@
 #!/usr/bin/env cosmic
--- test_highlight.tl: tests for external tool integration (delta, bat, glow)
+-- test_highlight.tl: tests for external tool integration (delta, glow)
 local hl = require("ah.highlight")
 local cenv = require("cosmic.env")
 
@@ -165,93 +165,94 @@ local function test_to_unified_diff_roundtrip_with_delta()
 end
 test_to_unified_diff_roundtrip_with_delta()
 
--- find_pager tests
+-- to_highlight_diff tests
 
-local function test_find_pager_env_var()
-  hl.reset_pager_cache()
-  local old = os.getenv("AH_PAGER")
-  if old and old ~= "" then
-    local result = hl.find_pager()
-    assert(result == old, "find_pager should return AH_PAGER env var value, got: " .. tostring(result))
-  end
-  hl.reset_pager_cache()
+local function test_to_highlight_diff_basic()
+  local diff = hl.to_highlight_diff("local x = 1\n", "foo.lua")
+  assert(diff ~= nil, "should produce diff")
+  assert(diff:find("foo.lua") ~= nil, "should contain filename")
+  assert(diff:find("+local x = 1") ~= nil, "should contain +prefixed content")
+  assert(diff:find("@@ %-0,0 %+1,1 @@") ~= nil, "should have hunk header")
+  print("PASS: to_highlight_diff basic")
 end
-test_find_pager_env_var()
+test_to_highlight_diff_basic()
 
-local function test_find_pager_returns_string_or_nil()
-  hl.reset_pager_cache()
-  local result = hl.find_pager()
-  assert(result == nil or type(result) == "string", "find_pager should return string or nil, got: " .. type(result))
-  hl.reset_pager_cache()
+local function test_to_highlight_diff_multiline()
+  local diff = hl.to_highlight_diff("line1\nline2\nline3\n", "test.py")
+  assert(diff ~= nil, "should produce diff")
+  assert(diff:find("+line1") ~= nil, "has line1")
+  assert(diff:find("+line2") ~= nil, "has line2")
+  assert(diff:find("+line3") ~= nil, "has line3")
+  assert(diff:find("%+1,3") ~= nil, "line count should be 3")
+  print("PASS: to_highlight_diff multiline")
 end
-test_find_pager_returns_string_or_nil()
+test_to_highlight_diff_multiline()
 
-local function test_find_pager_cached()
-  hl.reset_pager_cache()
-  local result1 = hl.find_pager()
-  local result2 = hl.find_pager()
-  assert(result1 == result2, "find_pager should return same cached result")
-  hl.reset_pager_cache()
+local function test_to_highlight_diff_edge_cases()
+  assert(hl.to_highlight_diff("", "foo.lua") == nil, "empty content")
+  assert(hl.to_highlight_diff(nil, "foo.lua") == nil, "nil content")
+  assert(hl.to_highlight_diff("content", nil) == nil, "nil filename")
+  assert(hl.to_highlight_diff("content", "") == nil, "empty filename")
+  print("PASS: to_highlight_diff edge cases")
 end
-test_find_pager_cached()
+test_to_highlight_diff_edge_cases()
 
--- run_pager tests
+-- run_highlight tests
 
-local function test_run_pager_edge_cases()
-  -- cat rejects bat-style flags, so run_pager returns nil
-  assert(hl.run_pager("cat", "local x = 1\n", "foo.tl") == nil, "cat should return nil with bat flags")
-  assert(hl.run_pager("cat", "", "foo.tl") == nil, "empty content should return nil")
-  assert(hl.run_pager(nil, "content", "foo.tl") == nil, "nil pager should return nil")
-  assert(hl.run_pager("/nonexistent/tool/xyz", "content", "foo.tl") == nil, "nonexistent tool should return nil")
-  assert(hl.run_pager("cat", "content", nil) == nil, "nil file_name should return nil")
-  assert(hl.run_pager("cat", "content", "") == nil, "empty file_name should return nil")
-  print("PASS: run_pager edge cases")
+local function test_run_highlight_edge_cases()
+  assert(hl.run_highlight(nil, "content", "foo.tl") == nil, "nil tool")
+  assert(hl.run_highlight("/nonexistent/tool", "content", "foo.tl") == nil, "nonexistent tool")
+  assert(hl.run_highlight("cat", "content", nil) == nil, "nil filename")
+  assert(hl.run_highlight("cat", "content", "") == nil, "empty filename")
+  print("PASS: run_highlight edge cases")
 end
-test_run_pager_edge_cases()
+test_run_highlight_edge_cases()
 
-local function test_find_pager_finds_bat()
-  hl.reset_pager_cache()
-  -- Only test if bat is actually installed
-  local bat_check = os.execute("which bat >/dev/null 2>&1")
-  if bat_check then
-    local result = hl.find_pager()
-    assert(result ~= nil and result:find("bat") ~= nil, "find_pager should find bat, got: " .. tostring(result))
-    print("PASS: find_pager finds bat")
-  end
-  hl.reset_pager_cache()
-end
-test_find_pager_finds_bat()
-
-local function test_run_pager_with_bat()
-  hl.reset_pager_cache()
-  local pager = hl.find_pager()
-  if pager then
+local function test_run_highlight_with_delta()
+  hl.reset_difftool_cache()
+  local dt = hl.find_difftool()
+  if dt then
     local content = "local x = 1\nlocal y = 2\nreturn x + y\n"
-    local result = hl.run_pager(pager, content, "test.tl")
+    local result = hl.run_highlight(dt, content, "test.lua")
     if result then
-      assert(#result > 0, "pager output should be non-empty")
-      print("PASS: run_pager with bat produces output")
+      assert(#result > 0, "highlight output should be non-empty")
+      print("PASS: run_highlight with delta produces output")
     end
   end
-  hl.reset_pager_cache()
+  hl.reset_difftool_cache()
 end
-test_run_pager_with_bat()
+test_run_highlight_with_delta()
 
-local function test_run_pager_strips_line_numbers()
-  hl.reset_pager_cache()
-  local pager = hl.find_pager()
-  if pager then
+local function test_run_highlight_strips_line_numbers()
+  hl.reset_difftool_cache()
+  local dt = hl.find_difftool()
+  if dt then
     local content = "1\tlocal x = 1\n2\tlocal y = 2\n3\treturn x + y\n"
-    local result = hl.run_pager(pager, content, "test.tl")
+    local result = hl.run_highlight(dt, content, "test.lua")
     if result then
       -- Line number prefixes should be stripped before highlighting
       assert(not result:match("^1\t"), "line number prefixes should be stripped")
-      print("PASS: run_pager strips line number prefixes")
+      print("PASS: run_highlight strips line number prefixes")
     end
   end
-  hl.reset_pager_cache()
+  hl.reset_difftool_cache()
 end
-test_run_pager_strips_line_numbers()
+test_run_highlight_strips_line_numbers()
+
+local function test_run_highlight_tl_extension()
+  hl.reset_difftool_cache()
+  local dt = hl.find_difftool()
+  if dt then
+    local content = "local x: integer = 1\n"
+    local result = hl.run_highlight(dt, content, "foo.tl")
+    if result then
+      assert(#result > 0, "highlight output for .tl should be non-empty")
+      print("PASS: run_highlight .tl extension uses Lua highlighting")
+    end
+  end
+  hl.reset_difftool_cache()
+end
+test_run_highlight_tl_extension()
 
 -- infer_language tests
 
