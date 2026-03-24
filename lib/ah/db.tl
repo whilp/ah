@@ -71,6 +71,15 @@ create table if not exists session_lock (
   heartbeat_at integer not null
 );
 
+create table if not exists work_iterations (
+  id text primary key,
+  status text not null,
+  metric_value real,
+  baseline_value real,
+  message text,
+  created_at integer not null
+);
+
 create index if not exists idx_messages_conversation on messages(conversation_id);
 create index if not exists idx_messages_parent on messages(parent_id);
 create index if not exists idx_content_blocks_message on content_blocks(message_id);
@@ -418,12 +427,7 @@ end
 
 local function cleanup_orphans(self: DB): integer
   local orphans: {string} = {}
-  for row in self._db:query([[
-    select m.id from messages m
-    left join content_blocks c on c.message_id = m.id
-    where not exists (select 1 from messages child where child.parent_id = m.id)
-    group by m.id having count(c.id) = 0
-  ]]) do
+  for row in self._db:query("select m.id from messages m left join content_blocks c on c.message_id = m.id where not exists (select 1 from messages child where child.parent_id = m.id) group by m.id having count(c.id) = 0") do
     table.insert(orphans, row.id as string)
   end
   for _, id in ipairs(orphans) do delete_message(self, id) end
@@ -462,17 +466,11 @@ end
 
 local function get_first_user_prompt(self: DB, conversation_id?: string): string
   if conversation_id then
-    for row in self._db:query([[
-      select content from content_blocks where block_type = 'text'
-        and message_id in (select id from messages where role = 'user' and conversation_id = ? order by seq asc limit 1)
-      order by seq asc limit 1]], conversation_id) do
+    for row in self._db:query("select content from content_blocks where block_type = 'text' and message_id in (select id from messages where role = 'user' and conversation_id = ? order by seq asc limit 1) order by seq asc limit 1", conversation_id) do
       return (row.content or "") as string
     end
   else
-    for row in self._db:query([[
-      select content from content_blocks where block_type = 'text'
-        and message_id in (select id from messages where role = 'user' order by seq asc limit 1)
-      order by seq asc limit 1]]) do
+    for row in self._db:query("select content from content_blocks where block_type = 'text' and message_id in (select id from messages where role = 'user' order by seq asc limit 1) order by seq asc limit 1") do
       return (row.content or "") as string
     end
   end

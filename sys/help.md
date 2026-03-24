@@ -8,6 +8,11 @@ commands:
   limits              show Claude Max subscription usage (OAuth only)
   embed <dir>         embed files into /zip/embed/
   extract <dir>       extract /zip/embed/ to directory
+  work start B GOAL   start work loop: run benchmark B, record baseline
+  work run            one iteration: agent → benchmark → keep/discard
+  work log            show iteration history
+  work status         show current metric and baseline
+  work reset          clear work state
 
 options:
   -h, --help          show this help
@@ -28,8 +33,7 @@ options:
   --must-produce FILE require the agent to write FILE before finishing
   -t, --tool NAME=CMD register a .tl/.lua tool (repeatable, overrides all tiers)
   --sandbox           run inside network sandbox (proxy + allow-host)
-  --timeout N         wall-clock timeout in seconds (default: 300 with --work)
-  --work SCRIPT       run work loop: agent → benchmark → keep/discard
+  --timeout N         wall-clock timeout in seconds
   --allow-host H:P    allow egress to host:port (repeatable, default: api.anthropic.com:443)
   --unveil PATH:PERM  restrict filesystem visibility (repeatable, perms: r/w/x/c)
   --pledge PROMISES   restrict syscalls to given pledge promises
