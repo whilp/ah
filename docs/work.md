@@ -40,6 +40,10 @@ it determines what the agent optimizes for and whether kept changes
 are actually good. the work loop trusts the benchmark completely —
 like `git bisect run`, a bad script produces bad results.
 
+benchmarks are cosmic lua scripts (`.lua` files run by `cosmic`).
+they can also be shell scripts, but cosmic lua is preferred because
+ah is built on cosmic and the primitives are available directly.
+
 ### contract
 
 a benchmark script must:
@@ -54,63 +58,100 @@ a benchmark script must:
 time, verify that all tests actually pass. otherwise a change that
 breaks tests could appear faster and be kept.
 
-```bash
-# bad: silent failures get kept as "improvements"
-make test >/dev/null 2>&1
+```lua
+-- bad: ignores whether the command succeeded
+local handle = child.spawn({"make", "test"})
+handle:read()  -- discard output
+```
 
-# good: verify success before reporting metric
-output=$(make test 2>&1)
-echo "$output" | tail -1 | grep -q "passed" || exit 1
+```lua
+-- good: check exit code and validate output
+local handle = child.spawn({"make", "test"})
+local stderr = handle.stderr:read() or ""
+local ok, stdout, exit_code = handle:read()
+if not ok or exit_code ~= 0 then
+  io.stderr:write(stderr)
+  os.exit(1)
+end
+if not (stdout or ""):match("passed") then
+  io.stderr:write("tests did not pass\n")
+  os.exit(1)
+end
 ```
 
 **start from a clean state.** clear caches, stamp files, or build
 artifacts that would make the benchmark a no-op on repeated runs.
 
-```bash
-# clear cached results to force a real measurement
-rm -f o/lib/ah/test_*.test.ok o/lib/ah/test_*.lua
+```lua
+-- clear cached results to force a real measurement
+local child = require("cosmic.child")
+local h = child.spawn({"find", "o/lib/ah", "-name", "test_*", "-delete"})
+if h then h:read() end
 ```
 
 **be deterministic.** avoid benchmarks that depend on network, load,
 or other external factors. if variance is unavoidable, consider
 running multiple iterations and reporting the median.
 
-**keep it fast.** each `work run` invocation calls the benchmark
-twice (once for baseline on first run, once after the agent's
-change). a 30-second benchmark means each iteration takes at least
-30 seconds plus agent time.
+**keep it fast.** each `work run` calls the benchmark after the
+agent's change. a 30-second benchmark means each iteration takes at
+least 30 seconds plus agent time.
 
-**exit non-zero on any failure.** use `set -eo pipefail` in bash
-scripts. the work loop treats non-zero exit as a crash, reverts the
-change, and records it in the history.
+**exit non-zero on any failure.** the work loop treats non-zero exit
+as a crash, reverts the change, and records it in the history.
 
 ### example
 
-```bash
-#!/bin/bash
-set -eo pipefail
+a benchmark that measures `make test` time in milliseconds, validating
+that all tests pass:
 
-# clean slate
-rm -f o/lib/ah/test_*.test.ok o/lib/ah/test_*.lua
+```lua
+#!/usr/bin/env cosmic
+local child = require("cosmic.child")
+local time = require("cosmic.time")
 
-# run and validate
-start=$(date +%s%N)
-output=$(make test 2>&1)
-echo "$output" | tail -1 | grep -q "passed" || exit 1
-end=$(date +%s%N)
+-- clean slate: remove compiled test files to force recompile+rerun
+local h = child.spawn({"find", "o/lib/ah", "-name", "test_*", "-delete"})
+if h then h:read() end
 
-# emit metric (milliseconds)
-echo $(( (end - start) / 1000000 ))
+-- run and time
+local s0, ns0 = time.monotonic()
+local handle = child.spawn({"make", "test"})
+local stderr = handle.stderr:read() or ""
+local ok, stdout, exit_code = handle:read()
+local s1, ns1 = time.monotonic()
+
+-- validate
+if not ok or exit_code ~= 0 then
+  io.stderr:write(stderr)
+  os.exit(1)
+end
+if not (stdout or ""):match("passed") then
+  io.stderr:write("tests did not pass\n")
+  os.exit(1)
+end
+
+-- emit metric (milliseconds)
+local ms = (s1 - s0) * 1000 + (ns1 - ns0) / 1e6
+print(math.floor(ms))
+```
+
+save as `bench.lua`, make it executable (`chmod +x bench.lua`), then:
+
+```
+ah work start ./bench.lua "optimize make test time"
+ah work run    # repeat as needed
+ah work log
 ```
 
 ### common mistakes
 
 | mistake | consequence | fix |
 |---------|-------------|-----|
-| suppressing output (`>/dev/null`) | broken changes silently pass | capture output, check for success |
+| ignoring exit code | broken changes silently pass | check exit code and validate output |
 | not cleaning caches | benchmark returns cached result | clear stamps/build artifacts |
-| multi-line stdout | metric parsing fails (returns nil) | ensure exactly one number line |
-| missing `set -e` | script continues after failures | use `set -eo pipefail` |
+| multi-line stdout | metric parsing fails (returns nil) | ensure exactly one `print()` call |
+| no error handling | script continues after failures | check every spawn result |
 | slow benchmark (>60s) | iterations take forever | measure something smaller or use a proxy metric |
 
 ## iteration history
