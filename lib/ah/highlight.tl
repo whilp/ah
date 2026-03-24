@@ -1,5 +1,5 @@
 -- ah/highlight.tl: external tool integration for syntax highlighting and rendering
--- Provides difftool (delta), pager (bat), and markdown renderer (glow).
+-- Provides difftool and syntax highlighting (delta) and markdown renderer (glow).
 local tty = require("cosmic.tty")
 local child = require("cosmic.child")
 local unix = require("cosmo.unix")
@@ -254,17 +254,43 @@ local function run_glow(glow: string, text: string): string
   return run_piped(glow, text, {"-s", glow_style(), "-w", width, "-"}, {"CLICOLOR_FORCE=1"})
 end
 
--- pager: bat
-local _pager = make_tool_finder("AH_PAGER",
-  {_zip_bin .. "bat", "/usr/bin/bat", "/usr/local/bin/bat", "/opt/homebrew/bin/bat"}, {"bat"})
+-- Wrap plain content in a fake "new file" unified diff so delta can syntax-highlight it.
+-- The file_name in the diff header drives delta's language detection.
+local function to_highlight_diff(content: string, file_name: string): string
+  if not content or content == "" or not file_name or file_name == "" then
+    return nil
+  end
+  local line_count = 0
+  local plus_lines: {string} = {}
+  for line in content:gmatch("([^\n]*)\n?") do
+    if line ~= "" or line_count > 0 then
+      line_count = line_count + 1
+      table.insert(plus_lines, "+" .. line)
+    end
+  end
+  if line_count == 0 then return nil end
+  return "diff --git a/" .. file_name .. " b/" .. file_name .. "\n"
+  .. "new file mode 100644\n"
+  .. "--- /dev/null\n"
+  .. "+++ b/" .. file_name .. "\n"
+  .. "@@ -0,0 +1," .. line_count .. " @@\n"
+  .. table.concat(plus_lines, "\n") .. "\n"
+end
 
-local function find_pager(): string return _pager.find() end
-local function reset_pager_cache() _pager.reset() end
+-- Args for delta in highlight-only mode: syntax coloring with no diff decoration.
+local HIGHLIGHT_ARGS: {string} = {
+  "--no-gitconfig",
+  "--paging=never",
+  "--file-style=omit",
+  "--hunk-header-style=omit",
+  "--plus-style=syntax",
+  "--syntax-theme=base16",
+}
 
--- Run content through bat with syntax highlighting.
+-- Run content through delta for syntax highlighting.
 -- Strips line number prefixes (N\t) before highlighting; does not re-add them.
-local function run_pager(pager: string, content: string, file_name: string): string
-  if not file_name or file_name == "" then
+local function run_highlight(difftool: string, content: string, file_name: string): string
+  if not difftool or not file_name or file_name == "" then
     return nil
   end
 
@@ -277,8 +303,23 @@ local function run_pager(pager: string, content: string, file_name: string): str
       return line
     end)
 
-  local highlighted = run_piped(pager, stripped, {"--file-name=" .. file_name, "--color=always", "--style=plain", "--map-syntax=*.tl:Lua"})
-  return highlighted
+  local diff = to_highlight_diff(stripped, file_name)
+  if not diff then return nil end
+
+  local args: {string} = {}
+  for _, a in ipairs(HIGHLIGHT_ARGS) do table.insert(args, a) end
+  local lang = infer_language(file_name, stripped)
+  if lang then
+    table.insert(args, "--default-language=" .. lang)
+  end
+
+  local result = run_piped(difftool, diff, args)
+  if not result then return nil end
+  -- Delta emits a leading newline; strip it.
+  if result:sub(1, 1) == "\n" then
+    result = result:sub(2)
+  end
+  return result
 end
 
 return {
@@ -287,12 +328,12 @@ return {
   to_unified_diff = to_unified_diff,
   reset_difftool_cache = reset_difftool_cache,
   DELTA_BASE_ARGS = DELTA_BASE_ARGS,
+  HIGHLIGHT_ARGS = HIGHLIGHT_ARGS,
   infer_language = infer_language,
   find_glow = find_glow,
   run_glow = run_glow,
   glow_style = glow_style,
   reset_glow_cache = reset_glow_cache,
-  find_pager = find_pager,
-  run_pager = run_pager,
-  reset_pager_cache = reset_pager_cache,
+  to_highlight_diff = to_highlight_diff,
+  run_highlight = run_highlight,
 }

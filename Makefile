@@ -17,7 +17,6 @@ export TMPDIR := $(TMP)
 
 # dependencies
 include deps/cosmic.mk
-include deps/bat.mk
 include deps/delta.mk
 include deps/glow.mk
 
@@ -104,7 +103,7 @@ endef
 
 ah_bundled_bins :=
 $(foreach p,$(build_platforms),\
-  $(foreach tool,bat delta glow,\
+  $(foreach tool,delta glow,\
     $(eval $(call tool_platform_rules,$(tool),$(p)))\
     $(eval ah_bundled_bins += $(o)/embed/embed/sys/bin/$(embed_$(p))/$(tool))\
   )\
