@@ -74,15 +74,15 @@ local function record_iteration(d: db.DB, iter: Iteration)
   ]], ulid.generate(), iter.status, iter.metric_value, iter.baseline_value, iter.message, (ctime.now()))
 end
 
--- Get baseline metric (first row by ULID order).
+-- Get baseline metric (first measurement recorded).
 local function get_baseline(d: db.DB): number
-  for row in d._db:query("select metric_value from work_iterations order by id asc limit 1") do
+  for row in d._db:query("select metric_value from work_iterations order by created_at asc, id asc limit 1") do
     return row.metric_value as number
   end
   return nil
 end
 
--- Get best metric (minimum across first measurement and kept iterations).
+-- Get best metric (minimum metric_value across kept iterations).
 local function get_best(d: db.DB): number
   for row in d._db:query("select min(metric_value) as v from work_iterations where status in ('baseline', 'keep')") do
     return row.v as number
@@ -90,20 +90,18 @@ local function get_best(d: db.DB): number
   return nil
 end
 
--- Get iteration count (excludes the initial baseline measurement).
+-- Get iteration count.
 local function get_iteration_count(d: db.DB): integer
-  local total = 0
   for row in d._db:query("select count(*) as n from work_iterations") do
-    total = row.n as integer
+    return row.n as integer
   end
-  return total > 0 and total - 1 or 0
+  return 0
 end
 
 -- Format recent iteration history for the agent prompt.
 local function format_history(d: db.DB, n: integer): string
   local lines: {string} = {}
-  -- Skip the first row (baseline measurement).
-  for row in d._db:query("select status, metric_value, baseline_value, message from work_iterations where id != (select id from work_iterations order by id asc limit 1) order by id desc limit ?", n) do
+  for row in d._db:query("select status, metric_value, baseline_value, message from work_iterations order by created_at desc, id desc limit ?", n) do
     local s = row.status as string
     local v = row.metric_value as number
     local b = row.baseline_value as number
