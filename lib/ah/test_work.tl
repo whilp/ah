@@ -38,7 +38,11 @@ local function test_work_db()
   local h = work.format_history(d, 10)
   assert(h == "no previous iterations.", "empty history")
 
-  -- Insert test rows with ULIDs
+  -- Insert baseline + iteration rows with ULIDs
+  d._db:exec([[
+    insert into work_iterations (id, status, metric_value, baseline_value, message, created_at)
+    values (?, 'baseline', 42.3, 42.3, 'initial baseline', 999)
+  ]], ulid.generate())
   d._db:exec([[
     insert into work_iterations (id, status, metric_value, baseline_value, message, created_at)
     values (?, 'keep', 38.1, 42.3, 'inlined hot path', 1000)
