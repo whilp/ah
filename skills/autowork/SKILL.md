@@ -32,3 +32,4 @@ make changes.
 - run tests — the outer loop handles validation
 - perform git operations (commit, revert, branch, push)
 - make multiple unrelated changes in one iteration
+- break correctness to improve the metric — the benchmark validates both
