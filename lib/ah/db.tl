@@ -221,15 +221,12 @@ end
 local function close(self: DB)
   if self._db then self._db:close() end
 end
-
 local function begin_transaction(self: DB): boolean, string
   return self._db:exec("BEGIN IMMEDIATE")
 end
-
 local function commit(self: DB): boolean, string
   return self._db:exec("COMMIT")
 end
-
 local function rollback(self: DB): boolean, string
   return self._db:exec("ROLLBACK")
 end
@@ -240,7 +237,6 @@ local function get_context(self: DB, key: string): string
   end
   return nil
 end
-
 local function set_context(self: DB, key: string, value: string)
   self._db:exec("insert or replace into context (key, value) values (?, ?)", key, value)
 end
@@ -460,18 +456,23 @@ end
 local function get_session_state(self: DB): string
   return get_context(self, "session_state") or "idle"
 end
-
 local function set_session_state(self: DB, state: string)
   set_context(self, "session_state", state)
 end
 
 local function get_first_user_prompt(self: DB, conversation_id?: string): string
   if conversation_id then
-    for row in self._db:query("select content from content_blocks where block_type = 'text' and message_id in (select id from messages where role = 'user' and conversation_id = ? order by seq asc limit 1) order by seq asc limit 1", conversation_id) do
+    for row in self._db:query([[
+      select content from content_blocks where block_type = 'text'
+        and message_id in (select id from messages where role = 'user' and conversation_id = ? order by seq asc limit 1)
+      order by seq asc limit 1]], conversation_id) do
       return (row.content or "") as string
     end
   else
-    for row in self._db:query("select content from content_blocks where block_type = 'text' and message_id in (select id from messages where role = 'user' order by seq asc limit 1) order by seq asc limit 1") do
+    for row in self._db:query([[
+      select content from content_blocks where block_type = 'text'
+        and message_id in (select id from messages where role = 'user' order by seq asc limit 1)
+      order by seq asc limit 1]]) do
       return (row.content or "") as string
     end
   end

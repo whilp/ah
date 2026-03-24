@@ -74,9 +74,9 @@ local function record_iteration(d: db.DB, iter: Iteration)
   ]], ulid.generate(), iter.status, iter.metric_value, iter.baseline_value, iter.message, (ctime.now()))
 end
 
--- Get baseline metric (first measurement recorded).
+-- Get baseline metric (first row with status='baseline').
 local function get_baseline(d: db.DB): number
-  for row in d._db:query("select metric_value from work_iterations order by created_at asc, id asc limit 1") do
+  for row in d._db:query("select metric_value from work_iterations where status = 'baseline' order by created_at asc, id asc limit 1") do
     return row.metric_value as number
   end
   return nil
@@ -90,9 +90,9 @@ local function get_best(d: db.DB): number
   return nil
 end
 
--- Get iteration count.
+-- Get iteration count (excludes baseline row).
 local function get_iteration_count(d: db.DB): integer
-  for row in d._db:query("select count(*) as n from work_iterations") do
+  for row in d._db:query("select count(*) as n from work_iterations where status != 'baseline'") do
     return row.n as integer
   end
   return 0
@@ -101,7 +101,7 @@ end
 -- Format recent iteration history for the agent prompt.
 local function format_history(d: db.DB, n: integer): string
   local lines: {string} = {}
-  for row in d._db:query("select status, metric_value, baseline_value, message from work_iterations order by created_at desc, id desc limit ?", n) do
+  for row in d._db:query("select status, metric_value, baseline_value, message from work_iterations where status != 'baseline' order by created_at desc, id desc limit ?", n) do
     local s = row.status as string
     local v = row.metric_value as number
     local b = row.baseline_value as number

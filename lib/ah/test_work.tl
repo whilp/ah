@@ -56,6 +56,7 @@ local function test_work_db()
   assert(h:match("keep"), "should contain keep")
   assert(h:match("discard"), "should contain discard")
   assert(h:match("38.1"), "should contain metric")
+  assert(not h:match("baseline"), "should not contain baseline row")
 
   db.close(d)
   fs.unlink(db_path)
