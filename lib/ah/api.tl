@@ -96,6 +96,21 @@ local function is_retryable_error(status: integer, error_text: string): boolean
   return false
 end
 
+-- Check if an API error string represents a transient failure worth retrying.
+-- This operates on the error string returned by api.stream(), not on HTTP status codes.
+local function is_transient_api_error(err: string): boolean
+  if not err or err == "" then return false end
+  local text = err:lower()
+  if text:match("no response") then return true end
+  if text:match("^fetch failed") then return true end
+  if text:match("overloaded") then return true end
+  if text:match("rate[%s_-]*limit") then return true end
+  -- 5xx status codes embedded in error text
+  if text:match("api error 5%d%d") then return true end
+  if text:match("api error 529") then return true end
+  return false
+end
+
 -- Extract retry delay from headers or error message
 -- Returns delay in milliseconds, or nil if not found
 local function extract_retry_delay(error_text: string, headers: {string: string}): integer
@@ -436,7 +451,7 @@ local function stream(messages: {any}, opts: {string: any}, callback: function({
     end
   end
 
-  return response
+  return response, (not response and not was_interrupted) and "no response from API" or nil
 end
 
 -- Extract tool calls from response
@@ -459,6 +474,7 @@ return {
   build_request = build_request,
   parse_api_error = parse_api_error,
   is_retryable_error = is_retryable_error,
+  is_transient_api_error = is_transient_api_error,
   extract_retry_delay = extract_retry_delay,
   resolve_model = resolve_model,
   to_claude_code_name = to_claude_code_name,
