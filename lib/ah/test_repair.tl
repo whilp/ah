@@ -88,4 +88,79 @@ local function test_repair_mixed()
 end
 test_repair_mixed()
 
+-- test: orphaned tool_result at conversation start (issue #550)
+-- user message with tool_result but no preceding assistant tool_use
+local function test_repair_orphaned_tool_result_at_start()
+  local msgs: {any} = {
+    make_user_with_tool_result("orphan-1"),
+    {role = "assistant", content = {{type = "text", text = "hello"}}},
+  }
+  loop.repair_dangling_tool_use(msgs, noop_event)
+  -- The orphaned tool_result should be removed or replaced
+  local first = msgs[1] as {string: any}
+  -- First message should NOT contain a tool_result with no matching tool_use
+  local first_content = first.content as {any}
+  for _, block in ipairs(first_content) do
+    local b = block as {string: any}
+    assert(b.type ~= "tool_result", "orphaned tool_result should be removed from start")
+  end
+end
+test_repair_orphaned_tool_result_at_start()
+
+-- test: orphaned tool_result in middle of conversation
+local function test_repair_orphaned_tool_result_mid()
+  local msgs: {any} = {
+    {role = "user", content = {{type = "text", text = "hi"}}},
+    {role = "assistant", content = {{type = "text", text = "hello"}}},
+    -- user message with tool_result but previous assistant has no tool_use
+    make_user_with_tool_result("orphan-2"),
+    {role = "assistant", content = {{type = "text", text = "ok"}}},
+  }
+  loop.repair_dangling_tool_use(msgs, noop_event)
+  local third = msgs[3] as {string: any}
+  if third.role == "user" then
+    local tc = third.content as {any}
+    for _, block in ipairs(tc) do
+      local b = block as {string: any}
+      assert(b.type ~= "tool_result", "orphaned tool_result in middle should be removed")
+    end
+  end
+end
+test_repair_orphaned_tool_result_mid()
+
+-- test: valid tool_result not removed (preceding assistant has tool_use)
+local function test_repair_valid_tool_result_kept()
+  local msgs: {any} = {
+    make_assistant_with_tool_use("valid-1"),
+    make_user_with_tool_result("valid-1"),
+  }
+  loop.repair_dangling_tool_use(msgs, noop_event)
+  assert(#msgs == 2, "valid pair should remain: got " .. #msgs)
+  local user_msg = msgs[2] as {string: any}
+  local uc = user_msg.content as {any}
+  local ub = uc[1] as {string: any}
+  assert(ub.type == "tool_result", "valid tool_result should be kept")
+  assert(ub.tool_use_id == "valid-1", "tool_use_id should be preserved")
+end
+test_repair_valid_tool_result_kept()
+
+-- test: mixed valid and orphaned tool_results in same user message
+local function test_repair_mixed_tool_results()
+  local msgs: {any} = {
+    make_assistant_with_tool_use("keep-1"),
+    {role = "user", content = {
+        {type = "tool_result", tool_use_id = "keep-1", content = "ok"},
+        {type = "tool_result", tool_use_id = "orphan-3", content = "stale"},
+      }},
+  }
+  loop.repair_dangling_tool_use(msgs, noop_event)
+  local user_msg = msgs[2] as {string: any}
+  local uc = user_msg.content as {any}
+  -- Should keep the valid one and remove the orphan
+  assert(#uc == 1, "should have 1 block after removing orphan: got " .. #uc)
+  local b = uc[1] as {string: any}
+  assert(b.tool_use_id == "keep-1", "should keep valid tool_result")
+end
+test_repair_mixed_tool_results()
+
 print("all repair_dangling_tool_use tests passed")
