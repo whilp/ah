@@ -113,46 +113,6 @@ local function build_api_messages(d: db.DB, message_id: string, on_event: events
   return api_messages
 end
 
-local function repair_dangling_tool_use(api_messages: {any}, on_event: events.EventCallback)
-  for i = #api_messages, 1, -1 do
-    local msg = api_messages[i] as {string: any}
-    if msg.role == "assistant" then
-      local tool_use_ids: {string} = {}
-      local msg_content = msg.content as {any}
-      for _, block in ipairs(msg_content) do
-        local b = block as {string: any}
-        if b.type == "tool_use" then
-          table.insert(tool_use_ids, b.id as string)
-        end
-      end
-
-      if #tool_use_ids > 0 then
-        local next_msg = api_messages[i + 1] as {string: any}
-        local has_tool_results = false
-        if next_msg ~= nil and next_msg.role == "user" then
-          local next_content = next_msg.content as {any}
-          for _, block in ipairs(next_content) do
-            local b = block as {string: any}
-            if b.type == "tool_result" then
-              has_tool_results = true
-              break
-            end
-          end
-        end
-
-        if not has_tool_results then
-          local synthetic_results: {any} = {}
-          for _, tid in ipairs(tool_use_ids) do
-            table.insert(synthetic_results, {type = "tool_result", tool_use_id = tid, content = "error: tool execution was interrupted (session resumed)", is_error = true})
-          end
-          table.insert(api_messages, i + 1, {role = "user", content = synthetic_results})
-          emit(on_event, events.error_event(string.format("repaired %d dangling tool_use block(s) in message history", #tool_use_ids)))
-        end
-      end
-    end
-  end
-end
-
 local function run_agent(d: db.DB, conversation_id: string, system_prompt: string, model: string, prompt: string, parent_id: string, on_event: events.EventCallback, opts: AgentOpts): string
   opts = opts or {}
   local max_tokens = opts.max_tokens
@@ -172,7 +132,7 @@ local function run_agent(d: db.DB, conversation_id: string, system_prompt: strin
   db.commit(d)
 
   local api_messages = build_api_messages(d, user_msg.id, on_event)
-  repair_dangling_tool_use(api_messages, on_event)
+  looputil.repair_dangling_tool_use(api_messages, on_event)
 
   local final_stop_reason = "unknown"
   local last_error: string = nil
@@ -496,5 +456,5 @@ return {
   LOOP_BREAK_THRESHOLD = LOOP_BREAK_THRESHOLD,
   measure_payload_bytes = measure_payload_bytes,
   PAYLOAD_WARN_BYTES = PAYLOAD_WARN_BYTES,
-  repair_dangling_tool_use = repair_dangling_tool_use,
+  repair_dangling_tool_use = looputil.repair_dangling_tool_use,
 }

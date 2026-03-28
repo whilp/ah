@@ -1,6 +1,11 @@
 -- ah/looputil.tl: utility functions for the agent loop
 local json = require("cosmic.json")
 local cfs = require("cosmic.fs")
+local events = require("ah.events")
+
+local function emit(on_event: events.EventCallback, event: events.EventData)
+  if on_event then on_event(event) end
+end
 
 -- Shorten an absolute path to a relative one when under cwd
 local function shorten_path(p: string): string
@@ -231,6 +236,96 @@ local function check_loop(history: {string}): integer
   return count
 end
 
+-- Repair message list: add synthetic tool_results for dangling tool_use,
+-- and remove orphaned tool_results with no matching tool_use.
+local function repair_dangling_tool_use(api_messages: {any}, on_event: events.EventCallback)
+  -- Pass 1: add synthetic tool_results for assistant tool_use without following user tool_results.
+  for i = #api_messages, 1, -1 do
+    local msg = api_messages[i] as {string: any}
+    if msg.role == "assistant" then
+      local tool_use_ids: {string} = {}
+      local msg_content = msg.content as {any}
+      for _, block in ipairs(msg_content) do
+        local b = block as {string: any}
+        if b.type == "tool_use" then
+          table.insert(tool_use_ids, b.id as string)
+        end
+      end
+
+      if #tool_use_ids > 0 then
+        local next_msg = api_messages[i + 1] as {string: any}
+        local has_tool_results = false
+        if next_msg ~= nil and next_msg.role == "user" then
+          local next_content = next_msg.content as {any}
+          for _, block in ipairs(next_content) do
+            local b = block as {string: any}
+            if b.type == "tool_result" then
+              has_tool_results = true
+              break
+            end
+          end
+        end
+
+        if not has_tool_results then
+          local synthetic_results: {any} = {}
+          for _, tid in ipairs(tool_use_ids) do
+            table.insert(synthetic_results, {type = "tool_result", tool_use_id = tid, content = "error: tool execution was interrupted (session resumed)", is_error = true})
+          end
+          table.insert(api_messages, i + 1, {role = "user", content = synthetic_results})
+          emit(on_event, events.error_event(string.format("repaired %d dangling tool_use block(s) in message history", #tool_use_ids)))
+        end
+      end
+    end
+  end
+
+  -- Pass 2: remove orphaned tool_result blocks (user tool_result with no preceding assistant tool_use).
+  local i = 1
+  while i <= #api_messages do
+    local msg = api_messages[i] as {string: any}
+    if msg.role == "user" then
+      -- Collect tool_use ids from the preceding assistant message.
+      local valid_ids: {string: boolean} = {}
+      if i > 1 then
+        local prev = api_messages[i - 1] as {string: any}
+        if prev.role == "assistant" then
+          local prev_content = prev.content as {any}
+          for _, block in ipairs(prev_content) do
+            local b = block as {string: any}
+            if b.type == "tool_use" then
+              valid_ids[b.id as string] = true
+            end
+          end
+        end
+      end
+
+      -- Filter out orphaned tool_result blocks.
+      local content = msg.content as {any}
+      local filtered: {any} = {}
+      local removed = 0
+      for _, block in ipairs(content) do
+        local b = block as {string: any}
+        if b.type == "tool_result" and not valid_ids[b.tool_use_id as string] then
+          removed = removed + 1
+        else
+          table.insert(filtered, block)
+        end
+      end
+
+      if removed > 0 then
+        emit(on_event, events.error_event(string.format("removed %d orphaned tool_result block(s) from message history", removed)))
+        if #filtered == 0 then
+          table.remove(api_messages, i)
+          goto continue_pass2
+        else
+          msg.content = filtered
+        end
+      end
+    end
+    i = i + 1
+    ::continue_pass2::
+  end
+end
+
 return {
   shorten_path = shorten_path,
   tool_key_param = tool_key_param,
@@ -238,4 +333,5 @@ return {
   wrap_command = wrap_command,
   turn_signature = turn_signature,
   check_loop = check_loop,
+  repair_dangling_tool_use = repair_dangling_tool_use,
 }
