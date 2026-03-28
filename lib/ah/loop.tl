@@ -208,17 +208,33 @@ local function run_agent(d: db.DB, conversation_id: string, system_prompt: strin
       end
     end
 
-    local response, err = api.stream(api_messages, {
-        system = system_prompt, model = model, tools = tools.get_tool_definitions(),
-        max_tokens = opts.max_turn_tokens,
-      }, function(event: {string: any})
-        if event.type == "content_block_delta" and event.delta then
-          local delta = event.delta as {string: any}
-          if delta.type == "text_delta" and delta.text then
-            emit(on_event, events.text_delta(delta.text as string))
+    local response: {string: any} = nil
+    local err: string = nil
+    local LOOP_MAX_RETRIES = 2
+
+    for api_attempt = 0, LOOP_MAX_RETRIES do
+      response, err = api.stream(api_messages, {
+          system = system_prompt, model = model, tools = tools.get_tool_definitions(),
+          max_tokens = opts.max_turn_tokens,
+        }, function(event: {string: any})
+          if event.type == "content_block_delta" and event.delta then
+            local delta = event.delta as {string: any}
+            if delta.type == "text_delta" and delta.text then
+              emit(on_event, events.text_delta(delta.text as string))
+            end
           end
-        end
-      end, is_interrupted)
+        end, is_interrupted)
+
+      if response or interrupted then break end
+      if err and not api.is_transient_api_error(err) then break end
+
+      if api_attempt < LOOP_MAX_RETRIES then
+        local delay_ms = api.BASE_DELAY_MS * (2 ^ api_attempt)
+        local msg = string.format("transient API error (attempt %d/%d, retrying in %ds): %s", api_attempt + 1, LOOP_MAX_RETRIES + 1, math.ceil(delay_ms / 1000), err or "no response")
+        emit(on_event, events.error_event(msg))
+        time.sleep_ms(delay_ms)
+      end
+    end
 
     if cache_msg_idx and cache_block_idx then
       local msg = api_messages[cache_msg_idx] as {string: any}
@@ -236,9 +252,10 @@ local function run_agent(d: db.DB, conversation_id: string, system_prompt: strin
     end
 
     if not response then
-      emit(on_event, events.error_event("no response"))
-      db.log_event(d, "error", nil, events.to_json(events.error_event("no response")))
-      last_error = "no response"
+      local no_resp_err = "no response from API"
+      emit(on_event, events.error_event(no_resp_err))
+      db.log_event(d, "error", nil, events.to_json(events.error_event(no_resp_err)))
+      last_error = no_resp_err
       final_stop_reason = "error"
       break
     end

@@ -442,4 +442,33 @@ local function test_model_context_limits_values()
 end
 test_model_context_limits_values()
 
+-- test: "no response" / empty stream errors should be detectable as transient
+local function test_is_transient_api_error()
+  -- "no response" is the error produced when stream yields no message_start
+  assert(api.is_transient_api_error("no response from API") == true,
+    "no response should be transient")
+  -- Network-level errors
+  assert(api.is_transient_api_error("fetch failed [url]: connection reset") == true,
+    "fetch failed should be transient")
+  assert(api.is_transient_api_error("fetch failed [url]: timeout") == true,
+    "timeout should be transient")
+  -- Server errors in text
+  assert(api.is_transient_api_error("API error 529: overloaded") == true,
+    "overloaded should be transient")
+  assert(api.is_transient_api_error("API error 529: server is overloaded") == true,
+    "529 overloaded should be transient")
+  -- Permanent errors should not be transient
+  assert(api.is_transient_api_error("API error 400: invalid request") == false,
+    "400 should not be transient")
+  assert(api.is_transient_api_error("API error 401: unauthorized") == false,
+    "401 should not be transient")
+  assert(api.is_transient_api_error("invalid api key") == false,
+    "auth error should not be transient")
+  -- nil/empty
+  assert(api.is_transient_api_error(nil) == false, "nil should not be transient")
+  assert(api.is_transient_api_error("") == false, "empty should not be transient")
+  print("PASS test_is_transient_api_error")
+end
+test_is_transient_api_error()
+
 print("all api tests passed")
