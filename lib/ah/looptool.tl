@@ -181,7 +181,7 @@ local function persist_tool_results(
         details = blk.details as string,
       })
   end
-  db.commit(d)
+  if not db.commit(d) then db.rollback(d) end
 
   table.insert(api_messages, {role = "user", content = result.tool_results_content})
 
@@ -200,7 +200,7 @@ local function stub_pending_tools(d: db.DB, parent_id: string, blocks: {{string:
   for _, tid in ipairs(ids) do
     db.add_content_block(d, msg.id, "tool_result", {tool_id = tid, tool_output = "error: " .. reason, is_error = true, duration_ms = 0})
   end
-  db.commit(d)
+  if not db.commit(d) then db.rollback(d) end
 end
 
 return {

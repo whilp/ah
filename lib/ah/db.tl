@@ -1,4 +1,5 @@
 local fs = require("cosmic.fs")
+local json = require("cosmic.json")
 local sqlite = require("cosmic.sqlite")
 local ulid = require("ulid")
 local ctime = require("cosmic.time")
@@ -14,8 +15,8 @@ create table if not exists conversations (
 
 create table if not exists messages (
   id text primary key,
-  conversation_id text not null references conversations(id),
-  parent_id text references messages(id),
+  conversation_id text not null references conversations(id) on delete cascade,
+  parent_id text references messages(id) on delete set null,
   role text not null,
   seq integer not null,
   created_at integer not null,
@@ -28,7 +29,7 @@ create table if not exists messages (
 
 create table if not exists content_blocks (
   id text primary key,
-  message_id text not null references messages(id),
+  message_id text not null references messages(id) on delete cascade,
   block_type text not null,
   seq integer not null,
   content text,
@@ -48,8 +49,8 @@ create table if not exists context (
 
 create table if not exists events (
   id text primary key,
-  conversation_id text references conversations(id),
-  message_id text references messages(id),
+  conversation_id text references conversations(id) on delete cascade,
+  message_id text references messages(id) on delete set null,
   event_type text not null,
   created_at integer not null,
   details text
@@ -57,7 +58,7 @@ create table if not exists events (
 
 create table if not exists queue_messages (
   id text primary key,
-  conversation_id text not null references conversations(id),
+  conversation_id text not null references conversations(id) on delete cascade,
   message_type text not null,
   content text not null,
   created_at integer not null,
@@ -73,6 +74,7 @@ create table if not exists session_lock (
 
 create table if not exists work_iterations (
   id text primary key,
+  conversation_id text references conversations(id) on delete set null,
   status text not null,
   metric_value real,
   baseline_value real,
@@ -97,7 +99,6 @@ local record Statement
   exec: function(Statement)
   close: function(Statement)
 end
-
 local record Database
   exec: function(Database, string, any ...): boolean, string
   exec_list: function(Database, string, {any}, integer): boolean, string
@@ -106,11 +107,9 @@ local record Database
   transaction: function < T > (Database, function(): T): T
   close: function(Database)
 end
-
 local record DB
   _db: Database
 end
-
 local record Conversation
   id: string
   name: string
@@ -118,11 +117,9 @@ local record Conversation
   closed_at: integer
   state: string
 end
-
 local record ConversationOpts
   name: string
 end
-
 local record Message
   id: string
   parent_id: string
@@ -135,7 +132,6 @@ local record Message
   model: string
   api_latency_ms: integer
 end
-
 local record ContentBlock
   id: string
   message_id: string
@@ -150,7 +146,6 @@ local record ContentBlock
   duration_ms: integer
   details: string
 end
-
 local record ContentBlockOpts
   content: string
   tool_id: string
@@ -161,13 +156,11 @@ local record ContentBlockOpts
   duration_ms: integer
   details: string
 end
-
 local record UpdateOpts
   content: string
   tool_output: string
   is_error: boolean
 end
-
 local record MessageOpts
   input_tokens: integer
   output_tokens: integer
@@ -175,7 +168,6 @@ local record MessageOpts
   model: string
   api_latency_ms: integer
 end
-
 local record Event
   id: string
   message_id: string
@@ -183,7 +175,6 @@ local record Event
   created_at: integer
   details: string
 end
-
 local record TokenTotals
   input_tokens: integer
   output_tokens: integer
@@ -212,6 +203,7 @@ local function open(db_path?: string): DB, string
   ok, pragma_err = db:exec("pragma busy_timeout=5000")
   if not ok then db:close(); return nil, "failed to set busy timeout: " .. (pragma_err or "") end
   db:exec("pragma synchronous=normal")
+  db:exec("pragma foreign_keys=on")
   ok, pragma_err = db:exec(SCHEMA)
   if not ok then db:close(); return nil, "failed to initialize schema: " .. (pragma_err or "") end
 
@@ -234,6 +226,18 @@ local function rollback(self: DB): boolean, string
   return self._db:exec("ROLLBACK")
 end
 
+local function with_transaction(self: DB, fn: function())
+  local ok, _ = begin_transaction(self)
+  if not ok then return end
+  local success = pcall(fn)
+  if success then
+    ok, _ = commit(self)
+    if not ok then rollback(self) end
+  else
+    rollback(self)
+  end
+end
+
 local function get_context(self: DB, key: string): string
   for row in self._db:query("select value from context where key = ?", key) do
     return row.value as string
@@ -242,7 +246,11 @@ local function get_context(self: DB, key: string): string
 end
 
 local function set_context(self: DB, key: string, value: string)
-  self._db:exec("insert or replace into context (key, value) values (?, ?)", key, value)
+  if value == nil then
+    self._db:exec("delete from context where key = ?", key)
+  else
+    self._db:exec("insert or replace into context (key, value) values (?, ?)", key, value)
+  end
 end
 
 local function get_message(self: DB, id: string): Message
@@ -267,16 +275,6 @@ local function create_message(self: DB, role: string, parent_id?: string, opts?:
   -- If no conversation_id provided, use the current conversation from context
   if not conversation_id then
     conversation_id = get_context(self, "current_conversation")
-  end
-  -- If still no conversation, create one implicitly for backward compatibility
-  if not conversation_id then
-    local conv_id = ulid.generate()
-    local conv_now = math.floor((ctime.now())) as integer
-    self._db:exec_list([[
-      insert into conversations (id, created_at, state) values (?, ?, 'idle')
-    ]], {conv_id, conv_now}, 2)
-    conversation_id = conv_id
-    self._db:exec("insert or replace into context (key, value) values (?, ?)", "current_conversation", conversation_id)
   end
 
   self._db:exec_list([[
@@ -338,6 +336,7 @@ end
 local function delete_message(self: DB, id: string)
   local current = get_context(self, "current_message")
   self._db:exec("delete from content_blocks where message_id = ?", id)
+  self._db:exec("delete from events where message_id = ?", id)
   self._db:exec("delete from messages where id = ?", id)
   if current == id then
     self._db:exec("delete from context where key = 'current_message'")
@@ -348,15 +347,17 @@ local function add_content_block(self: DB, message_id: string, block_type: strin
   opts = opts or {}
   local id = ulid.generate()
 
-  local seq = 0
-  for row in self._db:query("select max(seq) as max_seq from content_blocks where message_id = ?", message_id) do
-    if row.max_seq then seq = (row.max_seq as integer) + 1 end
-  end
-
+  -- Atomic seq computation via INSERT...SELECT to avoid read-then-write race
   self._db:exec_list([[
     insert into content_blocks (id, message_id, block_type, seq, content, tool_id, tool_name, tool_input, tool_output, is_error, duration_ms, details)
-    values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  ]], {id, message_id, block_type, seq, opts.content, opts.tool_id, opts.tool_name, opts.tool_input, opts.tool_output, opts.is_error and 1 or 0, opts.duration_ms, opts.details}, 12)
+    select ?, ?, ?, coalesce(max(seq), -1) + 1, ?, ?, ?, ?, ?, ?, ?, ?
+    from content_blocks where message_id = ?
+  ]], {id, message_id, block_type, opts.content, opts.tool_id, opts.tool_name, opts.tool_input, opts.tool_output, opts.is_error and 1 or 0, opts.duration_ms, opts.details, message_id}, 12)
+
+  local seq = 0
+  for row in self._db:query("select seq from content_blocks where id = ?", id) do
+    seq = row.seq as integer
+  end
 
   return {
     id = id, message_id = message_id, block_type = block_type, seq = seq,
@@ -398,37 +399,26 @@ end
 
 local function get_events(self: DB, event_type?: string, conversation_id?: string): {Event}
   local ev: {Event} = {}
-  local base = "select * from events"
-  local iter: function(): {string: any}
-  if event_type and conversation_id then
-    iter = self._db:query(base .. " where event_type = ? and conversation_id = ? order by created_at asc", event_type, conversation_id)
-  elseif event_type then
-    iter = self._db:query(base .. " where event_type = ? order by created_at asc", event_type)
-  elseif conversation_id then
-    iter = self._db:query(base .. " where conversation_id = ? order by created_at asc", conversation_id)
-  else
-    iter = self._db:query(base .. " order by created_at asc")
-  end
+  local b, iter = "select * from events", nil as function(): {string: any}
+  if event_type and conversation_id then iter = self._db:query(b .. " where event_type = ? and conversation_id = ? order by created_at asc", event_type, conversation_id)
+  elseif event_type then iter = self._db:query(b .. " where event_type = ? order by created_at asc", event_type)
+  elseif conversation_id then iter = self._db:query(b .. " where conversation_id = ? order by created_at asc", conversation_id)
+  else iter = self._db:query(b .. " order by created_at asc") end
   for row in iter do table.insert(ev, row as Event) end
   return ev
 end
 
 local function get_message_count(self: DB, conversation_id?: string): integer
-  if conversation_id then
-    for row in self._db:query("select count(*) as cnt from messages where conversation_id = ?", conversation_id) do
-      return (row.cnt or 0) as integer
-    end
-  else
-    for row in self._db:query("select count(*) as cnt from messages") do
-      return (row.cnt or 0) as integer
-    end
-  end
+  local iter: function(): {string: any}
+  if conversation_id then iter = self._db:query("select count(*) as cnt from messages where conversation_id = ?", conversation_id)
+  else iter = self._db:query("select count(*) as cnt from messages") end
+  for row in iter do return (row.cnt or 0) as integer end
   return 0
 end
 
 local function cleanup_orphans(self: DB): integer
   local orphans: {string} = {}
-  for row in self._db:query("select m.id from messages m left join content_blocks c on c.message_id = m.id where not exists (select 1 from messages child where child.parent_id = m.id) group by m.id having count(c.id) = 0") do
+  for row in self._db:query("select m.id from messages m left join content_blocks c on c.message_id = m.id where not exists (select 1 from messages child where child.parent_id = m.id) group by m.id having count(c.id) = 0 order by m.created_at desc limit 100") do
     table.insert(orphans, row.id as string)
   end
   for _, id in ipairs(orphans) do delete_message(self, id) end
@@ -437,32 +427,41 @@ end
 
 local function get_session_token_totals(self: DB, conversation_id?: string): TokenTotals
   local totals: TokenTotals = {input_tokens = 0, output_tokens = 0, cache_read_tokens = 0}
+  local q = "select details from events where event_type = 'api_call_end'"
+  local iter: function(): {string: any}
   if conversation_id then
-    for row in self._db:query("select coalesce(max(input_tokens), 0) as last_input, coalesce(sum(output_tokens), 0) as total_output from messages where conversation_id = ?", conversation_id) do
-      totals.input_tokens = (row.last_input or 0) as integer
-      totals.output_tokens = (row.total_output or 0) as integer
-    end
-    for row in self._db:query("select coalesce(json_extract(details, '$.cache_read_input_tokens'), 0) as last_cache_read from events where event_type = 'api_call_end' and conversation_id = ? order by rowid desc limit 1", conversation_id) do
-      totals.cache_read_tokens = (row.last_cache_read or 0) as integer
-    end
+    iter = self._db:query(q .. " and conversation_id = ? order by rowid asc", conversation_id)
   else
-    for row in self._db:query("select coalesce(max(input_tokens), 0) as last_input, coalesce(sum(output_tokens), 0) as total_output from messages") do
-      totals.input_tokens = (row.last_input or 0) as integer
-      totals.output_tokens = (row.total_output or 0) as integer
-    end
-    for row in self._db:query("select coalesce(json_extract(details, '$.cache_read_input_tokens'), 0) as last_cache_read from events where event_type = 'api_call_end' order by rowid desc limit 1") do
-      totals.cache_read_tokens = (row.last_cache_read or 0) as integer
-    end
+    iter = self._db:query(q .. " order by rowid asc")
+  end
+  for row in iter do
+    if not row.details then goto next end
+    local d = json.decode(row.details as string) as {string: any}
+    if not d then goto next end
+    local cr = (d.cache_read_input_tokens or 0) as integer
+    totals.input_tokens = ((d.input_tokens or 0) as integer) + ((d.cache_creation_input_tokens or 0) as integer) + cr
+    totals.cache_read_tokens = cr
+    totals.output_tokens = totals.output_tokens + ((d.output_tokens or 0) as integer)
+    ::next::
   end
   return totals
 end
 
 local function get_session_state(self: DB): string
-  return get_context(self, "session_state") or "idle"
+  local conv_id = get_context(self, "current_conversation")
+  if conv_id then
+    for row in self._db:query("select state from conversations where id = ?", conv_id) do
+      return row.state as string
+    end
+  end
+  return "idle"
 end
 
 local function set_session_state(self: DB, state: string)
-  set_context(self, "session_state", state)
+  local conv_id = get_context(self, "current_conversation")
+  if conv_id then
+    self._db:exec("update conversations set state = ? where id = ?", state, conv_id)
+  end
 end
 
 local function get_first_user_prompt(self: DB, conversation_id?: string): string
@@ -480,11 +479,12 @@ end
 
 return {
   open = open, close = close,
-  begin_transaction = begin_transaction, commit = commit, rollback = rollback,
+  begin_transaction = begin_transaction, commit = commit, rollback = rollback, with_transaction = with_transaction,
   get_message = get_message, create_message = create_message,
   get_ancestry = get_ancestry, get_last_message = get_last_message,
   add_content_block = add_content_block, get_content_blocks = get_content_blocks,
   update_content_block = update_content_block,
+  delete_message = delete_message,
   get_message_count = get_message_count, get_first_user_prompt = get_first_user_prompt,
   cleanup_orphans = cleanup_orphans,
   log_event = log_event, get_events = get_events,

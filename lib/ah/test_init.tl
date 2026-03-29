@@ -160,6 +160,7 @@ end
 test_list_sessions_empty()
 
 local function test_list_sessions()
+  local conversations = require("ah.conversations")
   local cwd = fs.join(TEST_TMPDIR, "sessions_list")
   local ah_dir = fs.join(cwd, ".ah")
   fs.makedirs(ah_dir)
@@ -168,16 +169,18 @@ local function test_list_sessions()
   local ulid2 = "01KGW222222222222222222222"
 
   local d1 = db.open(fs.join(ah_dir, ulid1 .. ".db"))
-  local msg1 = db.create_message(d1, "user")
+  local c1 = conversations.create_conversation(d1)
+  local msg1 = db.create_message(d1, "user", nil, nil, c1.id)
   db.add_content_block(d1, msg1.id, "text", {content = "Hello world"})
   db.close(d1)
 
   local d2 = db.open(fs.join(ah_dir, ulid2 .. ".db"))
-  local msg2a = db.create_message(d2, "user")
+  local c2 = conversations.create_conversation(d2)
+  local msg2a = db.create_message(d2, "user", nil, nil, c2.id)
   db.add_content_block(d2, msg2a.id, "text", {content = "Fix the login bug"})
-  local msg2b = db.create_message(d2, "assistant", msg2a.id)
+  local msg2b = db.create_message(d2, "assistant", msg2a.id, nil, c2.id)
   db.add_content_block(d2, msg2b.id, "text", {content = "I'll help"})
-  local msg2c = db.create_message(d2, "user", msg2b.id)
+  local msg2c = db.create_message(d2, "user", msg2b.id, nil, c2.id)
   db.add_content_block(d2, msg2c.id, "text", {content = "Thanks"})
   db.close(d2)
 
@@ -193,12 +196,14 @@ end
 test_list_sessions()
 
 local function test_resolve_session_exact()
+  local conversations = require("ah.conversations")
   local cwd = fs.join(TEST_TMPDIR, "sessions_resolve")
   local ah_dir = fs.join(cwd, ".ah")
   fs.makedirs(ah_dir)
 
   local ulid1 = "01KGWAAAAAAAAAAAAAAAAAAAAA"
   local d1 = db.open(fs.join(ah_dir, ulid1 .. ".db"))
+  conversations.create_conversation(d1)
   db.create_message(d1, "user")
   db.close(d1)
 
@@ -208,12 +213,14 @@ end
 test_resolve_session_exact()
 
 local function test_resolve_session_prefix()
+  local conversations = require("ah.conversations")
   local cwd = fs.join(TEST_TMPDIR, "sessions_prefix")
   local ah_dir = fs.join(cwd, ".ah")
   fs.makedirs(ah_dir)
 
   local ulid1 = "01KGWBBBBBBBBBBBBBBBBBBBBB"
   local d1 = db.open(fs.join(ah_dir, ulid1 .. ".db"))
+  conversations.create_conversation(d1)
   db.create_message(d1, "user")
   db.close(d1)
 
@@ -227,12 +234,15 @@ local function test_resolve_session_ambiguous()
   local ah_dir = fs.join(cwd, ".ah")
   fs.makedirs(ah_dir)
 
+  local conversations = require("ah.conversations")
   local ulid1 = "01KGWCCCCC1111111111111111"
   local ulid2 = "01KGWCCCCC2222222222222222"
   local d1 = db.open(fs.join(ah_dir, ulid1 .. ".db"))
+  conversations.create_conversation(d1)
   db.create_message(d1, "user")
   db.close(d1)
   local d2 = db.open(fs.join(ah_dir, ulid2 .. ".db"))
+  conversations.create_conversation(d2)
   db.create_message(d2, "user")
   db.close(d2)
 
@@ -357,10 +367,12 @@ test_load_system_prompt_sandbox_section()
 -- Crash recovery: session state reset when "processing" with no live lock
 local function test_crash_recovery_state_reset()
   local queue = require("ah.queue")
-  local db_path = fs.join(TEST_TMPDIR, "crash_recover.db")
+  local conversations = require("ah.conversations")
+  local db_path = fs.join(TEST_TMPDIR, "crash_recover2.db")
 
   -- Set up a session in "processing" state (simulating a crash)
   local d = db.open(db_path)
+  conversations.create_conversation(d)
   db.set_session_state(d, "processing")
   db.close(d)
 
@@ -384,10 +396,12 @@ test_crash_recovery_state_reset()
 -- Crash recovery: state NOT reset when lock is still alive
 local function test_crash_recovery_no_reset_when_locked()
   local queue = require("ah.queue")
-  local db_path = fs.join(TEST_TMPDIR, "crash_no_reset.db")
+  local conversations = require("ah.conversations")
+  local db_path = fs.join(TEST_TMPDIR, "crash_no_reset2.db")
 
   -- Set up a session in "processing" state
   local d = db.open(db_path)
+  conversations.create_conversation(d)
   db.set_session_state(d, "processing")
 
   -- Acquire lock to simulate a live session

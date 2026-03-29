@@ -23,6 +23,7 @@ local record Iteration
   metric_value: number
   baseline_value: number
   message: string
+  conversation_id: string
 end
 
 -- Parse a single number from stdout. Returns nil if not a clean number.
@@ -75,9 +76,9 @@ end
 -- Record an iteration outcome.
 local function record_iteration(d: db.DB, iter: Iteration)
   d._db:exec([[
-    insert into work_iterations (id, status, metric_value, baseline_value, message, created_at)
-    values (?, ?, ?, ?, ?, ?)
-  ]], ulid.generate(), iter.status, iter.metric_value, iter.baseline_value, iter.message, (ctime.now()))
+    insert into work_iterations (id, conversation_id, status, metric_value, baseline_value, message, created_at)
+    values (?, ?, ?, ?, ?, ?, ?)
+  ]], ulid.generate(), iter.conversation_id, iter.status, iter.metric_value, iter.baseline_value, iter.message, (ctime.now()))
 end
 
 -- Get baseline metric (first recorded measurement).
@@ -256,7 +257,7 @@ local function cmd_run(d: db.DB, cwd: string, model: string): integer
     io.write("work: no changes\n")
     record_iteration(d, {
         status = "skip", baseline_value = best,
-        message = "no changes made",
+        message = "no changes made", conversation_id = conv.id,
       } as Iteration)
     return 1
   end
@@ -270,7 +271,7 @@ local function cmd_run(d: db.DB, cwd: string, model: string): integer
     git_revert()
     record_iteration(d, {
         status = "crash", baseline_value = best,
-        message = "benchmark exit " .. bm_code,
+        message = "benchmark exit " .. bm_code, conversation_id = conv.id,
       } as Iteration)
     return 1
   end
@@ -281,7 +282,7 @@ local function cmd_run(d: db.DB, cwd: string, model: string): integer
     git_revert()
     record_iteration(d, {
         status = "crash", baseline_value = best,
-        message = "no metric output",
+        message = "no metric output", conversation_id = conv.id,
       } as Iteration)
     return 1
   end
@@ -297,7 +298,7 @@ local function cmd_run(d: db.DB, cwd: string, model: string): integer
     io.write(string.format("work: keep %.4g → %.4g (%s)\n", best, new_value, pct))
     record_iteration(d, {
         status = "keep", metric_value = new_value,
-        baseline_value = best, message = msg,
+        baseline_value = best, message = msg, conversation_id = conv.id,
       } as Iteration)
     return 0
   else
@@ -306,7 +307,7 @@ local function cmd_run(d: db.DB, cwd: string, model: string): integer
     io.write(string.format("work: discard %.4g → %.4g (%s)\n", best, new_value, pct))
     record_iteration(d, {
         status = "discard", metric_value = new_value,
-        baseline_value = best, message = msg,
+        baseline_value = best, message = msg, conversation_id = conv.id,
       } as Iteration)
     return 1
   end
