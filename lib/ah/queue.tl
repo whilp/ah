@@ -123,7 +123,7 @@ local function drain_queue(self: db.DB, conversation_id: string, message_type: s
   local messages: {QueueMessage} = {}
   local now = math.floor((ctime.now())) as integer
 
-  local ok = self._db:exec("BEGIN IMMEDIATE")
+  local ok = db.begin_transaction(self)
   if not ok then return messages end
 
   for row in self._db:query([[
@@ -140,7 +140,7 @@ local function drain_queue(self: db.DB, conversation_id: string, message_type: s
       now, conversation_id, message_type)
   end
 
-  self._db:exec("COMMIT")
+  if not db.commit(self) then db.rollback(self) end
   return messages
 end
 

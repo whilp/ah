@@ -129,7 +129,7 @@ local function run_agent(d: db.DB, conversation_id: string, system_prompt: strin
   db.begin_transaction(d)
   local user_msg = db.create_message(d, "user", parent_id)
   db.add_content_block(d, user_msg.id, "text", {content = prompt})
-  db.commit(d)
+  if not db.commit(d) then db.rollback(d) end
 
   local api_messages = build_api_messages(d, user_msg.id, on_event)
   looputil.repair_dangling_tool_use(api_messages, on_event)
@@ -155,7 +155,7 @@ local function run_agent(d: db.DB, conversation_id: string, system_prompt: strin
         db.begin_transaction(d)
         local steer_user_msg = db.create_message(d, "user", user_msg.id)
         db.add_content_block(d, steer_user_msg.id, "text", {content = "[STEERING] " .. steer_msg.content})
-        db.commit(d)
+        if not db.commit(d) then db.rollback(d) end
         table.insert(api_messages, {role = "user", content = {{type = "text", text = "[STEERING] " .. steer_msg.content}}})
         user_msg = steer_user_msg
       end
@@ -173,7 +173,7 @@ local function run_agent(d: db.DB, conversation_id: string, system_prompt: strin
         db.begin_transaction(d)
         local compact_msg = db.create_message(d, "user", user_msg.id)
         db.add_content_block(d, compact_msg.id, "text", {content = "[COMPACTION SUMMARY]\n" .. compact_result.summary})
-        db.commit(d)
+        if not db.commit(d) then db.rollback(d) end
         user_msg = compact_msg
         api_messages = {{role = "user", content = {{type = "text", text = compact_result.summary}}}}
         last_input_tokens = 0
@@ -281,7 +281,7 @@ local function run_agent(d: db.DB, conversation_id: string, system_prompt: strin
           for _, blk in ipairs(abl) do
             db.add_content_block(d, partial_msg.id, "text", {content = blk.content as string})
           end
-          db.commit(d)
+          if not db.commit(d) then db.rollback(d) end
         end
       end
       final_stop_reason = "interrupted"
@@ -330,7 +330,7 @@ local function run_agent(d: db.DB, conversation_id: string, system_prompt: strin
         emit(on_event, events.retry_event((retry.attempt or 0) as integer, (retry.delay_ms or 0) as integer, (retry.status or 0) as integer, (retry.error or "") as string, (retry.url or "") as string, (retry.elapsed_ms or 0) as integer))
       end
     end
-    db.commit(d)
+    if not db.commit(d) then db.rollback(d) end
 
     emit(on_event, events.api_call_end(assistant_msg.id, usage.input_tokens as integer, usage.output_tokens as integer, resp.api_latency_ms as integer, resp.model as string, cache_creation_tokens, cache_read_tokens))
     db.log_event(d, "api_call_end", assistant_msg.id, events.to_json(events.api_call_end(assistant_msg.id, usage.input_tokens as integer, usage.output_tokens as integer, resp.api_latency_ms as integer, resp.model as string, cache_creation_tokens, cache_read_tokens)))
@@ -366,7 +366,7 @@ local function run_agent(d: db.DB, conversation_id: string, system_prompt: strin
             db.begin_transaction(d)
             local followup_user_msg = db.create_message(d, "user", assistant_msg.id)
             db.add_content_block(d, followup_user_msg.id, "text", {content = followup_msg.content})
-            db.commit(d)
+            if not db.commit(d) then db.rollback(d) end
             table.insert(api_messages, {role = "user", content = {{type = "text", text = followup_msg.content}}})
             user_msg = followup_user_msg
           end
@@ -383,7 +383,7 @@ local function run_agent(d: db.DB, conversation_id: string, system_prompt: strin
           db.begin_transaction(d)
           local reminder_msg = db.create_message(d, "user", assistant_msg.id)
           db.add_content_block(d, reminder_msg.id, "text", {content = reminder})
-          db.commit(d)
+          if not db.commit(d) then db.rollback(d) end
           table.insert(api_messages, {role = "user", content = {{type = "text", text = reminder}}})
           user_msg = reminder_msg
           goto continue_loop
@@ -429,7 +429,7 @@ local function run_agent(d: db.DB, conversation_id: string, system_prompt: strin
       db.begin_transaction(d)
       local loop_steer_msg = db.create_message(d, "user", user_msg.id)
       db.add_content_block(d, loop_steer_msg.id, "text", {content = steering_text})
-      db.commit(d)
+      if not db.commit(d) then db.rollback(d) end
       table.insert(api_messages, {role = "user", content = {{type = "text", text = steering_text}}})
       user_msg = loop_steer_msg
     end

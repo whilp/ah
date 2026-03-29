@@ -2,6 +2,7 @@ local fs = require("cosmic.fs")
 local sqlite = require("cosmic.sqlite")
 local ulid = require("ulid")
 local ctime = require("cosmic.time")
+local t = require("ah.dbtypes")
 
 local SCHEMA = [[
 create table if not exists conversations (
@@ -14,8 +15,8 @@ create table if not exists conversations (
 
 create table if not exists messages (
   id text primary key,
-  conversation_id text not null references conversations(id),
-  parent_id text references messages(id),
+  conversation_id text not null references conversations(id) on delete cascade,
+  parent_id text references messages(id) on delete set null,
   role text not null,
   seq integer not null,
   created_at integer not null,
@@ -28,7 +29,7 @@ create table if not exists messages (
 
 create table if not exists content_blocks (
   id text primary key,
-  message_id text not null references messages(id),
+  message_id text not null references messages(id) on delete cascade,
   block_type text not null,
   seq integer not null,
   content text,
@@ -48,8 +49,8 @@ create table if not exists context (
 
 create table if not exists events (
   id text primary key,
-  conversation_id text references conversations(id),
-  message_id text references messages(id),
+  conversation_id text references conversations(id) on delete cascade,
+  message_id text references messages(id) on delete set null,
   event_type text not null,
   created_at integer not null,
   details text
@@ -57,7 +58,7 @@ create table if not exists events (
 
 create table if not exists queue_messages (
   id text primary key,
-  conversation_id text not null references conversations(id),
+  conversation_id text not null references conversations(id) on delete cascade,
   message_type text not null,
   content text not null,
   created_at integer not null,
@@ -73,6 +74,7 @@ create table if not exists session_lock (
 
 create table if not exists work_iterations (
   id text primary key,
+  conversation_id text references conversations(id) on delete set null,
   status text not null,
   metric_value real,
   baseline_value real,
@@ -91,104 +93,18 @@ create index if not exists idx_queue_type on queue_messages(message_type);
 create index if not exists idx_queue_consumed on queue_messages(consumed_at);
 ]]
 
--- Type definitions
-local record Statement
-  bind: function(Statement, any ...)
-  exec: function(Statement)
-  close: function(Statement)
-end
-
-local record Database
-  exec: function(Database, string, any ...): boolean, string
-  exec_list: function(Database, string, {any}, integer): boolean, string
-  prepare: function(Database, string): Statement, string
-  query: function(Database, string, any ...): function(): {string: any}
-  transaction: function < T > (Database, function(): T): T
-  close: function(Database)
-end
-
-local record DB
-  _db: Database
-end
-
-local record Conversation
-  id: string
-  name: string
-  created_at: integer
-  closed_at: integer
-  state: string
-end
-
-local record ConversationOpts
-  name: string
-end
-
-local record Message
-  id: string
-  parent_id: string
-  role: string
-  seq: integer
-  created_at: integer
-  input_tokens: integer
-  output_tokens: integer
-  stop_reason: string
-  model: string
-  api_latency_ms: integer
-end
-
-local record ContentBlock
-  id: string
-  message_id: string
-  block_type: string
-  seq: integer
-  content: string
-  tool_id: string
-  tool_name: string
-  tool_input: string
-  tool_output: string
-  is_error: integer
-  duration_ms: integer
-  details: string
-end
-
-local record ContentBlockOpts
-  content: string
-  tool_id: string
-  tool_name: string
-  tool_input: string
-  tool_output: string
-  is_error: boolean
-  duration_ms: integer
-  details: string
-end
-
-local record UpdateOpts
-  content: string
-  tool_output: string
-  is_error: boolean
-end
-
-local record MessageOpts
-  input_tokens: integer
-  output_tokens: integer
-  stop_reason: string
-  model: string
-  api_latency_ms: integer
-end
-
-local record Event
-  id: string
-  message_id: string
-  event_type: string
-  created_at: integer
-  details: string
-end
-
-local record TokenTotals
-  input_tokens: integer
-  output_tokens: integer
-  cache_read_tokens: integer
-end
+-- Types imported from dbtypes.tl (shared with dbquery.tl)
+local Database = t.Database
+local DB = t.DB
+local Conversation = t.Conversation
+local ConversationOpts = t.ConversationOpts
+local Message = t.Message
+local ContentBlock = t.ContentBlock
+local ContentBlockOpts = t.ContentBlockOpts
+local UpdateOpts = t.UpdateOpts
+local MessageOpts = t.MessageOpts
+local Event = t.Event
+local TokenTotals = t.TokenTotals
 
 local function open(db_path?: string): DB, string
   if not db_path then
@@ -212,6 +128,7 @@ local function open(db_path?: string): DB, string
   ok, pragma_err = db:exec("pragma busy_timeout=5000")
   if not ok then db:close(); return nil, "failed to set busy timeout: " .. (pragma_err or "") end
   db:exec("pragma synchronous=normal")
+  db:exec("pragma foreign_keys=on")
   ok, pragma_err = db:exec(SCHEMA)
   if not ok then db:close(); return nil, "failed to initialize schema: " .. (pragma_err or "") end
 
@@ -234,6 +151,18 @@ local function rollback(self: DB): boolean, string
   return self._db:exec("ROLLBACK")
 end
 
+local function with_transaction(self: DB, fn: function())
+  local ok, _ = begin_transaction(self)
+  if not ok then return end
+  local success = pcall(fn)
+  if success then
+    ok, _ = commit(self)
+    if not ok then rollback(self) end
+  else
+    rollback(self)
+  end
+end
+
 local function get_context(self: DB, key: string): string
   for row in self._db:query("select value from context where key = ?", key) do
     return row.value as string
@@ -242,7 +171,11 @@ local function get_context(self: DB, key: string): string
 end
 
 local function set_context(self: DB, key: string, value: string)
-  self._db:exec("insert or replace into context (key, value) values (?, ?)", key, value)
+  if value == nil then
+    self._db:exec("delete from context where key = ?", key)
+  else
+    self._db:exec("insert or replace into context (key, value) values (?, ?)", key, value)
+  end
 end
 
 local function get_message(self: DB, id: string): Message
@@ -267,16 +200,6 @@ local function create_message(self: DB, role: string, parent_id?: string, opts?:
   -- If no conversation_id provided, use the current conversation from context
   if not conversation_id then
     conversation_id = get_context(self, "current_conversation")
-  end
-  -- If still no conversation, create one implicitly for backward compatibility
-  if not conversation_id then
-    local conv_id = ulid.generate()
-    local conv_now = math.floor((ctime.now())) as integer
-    self._db:exec_list([[
-      insert into conversations (id, created_at, state) values (?, ?, 'idle')
-    ]], {conv_id, conv_now}, 2)
-    conversation_id = conv_id
-    self._db:exec("insert or replace into context (key, value) values (?, ?)", "current_conversation", conversation_id)
   end
 
   self._db:exec_list([[
@@ -338,6 +261,7 @@ end
 local function delete_message(self: DB, id: string)
   local current = get_context(self, "current_message")
   self._db:exec("delete from content_blocks where message_id = ?", id)
+  self._db:exec("delete from events where message_id = ?", id)
   self._db:exec("delete from messages where id = ?", id)
   if current == id then
     self._db:exec("delete from context where key = 'current_message'")
@@ -348,15 +272,17 @@ local function add_content_block(self: DB, message_id: string, block_type: strin
   opts = opts or {}
   local id = ulid.generate()
 
-  local seq = 0
-  for row in self._db:query("select max(seq) as max_seq from content_blocks where message_id = ?", message_id) do
-    if row.max_seq then seq = (row.max_seq as integer) + 1 end
-  end
-
+  -- Atomic seq computation via INSERT...SELECT to avoid read-then-write race
   self._db:exec_list([[
     insert into content_blocks (id, message_id, block_type, seq, content, tool_id, tool_name, tool_input, tool_output, is_error, duration_ms, details)
-    values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  ]], {id, message_id, block_type, seq, opts.content, opts.tool_id, opts.tool_name, opts.tool_input, opts.tool_output, opts.is_error and 1 or 0, opts.duration_ms, opts.details}, 12)
+    select ?, ?, ?, coalesce(max(seq), -1) + 1, ?, ?, ?, ?, ?, ?, ?, ?
+    from content_blocks where message_id = ?
+  ]], {id, message_id, block_type, opts.content, opts.tool_id, opts.tool_name, opts.tool_input, opts.tool_output, opts.is_error and 1 or 0, opts.duration_ms, opts.details, message_id}, 12)
+
+  local seq = 0
+  for row in self._db:query("select seq from content_blocks where id = ?", id) do
+    seq = row.seq as integer
+  end
 
   return {
     id = id, message_id = message_id, block_type = block_type, seq = seq,
@@ -385,106 +311,28 @@ local function update_content_block(self: DB, id: string, opts: UpdateOpts)
   self._db:exec_list("update content_blocks set " .. table.concat(sets, ", ") .. " where id = ?", values, #values)
 end
 
-local function log_event(self: DB, event_type: string, message_id?: string, details?: string, conversation_id?: string): Event
-  local id = ulid.generate()
-  local now = math.floor((ctime.now())) as integer
-  if not conversation_id then
-    conversation_id = get_context(self, "current_conversation")
-  end
-  self._db:exec_list("insert into events (id, conversation_id, message_id, event_type, created_at, details) values (?, ?, ?, ?, ?, ?)",
-    {id, conversation_id, message_id, event_type, now, details}, 6)
-  return {id = id, message_id = message_id, event_type = event_type, created_at = now, details = details}
-end
+-- Query helpers live in dbquery.tl to keep this file under the line limit.
+-- Inject callbacks to avoid circular require, then re-export.
+local dbquery = require("ah.dbquery")
+dbquery.set_callbacks(get_context, delete_message)
 
-local function get_events(self: DB, event_type?: string, conversation_id?: string): {Event}
-  local ev: {Event} = {}
-  local base = "select * from events"
-  local iter: function(): {string: any}
-  if event_type and conversation_id then
-    iter = self._db:query(base .. " where event_type = ? and conversation_id = ? order by created_at asc", event_type, conversation_id)
-  elseif event_type then
-    iter = self._db:query(base .. " where event_type = ? order by created_at asc", event_type)
-  elseif conversation_id then
-    iter = self._db:query(base .. " where conversation_id = ? order by created_at asc", conversation_id)
-  else
-    iter = self._db:query(base .. " order by created_at asc")
-  end
-  for row in iter do table.insert(ev, row as Event) end
-  return ev
-end
-
-local function get_message_count(self: DB, conversation_id?: string): integer
-  if conversation_id then
-    for row in self._db:query("select count(*) as cnt from messages where conversation_id = ?", conversation_id) do
-      return (row.cnt or 0) as integer
-    end
-  else
-    for row in self._db:query("select count(*) as cnt from messages") do
-      return (row.cnt or 0) as integer
-    end
-  end
-  return 0
-end
-
-local function cleanup_orphans(self: DB): integer
-  local orphans: {string} = {}
-  for row in self._db:query("select m.id from messages m left join content_blocks c on c.message_id = m.id where not exists (select 1 from messages child where child.parent_id = m.id) group by m.id having count(c.id) = 0") do
-    table.insert(orphans, row.id as string)
-  end
-  for _, id in ipairs(orphans) do delete_message(self, id) end
-  return #orphans
-end
-
-local function get_session_token_totals(self: DB, conversation_id?: string): TokenTotals
-  local totals: TokenTotals = {input_tokens = 0, output_tokens = 0, cache_read_tokens = 0}
-  if conversation_id then
-    for row in self._db:query("select coalesce(max(input_tokens), 0) as last_input, coalesce(sum(output_tokens), 0) as total_output from messages where conversation_id = ?", conversation_id) do
-      totals.input_tokens = (row.last_input or 0) as integer
-      totals.output_tokens = (row.total_output or 0) as integer
-    end
-    for row in self._db:query("select coalesce(json_extract(details, '$.cache_read_input_tokens'), 0) as last_cache_read from events where event_type = 'api_call_end' and conversation_id = ? order by rowid desc limit 1", conversation_id) do
-      totals.cache_read_tokens = (row.last_cache_read or 0) as integer
-    end
-  else
-    for row in self._db:query("select coalesce(max(input_tokens), 0) as last_input, coalesce(sum(output_tokens), 0) as total_output from messages") do
-      totals.input_tokens = (row.last_input or 0) as integer
-      totals.output_tokens = (row.total_output or 0) as integer
-    end
-    for row in self._db:query("select coalesce(json_extract(details, '$.cache_read_input_tokens'), 0) as last_cache_read from events where event_type = 'api_call_end' order by rowid desc limit 1") do
-      totals.cache_read_tokens = (row.last_cache_read or 0) as integer
-    end
-  end
-  return totals
-end
-
-local function get_session_state(self: DB): string
-  return get_context(self, "session_state") or "idle"
-end
-
-local function set_session_state(self: DB, state: string)
-  set_context(self, "session_state", state)
-end
-
-local function get_first_user_prompt(self: DB, conversation_id?: string): string
-  if conversation_id then
-    for row in self._db:query("select content from content_blocks where block_type = 'text' and message_id in (select id from messages where role = 'user' and conversation_id = ? order by seq asc limit 1) order by seq asc limit 1", conversation_id) do
-      return (row.content or "") as string
-    end
-  else
-    for row in self._db:query("select content from content_blocks where block_type = 'text' and message_id in (select id from messages where role = 'user' order by seq asc limit 1) order by seq asc limit 1") do
-      return (row.content or "") as string
-    end
-  end
-  return ""
-end
+local log_event = dbquery.log_event
+local get_events = dbquery.get_events
+local get_message_count = dbquery.get_message_count
+local cleanup_orphans = dbquery.cleanup_orphans
+local get_session_token_totals = dbquery.get_session_token_totals
+local get_session_state = dbquery.get_session_state
+local set_session_state = dbquery.set_session_state
+local get_first_user_prompt = dbquery.get_first_user_prompt
 
 return {
   open = open, close = close,
-  begin_transaction = begin_transaction, commit = commit, rollback = rollback,
+  begin_transaction = begin_transaction, commit = commit, rollback = rollback, with_transaction = with_transaction,
   get_message = get_message, create_message = create_message,
   get_ancestry = get_ancestry, get_last_message = get_last_message,
   add_content_block = add_content_block, get_content_blocks = get_content_blocks,
   update_content_block = update_content_block,
+  delete_message = delete_message,
   get_message_count = get_message_count, get_first_user_prompt = get_first_user_prompt,
   cleanup_orphans = cleanup_orphans,
   log_event = log_event, get_events = get_events,

@@ -1,5 +1,6 @@
 #!/usr/bin/env cosmic
 local fs = require("cosmic.fs")
+local json = require("cosmic.json")
 local db = require("ah.db")
 local conversations = require("ah.conversations")
 local queue = require("ah.queue")
@@ -233,10 +234,12 @@ local function test_token_totals_per_conversation()
   local c2 = conversations.create_conversation(d)
 
   local m1 = db.create_message(d, "user", nil, nil, c1.id)
-  db.create_message(d, "assistant", m1.id, {input_tokens = 500, output_tokens = 100}, c1.id)
+  local m2 = db.create_message(d, "assistant", m1.id, {input_tokens = 500, output_tokens = 100}, c1.id)
+  db.log_event(d, "api_call_end", m2.id, json.encode({input_tokens = 500, output_tokens = 100}), c1.id)
 
   local m3 = db.create_message(d, "user", nil, nil, c2.id)
-  db.create_message(d, "assistant", m3.id, {input_tokens = 1000, output_tokens = 200}, c2.id)
+  local m4 = db.create_message(d, "assistant", m3.id, {input_tokens = 1000, output_tokens = 200}, c2.id)
+  db.log_event(d, "api_call_end", m4.id, json.encode({input_tokens = 1000, output_tokens = 200}), c2.id)
 
   local t1 = db.get_session_token_totals(d, c1.id)
   assert(t1.input_tokens == 500, "c1 input should be 500, got " .. t1.input_tokens)
