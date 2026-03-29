@@ -2,7 +2,7 @@ local fs = require("cosmic.fs")
 local sqlite = require("cosmic.sqlite")
 local ulid = require("ulid")
 local ctime = require("cosmic.time")
-local t = require("ah.dbtypes")
+local t = require("ah.db.types")
 
 local SCHEMA = [[
 create table if not exists conversations (
@@ -313,7 +313,7 @@ end
 
 -- Query helpers live in dbquery.tl to keep this file under the line limit.
 -- Inject callbacks to avoid circular require, then re-export.
-local dbquery = require("ah.dbquery")
+local dbquery = require("ah.db.query")
 dbquery.set_callbacks(get_context, delete_message)
 
 local log_event = dbquery.log_event

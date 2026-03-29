@@ -1,12 +1,12 @@
--- ah/dbquery.tl: read-heavy query helpers for the session database
+-- ah/db/query.tl: read-heavy query helpers for the session database
 --
--- Extracted from db.tl to keep it under the line limit.
--- All functions are installed onto the db module table by db.tl at load time.
--- Types are shared via dbtypes.tl to maintain type identity across modules.
+-- Extracted from db/init.tl to keep it under the line limit.
+-- All functions are installed onto the db module table by db/init.tl at load time.
+-- Types are shared via db/types.tl to maintain type identity across modules.
 local json = require("cosmic.json")
 local ulid = require("ulid")
 local ctime = require("cosmic.time")
-local t = require("ah.dbtypes")
+local t = require("ah.db.types")
 
 local DB = t.DB
 local Event = t.Event

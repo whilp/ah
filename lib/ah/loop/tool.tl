@@ -1,11 +1,11 @@
--- ah/looptool.tl: tool execution within the agent loop
+-- ah/loop/tool.tl: tool execution within the agent loop
 local json = require("cosmic.json")
 local time = require("cosmic.time")
 local db = require("ah.db")
 local tools = require("ah.tools")
 local events = require("ah.events")
 local truncate = require("ah.truncate")
-local looputil = require("ah.looputil")
+local looputil = require("ah.loop.util")
 
 -- Reference the global interrupted flag
 global interrupted: boolean
