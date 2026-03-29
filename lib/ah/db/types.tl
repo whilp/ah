@@ -1,6 +1,6 @@
--- ah/dbtypes.tl: shared type definitions for the session database
+-- ah/db/types.tl: shared type definitions for the session database
 --
--- Both db.tl and dbquery.tl import these types to avoid duplicate
+-- Both db/init.tl and db/query.tl import these types to avoid duplicate
 -- record definitions that Teal treats as incompatible.
 
 local record Statement
