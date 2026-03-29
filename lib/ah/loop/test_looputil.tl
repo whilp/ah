@@ -56,8 +56,8 @@ test_display_command_single_line()
 local function test_display_command_multi_line()
   local cmd = "git log --oneline\ngit diff HEAD~1"
   local result = looputil.display_command(cmd)
-  assert(result == "git log --oneline ...", "should collapse to first line + ' ...': " .. result)
-  print("PASS: display_command multi-line collapses")
+  assert(result == cmd, "multi-line command should be unchanged: " .. result)
+  print("PASS: display_command multi-line unchanged")
 end
 test_display_command_multi_line()
 
@@ -80,8 +80,8 @@ test_display_command_ampersand()
 local function test_display_command_backslash_continuation()
   local cmd = "gh pr create \\\n  --title 'fix' \\\n  --body 'desc'"
   local result = looputil.display_command(cmd)
-  assert(result == "gh pr create ...", "should truncate at \\ continuation: " .. result)
-  print("PASS: display_command truncates at \\ continuation")
+  assert(result == cmd, "backslash continuation should be unchanged: " .. result)
+  print("PASS: display_command preserves backslash continuation")
 end
 test_display_command_backslash_continuation()
 

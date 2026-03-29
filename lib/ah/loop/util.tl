@@ -80,21 +80,8 @@ local function tool_key_param(tool_name: string, tool_input: string, details_jso
 end
 
 -- Normalize a potentially multi-line command for display.
--- If the command has multiple lines, returns the first line with " ..." appended.
--- Also truncates at " \<newline>" continuations.
--- Single-line commands are returned unchanged.
+-- Returns the command unchanged (no truncation).
 local function display_command(cmd: string): string
-  if not cmd or cmd == "" then return cmd end
-  -- Handle \ continuations: " \<newline>" or " \<newline><whitespace>"
-  local first_cont = cmd:match("^(.-) \\%s*\n")
-  if first_cont then
-    return first_cont .. " ..."
-  end
-  -- Handle newlines
-  local first_nl = cmd:match("^([^\n]+)\n")
-  if first_nl then
-    return first_nl .. " ..."
-  end
   return cmd
 end
 
