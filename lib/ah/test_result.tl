@@ -1,6 +1,7 @@
 #!/usr/bin/env cosmic
 -- test_result.tl: tests for the result tool (reading truncated output from DB)
 local db = require("ah.db")
+local conversations = require("ah.conversations")
 local tools = require("ah.tools")
 local time = require("cosmic.time")
 local fs = require("cosmic.fs")
@@ -12,6 +13,7 @@ local test_db_path = TEST_TMPDIR .. "/test_result_" .. tostring((time.now())) ..
 local function setup(): db.DB
   local d, err = db.open(test_db_path)
   assert(d, "failed to open db: " .. (err or ""))
+  conversations.create_conversation(d)
   tools.init_custom_tools()
   return d
 end
