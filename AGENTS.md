@@ -52,7 +52,10 @@ working in that area.
 bin/ah.tl              CLI entry point
 lib/ah/                core modules
   init.tl              CLI parsing, session management, prompt loading
-  loop.tl              agent loop (API call → tool dispatch → repeat)
+  loop/                agent loop submodule
+    init.tl            agent loop (API call → tool dispatch → repeat)
+    tool.tl            tool execution within the agent loop
+    util.tl            utility functions (display, loop detection, repair)
   api.tl               Claude Messages API client with streaming
   db.tl                SQLite conversation storage
   tools.tl             tool loading, dispatch, and prompt generation

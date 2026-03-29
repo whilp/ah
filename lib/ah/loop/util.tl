@@ -1,4 +1,4 @@
--- ah/looputil.tl: utility functions for the agent loop
+-- ah/loop/util.tl: utility functions for the agent loop
 local json = require("cosmic.json")
 local cfs = require("cosmic.fs")
 local events = require("ah.events")

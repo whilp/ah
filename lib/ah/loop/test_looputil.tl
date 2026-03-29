@@ -1,7 +1,7 @@
 #!/usr/bin/env cosmic
--- test_looputil.tl: tests for ah.looputil module
+-- test_looputil.tl: tests for ah.loop.util module
 local cfs = require("cosmic.fs")
-local looputil = require("ah.looputil")
+local looputil = require("ah.loop.util")
 
 -- Tests for shorten_path
 local function test_shorten_path_under_cwd()

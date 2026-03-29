@@ -1,4 +1,4 @@
--- ah/loop.tl: agent loop (API call → tool dispatch → repeat)
+-- ah/loop/init.tl: agent loop (API call → tool dispatch → repeat)
 local json = require("cosmic.json")
 local time = require("cosmic.time")
 local db = require("ah.db")
@@ -9,8 +9,8 @@ local events = require("ah.events")
 local queue = require("ah.queue")
 local truncate = require("ah.truncate")
 local compact = require("ah.compact")
-local looputil = require("ah.looputil")
-local looptool = require("ah.looptool")
+local looputil = require("ah.loop.util")
+local looptool = require("ah.loop.tool")
 
 global interrupted: boolean
 
