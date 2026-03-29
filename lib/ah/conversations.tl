@@ -11,6 +11,7 @@ local function create_conversation(self: db.DB, opts?: db.ConversationOpts): db.
     insert into conversations (id, name, created_at, state) values (?, ?, ?, 'idle')
   ]], {id, opts.name, now}, 3)
   db.set_context(self, "current_conversation", id)
+  self._db:exec("delete from context where key = 'current_message'")
   return {id = id, name = opts.name, created_at = now, state = "idle"}
 end
 
