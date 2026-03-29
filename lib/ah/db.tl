@@ -324,12 +324,13 @@ end
 local function get_last_message(self: DB): Message
   local current = get_current_message(self)
   if current then return current end
-  for row in self._db:query([[
-    select m.* from messages m
-    where not exists (select 1 from messages c where c.parent_id = m.id)
-    order by m.created_at desc limit 1
-  ]]) do
-    return row as Message
+  local cid = get_context(self, "current_conversation")
+  if cid then
+    for row in self._db:query([[select m.* from messages m
+      where m.conversation_id = ? and not exists (select 1 from messages c where c.parent_id = m.id)
+      order by m.created_at desc limit 1]], cid) do
+      return row as Message
+    end
   end
   return nil
 end
